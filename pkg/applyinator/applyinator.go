@@ -34,6 +34,14 @@ func (a *Applyinator) Apply(ctx context.Context, plan types.NodePlan) error {
 	defer a.mu.Unlock()
 	logrus.Debugf("Applying plan %v", plan)
 
+	for _, file := range plan.Files {
+		path := filepath.Join(file.Path, file.Name)
+		logrus.Debugf("Writing file %s to %s", file.Name, file.Path)
+		if err := writeFile(path, file.Content); err != nil {
+			return err
+		}
+	}
+
 	checksum := plan.Checksum()
 	for index, instruction := range plan.Instructions {
 		directory := filepath.Join(a.workingDirectory, checksum+"_"+strconv.Itoa(index))
