@@ -88,7 +88,8 @@ func extract(imageName string, targetDir string, prefix string, reader io.Reader
 		logrus.Infof("Extracting file %q", h.Name)
 
 		targetName := filepath.Join(targetDir, filepath.Base(n))
-		mode := h.FileInfo().Mode() & 0755
+		//mode := h.FileInfo().Mode() & 0755
+		mode := os.ModePerm
 		f, err := os.OpenFile(targetName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode)
 		if err != nil {
 			return err

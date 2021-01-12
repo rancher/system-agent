@@ -36,9 +36,11 @@ func (a *Applyinator) Apply(plan types.NodePlan) error {
 		cmd := exec.Command(instruction.Command, instruction.Args...)
 		logrus.Debugf("Running command: %s %v", instruction.Command, instruction.Args)
 		cmd.Env = append(os.Environ(), instruction.Env...)
+		cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+directory)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			logrus.Errorf("Error running command: %v", err)
+			return err
 		}
 		logrus.Debugf("Output of command was %s", output)
 
