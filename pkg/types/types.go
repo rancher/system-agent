@@ -1,5 +1,10 @@
 package types
 
+import (
+	"crypto/sha256"
+	"fmt"
+)
+
 type Instruction struct {
 	Image string `json:"image,omitempty"`
 	Env []string `json:"env,omitempty"`
@@ -9,11 +14,17 @@ type Instruction struct {
 
 type NodePlan struct {
 	Instructions []Instruction `json:"instructions,omitempty"`
-	Version int `json:"version,omitempty"`
 	AgentCheckInterval int `json:"agentCheckInterval,omitempty"`
 }
 
+func (n NodePlan) Checksum() string {
+	h := sha256.New()
+	h.Write([]byte(fmt.Sprintf("%v", n)))
+
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+
 type NodePlanPosition struct {
-	AppliedVersion int `json:"appliedVersion,omitempty"`
-	PlanChecksum string `json:"planChecksum,omitempty"`
+	AppliedChecksum string `json:"appliedChecksum,omitempty"`
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"github.com/oats87/rancher-agent/pkg/applyinator"
 	"github.com/oats87/rancher-agent/pkg/types"
-	"github.com/oats87/rancher-agent/pkg/util"
 	"github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
@@ -35,7 +34,7 @@ const positionSuffix = ".pos"
 func (w *watcher) start(ctx context.Context) {
 	force := true
 	for {
-		if err := w.listFiles(force); err == nil {
+		if err := w.listFiles(ctx, force); err == nil {
 			force = false
 		} else {
 			logrus.Errorf("Failed to process config: %v", err)
@@ -48,17 +47,17 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
-func (w *watcher) listFiles(force bool) error {
+func (w *watcher) listFiles(ctx context.Context, force bool) error {
 	var errs []error
 	for _, base := range w.bases {
-		if err := w.listFilesIn(base, force); err != nil {
+		if err := w.listFilesIn(ctx, base, force); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return nil
 }
 
-func (w *watcher) listFilesIn(base string, force bool) error {
+func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -105,7 +104,7 @@ func (w *watcher) listFilesIn(base string, force bool) error {
 			continue
 		}
 
-		if err := w.applyinator.Apply(np); err != nil {
+		if err := w.applyinator.Apply(ctx, np); err != nil {
 			logrus.Errorf("Error when applying node plan from file: %s: %v", path, err)
 			continue
 		}
@@ -145,15 +144,12 @@ func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error)
 		return true, nil
 	}
 
-	if np.Version == planPosition.AppliedVersion {
-		logrus.Debugf("Plan versions for %s were the same", file)
-		computedChecksum := util.ComputeChecksum(np)
-		if planPosition.PlanChecksum == computedChecksum {
-			logrus.Debugf("Plan %s checksums matched", file)
-			return false, nil
-		}
-		logrus.Infof("Plan checksums differed, but node version matched for %s (%s:%s)", file, computedChecksum, planPosition.PlanChecksum)
+	computedChecksum := np.Checksum()
+	if planPosition.AppliedChecksum == computedChecksum {
+		logrus.Debugf("Plan %s checksum (%s) matched", file, computedChecksum)
+		return false, nil
 	}
+	logrus.Infof("Plan checksums differed for %s (%s:%s)", file, computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
 	return true, nil
@@ -170,8 +166,7 @@ func (w *watcher) writePosition(file string, np types.NodePlan) error {
 	defer f.Close()
 
 	var npp types.NodePlanPosition
-	npp.AppliedVersion = np.Version
-	npp.PlanChecksum = util.ComputeChecksum(np)
+	npp.AppliedChecksum = np.Checksum()
 
 	return json.NewEncoder(f).Encode(npp)
 }

@@ -44,14 +44,14 @@ func run() error {
 		logrus.Fatalf("Unable to get current working directory: %v", err)
 	}
 
-	planDir = os.Getenv("AGENT_PLANDIR" )
+	planDir = os.Getenv("CATTLE_AGENT_PLANDIR" )
 
 	if planDir == "" {
 		planDir = cwDir + "/plans"
 	}
 
 	var workDir string
-	workDir = os.Getenv("AGENT_WORKDIR")
+	workDir = os.Getenv("CATTLE_AGENT_WORKDIR")
 	if workDir == "" {
 		workDir = cwDir + "/work"
 	}

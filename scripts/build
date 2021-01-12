@@ -9,8 +9,8 @@ mkdir -p bin
 if [ "$(uname)" = "Linux" ]; then
     OTHER_LINKFLAGS="-extldflags -static -s"
 fi
-LINKFLAGS="-X github.com/rancher/rancher-agent.Version=$VERSION"
-LINKFLAGS="-X github.com/rancher/rancher-agent.GitCommit=$COMMIT $LINKFLAGS"
+LINKFLAGS="-X github.com/oats87/rancher-agent.Version=$VERSION"
+LINKFLAGS="-X github.com/oats87/rancher-agent.GitCommit=$COMMIT $LINKFLAGS"
 CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/rancher-agent
 if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
     GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/rancher-agent-darwin
