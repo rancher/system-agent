@@ -6,6 +6,7 @@ import (
 )
 
 type Instruction struct {
+	Name string `json:"name,omitempty"`
 	Image string `json:"image,omitempty"`
 	Env []string `json:"env,omitempty"`
 	Args []string `json:"args,omitempty"`
@@ -22,7 +23,6 @@ type File struct {
 type NodePlan struct {
 	Files []File `json:"files,omitempty"`
 	Instructions []Instruction `json:"instructions,omitempty"`
-	AgentCheckInterval int `json:"agentCheckInterval,omitempty"`
 }
 
 func (n NodePlan) Checksum() string {
