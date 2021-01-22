@@ -15,7 +15,7 @@ import (
 
 func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases ...string) error {
 	w := &watcher{
-		bases:      bases,
+		bases:       bases,
 		applyinator: applyinator,
 	}
 
@@ -25,7 +25,7 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 }
 
 type watcher struct {
-	bases []string
+	bases       []string
 	applyinator applyinator.Applyinator
 }
 
@@ -129,7 +129,7 @@ func (w *watcher) parsePlan(file string, np interface{}) error {
 
 // Returns true if the plan needs to be applied, false if not
 func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error) {
-	positionFile := strings.TrimSuffix(file, planSuffix)+positionSuffix
+	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Open(positionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,7 +158,7 @@ func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error)
 }
 
 func (w *watcher) writePosition(file string, np types.NodePlan) error {
-	positionFile := strings.TrimSuffix(file, planSuffix)+positionSuffix
+	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Create(positionFile)
 	if err != nil {
 		logrus.Errorf("Error encountered when opening position file %s for writing: %v", positionFile, err)

@@ -16,13 +16,13 @@ import (
 )
 
 type Applyinator struct {
-	mu *sync.Mutex
+	mu               *sync.Mutex
 	workingDirectory string
 }
 
 func NewApplyinator(workingDirectory string) *Applyinator {
 	return &Applyinator{
-		mu: &sync.Mutex{},
+		mu:               &sync.Mutex{},
 		workingDirectory: workingDirectory,
 	}
 }
