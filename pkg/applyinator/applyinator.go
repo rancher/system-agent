@@ -58,6 +58,7 @@ func (a *Applyinator) execute(ctx context.Context, directory string, instruction
 	err := image.Stage(directory, instruction.Image)
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
+		return err
 	}
 	cmd := exec.CommandContext(ctx, instruction.Command, instruction.Args...)
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)

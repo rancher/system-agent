@@ -2,7 +2,6 @@ package image
 
 import (
 	"archive/tar"
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -41,7 +40,7 @@ func Stage(destDir string, image string) error {
 	// Note that this will fail (potentially after a long delay) if the registry cannot be reached.
 	if img == nil {
 		logrus.Infof("Pulling runtime image %q", ref)
-		img, err = remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		img, err = remote.Image(ref)
 		if err != nil {
 			return errors2.Wrapf(err, "Failed to pull runtime image %q", ref)
 		}
