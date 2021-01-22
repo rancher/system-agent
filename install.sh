@@ -19,6 +19,8 @@ fi
 #   - CATTLE_CA_CHECKSUM
 #
 
+CACERTS_PATH=cacerts
+
 # info logs the given argument at info log level.
 info() {
     echo "[INFO] " "$@"
@@ -27,6 +29,11 @@ info() {
 # warn logs the given argument at warn log level.
 warn() {
     echo "[WARN] " "$@" >&2
+}
+
+# error logs the given argument at error log level.
+error() {
+    echo "[ERROR] " "$@" >&2
 }
 
 # fatal logs the given argument at fatal log level.
@@ -124,35 +131,34 @@ check_x509_cert()
 validate_ca_checksum() {
     if [ -n "$CATTLE_CA_CHECKSUM" ]; then
         temp=$(mktemp)
-        curl --insecure -s -fL ${URL}/cacerts > $temp
+        curl --insecure -s -fL ${URL}/${CACERTS_PATH} > $temp
         if [ ! -s $temp ]; then
-          error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${URL}/cacerts"
+          error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${URL}/${CACERTS_PATH}"
           exit 1
         fi
         err=$(check_x509_cert $temp)
         if [[ $err ]]; then
-            error "Value from ${URL}/cacerts does not look like an x509 certificate (${err})"
+            error "Value from ${URL}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
             error "Retrieved cacerts:"
             cat $temp
             exit 1
         else
-            info "Value from ${URL}/cacerts is an x509 certificate"
+            info "Value from ${URL}/${CACERTS_PATH} is an x509 certificate"
         fi
         CATTLE_SERVER_CHECKSUM=$(sha256sum $temp | awk '{print $1}')
         if [ $CATTLE_SERVER_CHECKSUM != $CATTLE_CA_CHECKSUM ]; then
             rm -f $temp
             error "Configured cacerts checksum ($CATTLE_SERVER_CHECKSUM) does not match given --ca-checksum ($CATTLE_CA_CHECKSUM)"
-            error "Please check if the correct certificate is configured at ${URL}/cacerts"
+            error "Please check if the correct certificate is configured at ${URL}/${CACERTS_PATH}"
             exit 1
         fi
     fi
 }
 
 retrieve_connection_info() {
-    if [ -z "CATTLE_CA_CHECKSUM" ]; then
-        curl -k -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
+    if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
+        curl -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
     else
-        validate_ca_checksum
         curl --insecure -k -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
     fi
 }
@@ -161,6 +167,10 @@ do_install() {
     setup_env
     setup_arch
     verify_downloader curl || fatal "can not find curl for downloading files"
+
+    if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
+        validate_ca_checksum
+    fi
 
     download_rancher_agent
 
