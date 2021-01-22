@@ -13,12 +13,27 @@ connectionInfoFile: /etc/rancher/agent/conninfo.yaml
 
 Create a file called `conninfo.yaml` in `/etc/rancher/agent` with the contents like:
 ```
-kubeConfig: /etc/rancher/agent/kubeconfig
+kubeConfig: |-
+  kubeConfig: |-
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - name: "kubernetes"
+      cluster:
+        server: "https://my-k8s-apiserver"
+    users:
+    - name: "cluster-admin"
+      user:
+        token: <redacted>
+    contexts:
+    - name: "kubernetes"
+      context:
+        user: "cluster-admin"
+        cluster: "kubernetes"
+    current-context: "kubernetes"
 namespace: mynamespace
 secretName: mysecret
 ```
-
-Create a file called `kubeconfig` in `/etc/rancher/agent` with your kubeconfig
 
 Ready to test? Create a secret like:
 
