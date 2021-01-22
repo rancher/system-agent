@@ -11,10 +11,10 @@ import (
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
 	corecontrollers "github.com/rancher/wrangler/pkg/generated/controllers/core/v1"
-	"github.com/rancher/wrangler/pkg/kubeconfig"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 const appliedChecksumKey = "applied-checksum"
@@ -36,7 +36,7 @@ type watcher struct {
 }
 
 func (w *watcher) start(ctx context.Context) {
-	kc, err := kubeconfig.GetNonInteractiveClientConfigWithContext(w.connInfo.KubeConfig, "").ClientConfig()
+	kc, err := clientcmd.RESTConfigFromKubeConfig([]byte(w.connInfo.KubeConfig))
 	if err != nil {
 		panic(err)
 	}
