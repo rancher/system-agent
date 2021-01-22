@@ -38,6 +38,17 @@ fatal() {
     exit 1
 }
 
+setup_env() {
+    if [ -z "${URL}" ]; then
+        fatal "\$URL was not set"
+    fi
+
+    if [ -z "${TOKEN}" ]; then
+        fatal "\$TOKEN was not set"
+    fi
+
+}
+
 # setup_arch set arch and suffix,
 # fatal if architecture not supported.
 setup_arch() {
@@ -97,7 +108,57 @@ download_rancher_agent() {
     chmod +x /usr/bin/rancher-agent
 }
 
+check_x509_cert()
+{
+    local cert=$1
+    local err
+    err=$(openssl x509 -in $cert -noout 2>&1)
+    if [ $? -eq 0 ]
+    then
+        echo ""
+    else
+        echo ${err}
+    fi
+}
+
+validate_ca_checksum() {
+    if [ -n "$CATTLE_CA_CHECKSUM" ]; then
+        temp=$(mktemp)
+        curl --insecure -s -fL ${URL}/cacerts > $temp
+        if [ ! -s $temp ]; then
+          error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${URL}/cacerts"
+          exit 1
+        fi
+        err=$(check_x509_cert $temp)
+        if [[ $err ]]; then
+            error "Value from ${URL}/cacerts does not look like an x509 certificate (${err})"
+            error "Retrieved cacerts:"
+            cat $temp
+            exit 1
+        else
+            info "Value from ${URL}/cacerts is an x509 certificate"
+        fi
+        CATTLE_SERVER_CHECKSUM=$(sha256sum $temp | awk '{print $1}')
+        if [ $CATTLE_SERVER_CHECKSUM != $CATTLE_CA_CHECKSUM ]; then
+            rm -f $temp
+            error "Configured cacerts checksum ($CATTLE_SERVER_CHECKSUM) does not match given --ca-checksum ($CATTLE_CA_CHECKSUM)"
+            error "Please check if the correct certificate is configured at ${URL}/cacerts"
+            exit 1
+        fi
+    fi
+}
+
+retrieve_connection_info() {
+    if [ -z "CATTLE_CA_CHECKSUM" ]; then
+        curl -k -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
+    else
+        validate_ca_checksum
+        curl --insecure -k -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
+    fi
+}
+
 do_install() {
+    setup_env
     setup_arch
     verify_downloader curl || fatal "can not find curl for downloading files"
 
@@ -111,6 +172,8 @@ localPlanDirectory: /etc/rancher/agent/plans
 remoteEnabled: true
 connectionInfoFile: /etc/rancher/agent/conninfo.json
 EOF
+
+    retrieve_connection_info
 
     create_systemd_service_file
     systemctl enable rancher-agent
