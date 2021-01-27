@@ -2,6 +2,7 @@ package remoteplan
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/oats87/rancher-agent/pkg/applyinator"
@@ -62,12 +63,12 @@ func (w *watcher) start(ctx context.Context) {
 		}
 
 		secret = secret.DeepCopy()
-		logrus.Debugf("Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
+		logrus.Debugf("[remote] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
 
 		if planData, ok := secret.Data["plan"]; ok {
 			var plan types.NodePlan
 			planString := string(planData)
-			logrus.Debugf("Plan string was %s", planString)
+			logrus.Debugf("[remote] Plan string was %s", planString)
 			err = w.parsePlan(planString, &plan)
 			if err != nil {
 				logrus.Errorf("error parsing plan from remote: %v", err)
@@ -75,25 +76,33 @@ func (w *watcher) start(ctx context.Context) {
 				return secret, nil
 			}
 
-			checksum := plan.Checksum()
+			var anp types.AgentNodePlan
+			anp.Plan = plan
+			anp.Checksum = checksum([]byte(planString))
+
+			logrus.Debugf("[remote] Calculated checksum to be %s", anp.Checksum)
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
-				if secretChecksum == checksum {
-					logrus.Debugf("Applied checksum was the same as the plan contained within the file. Not applying.")
+				logrus.Debugf("[remote] Remote plan had an applied checksum value of %s", secretChecksum)
+				if secretChecksum == anp.Checksum {
+					logrus.Debugf("[remote] Applied checksum was the same as the plan from remote. Not applying.")
 					return secret, nil
 				}
 			}
 
-			err := w.applyinator.Apply(ctx, plan)
+			logrus.Debugf("[remote] Calling Applyinator to apply the plan")
+
+			err := w.applyinator.Apply(ctx, anp)
 			if err != nil {
 				logrus.Errorf("error applying plan: %v", err)
 				return secret, fmt.Errorf("error applying plan")
 			}
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
-			secret.Data[appliedChecksumKey] = []byte(checksum)
-
+			secret.Data[appliedChecksumKey] = []byte(anp.Checksum)
+			logrus.Debugf("[remote] writing an applied checksum value of %s to the remote plan", anp.Checksum)
 			return core.Secret().Update(secret)
 		}
+
 		return secret, nil
 
 	})
@@ -107,4 +116,11 @@ func (w *watcher) start(ctx context.Context) {
 func (w *watcher) parsePlan(content string, np interface{}) error {
 	bytes := []byte(content)
 	return json.Unmarshal(bytes, np)
+}
+
+func checksum(input []byte) string {
+	h := sha256.New()
+	h.Write(input)
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }

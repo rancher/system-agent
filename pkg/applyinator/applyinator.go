@@ -27,14 +27,14 @@ func NewApplyinator(workingDirectory string) *Applyinator {
 	}
 }
 
-func (a *Applyinator) Apply(ctx context.Context, plan types.NodePlan) error {
+func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error {
 	logrus.Debugf("Attempting to get lock")
 	a.mu.Lock()
 	logrus.Debugf("Lock achieved")
 	defer a.mu.Unlock()
-	logrus.Debugf("Applying plan %v", plan)
+	logrus.Debugf("Applying plan %v", anp)
 
-	for _, file := range plan.Files {
+	for _, file := range anp.Plan.Files {
 		path := filepath.Join(file.Path, file.Name)
 		logrus.Debugf("Writing file %s to %s", file.Name, file.Path)
 		if err := writeFile(path, file.Content); err != nil {
@@ -42,8 +42,8 @@ func (a *Applyinator) Apply(ctx context.Context, plan types.NodePlan) error {
 		}
 	}
 
-	checksum := plan.Checksum()
-	for index, instruction := range plan.Instructions {
+	checksum := anp.Checksum
+	for index, instruction := range anp.Plan.Instructions {
 		directory := filepath.Join(a.workingDirectory, checksum+"_"+strconv.Itoa(index))
 		if err := a.execute(ctx, directory, instruction); err != nil {
 			return fmt.Errorf("error executing instruction: %v", err)
@@ -82,6 +82,8 @@ func (a *Applyinator) execute(ctx context.Context, directory string, instruction
 	if err := cmd.Run(); err != nil {
 		return err
 	}
+
+	logrus.Infof("Done running command: %s %v", instruction.Command, instruction.Args)
 
 	return nil
 }

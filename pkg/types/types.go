@@ -1,10 +1,5 @@
 package types
 
-import (
-	"crypto/sha256"
-	"fmt"
-)
-
 type Instruction struct {
 	Name    string   `json:"name,omitempty"`
 	Image   string   `json:"image,omitempty"`
@@ -25,13 +20,11 @@ type NodePlan struct {
 	Instructions []Instruction `json:"instructions,omitempty"`
 }
 
-func (n NodePlan) Checksum() string {
-	h := sha256.New()
-	h.Write([]byte(fmt.Sprintf("%v", n)))
-
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
 type NodePlanPosition struct {
 	AppliedChecksum string `json:"appliedChecksum,omitempty"`
+}
+
+type AgentNodePlan struct {
+	Plan NodePlan
+	Checksum string
 }

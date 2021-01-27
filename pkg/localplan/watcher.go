@@ -2,10 +2,13 @@ package localplan
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"github.com/oats87/rancher-agent/pkg/applyinator"
 	"github.com/oats87/rancher-agent/pkg/types"
 	"github.com/sirupsen/logrus"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,27 +93,27 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		logrus.Debugf("Processing file %s", path)
 
-		var np types.NodePlan
+		var anp types.AgentNodePlan
 
-		err := w.parsePlan(path, &np)
+		err := w.parsePlan(path, &anp)
 		if err != nil {
 			logrus.Errorf("Error received when parsing plan: %s", err)
 			continue
 		}
 
-		logrus.Debugf("Plan from file %s was: %v", path, np)
+		logrus.Debugf("Plan from file %s was: %v", path, anp.Plan)
 
-		needsApplied, err := w.needsApplication(path, np)
+		needsApplied, err := w.needsApplication(path, anp)
 		if !needsApplied {
 			continue
 		}
 
-		if err := w.applyinator.Apply(ctx, np); err != nil {
+		if err := w.applyinator.Apply(ctx, anp); err != nil {
 			logrus.Errorf("Error when applying node plan from file: %s: %v", path, err)
 			continue
 		}
 
-		if err := w.writePosition(path, np); err != nil {
+		if err := w.writePosition(path, anp); err != nil {
 			logrus.Errorf("Error encountered when writing position file for %s: %v", path, err)
 		}
 	}
@@ -118,17 +121,32 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 	return nil
 }
 
-func (w *watcher) parsePlan(file string, np interface{}) error {
+func (w *watcher) parsePlan(file string, anp *types.AgentNodePlan) error {
+	var np types.NodePlan
 	f, err := os.Open(file)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return json.NewDecoder(f).Decode(np)
+
+	b, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(b, &np)
+	if err != nil {
+		return err
+	}
+
+	anp.Checksum = checksum(b)
+	anp.Plan = np
+
+	return nil
 }
 
 // Returns true if the plan needs to be applied, false if not
-func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error) {
+func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, error) {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Open(positionFile)
 	if err != nil {
@@ -145,7 +163,7 @@ func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error)
 		return true, nil
 	}
 
-	computedChecksum := np.Checksum()
+	computedChecksum := anp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("Plan %s checksum (%s) matched", file, computedChecksum)
 		return false, nil
@@ -157,7 +175,7 @@ func (w *watcher) needsApplication(file string, np types.NodePlan) (bool, error)
 
 }
 
-func (w *watcher) writePosition(file string, np types.NodePlan) error {
+func (w *watcher) writePosition(file string, anp types.AgentNodePlan) error {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Create(positionFile)
 	if err != nil {
@@ -167,7 +185,7 @@ func (w *watcher) writePosition(file string, np types.NodePlan) error {
 	defer f.Close()
 
 	var npp types.NodePlanPosition
-	npp.AppliedChecksum = np.Checksum()
+	npp.AppliedChecksum = anp.Checksum
 
 	return json.NewEncoder(f).Encode(npp)
 }
@@ -183,4 +201,11 @@ func skipFile(fileName string, skips map[string]bool) bool {
 	default:
 		return true
 	}
+}
+
+func checksum(input []byte) string {
+	h := sha256.New()
+	h.Write(input)
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }

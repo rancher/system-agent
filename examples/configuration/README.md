@@ -5,7 +5,7 @@ Assuming a folder `/etc/rancher/agent`
 Create a file called `config.yaml` in `/etc/rancher/agent` with the contents like:
 
 ```
-workDirectory: /etc/rancher/agent/work
+workDirectory: /var/rancher/agent/work
 localPlanDirectory: /etc/rancher/agent/plans
 remoteEnabled: true
 connectionInfoFile: /etc/rancher/agent/conninfo.yaml
