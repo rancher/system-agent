@@ -66,6 +66,7 @@ func (w *watcher) start(ctx context.Context) {
 		logrus.Debugf("[remote] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
 
 		if planData, ok := secret.Data["plan"]; ok {
+			logrus.Debugf("[remote] Byte data: %v", planData)
 			var plan types.NodePlan
 			planString := string(planData)
 			logrus.Debugf("[remote] Plan string was %s", planString)

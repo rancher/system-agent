@@ -91,17 +91,17 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			continue
 		}
 
-		logrus.Debugf("Processing file %s", path)
+		logrus.Debugf("[local] Processing file %s", path)
 
 		var anp types.AgentNodePlan
 
 		err := w.parsePlan(path, &anp)
 		if err != nil {
-			logrus.Errorf("Error received when parsing plan: %s", err)
+			logrus.Errorf("[local] Error received when parsing plan: %s", err)
 			continue
 		}
 
-		logrus.Debugf("Plan from file %s was: %v", path, anp.Plan)
+		logrus.Debugf("[local] Plan from file %s was: %v", path, anp.Plan)
 
 		needsApplied, err := w.needsApplication(path, anp)
 		if !needsApplied {
@@ -109,12 +109,12 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		}
 
 		if err := w.applyinator.Apply(ctx, anp); err != nil {
-			logrus.Errorf("Error when applying node plan from file: %s: %v", path, err)
+			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 			continue
 		}
 
 		if err := w.writePosition(path, anp); err != nil {
-			logrus.Errorf("Error encountered when writing position file for %s: %v", path, err)
+			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
 		}
 	}
 
@@ -134,6 +134,10 @@ func (w *watcher) parsePlan(file string, anp *types.AgentNodePlan) error {
 		return err
 	}
 
+	logrus.Debugf("[local] Byte data: %v", b)
+
+	logrus.Debugf("[local] Plan string was %s", string(b))
+
 	err = json.Unmarshal(b, &np)
 	if err != nil {
 		return err
@@ -151,7 +155,7 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 	f, err := os.Open(positionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logrus.Debugf("Position file %s did not exist", positionFile)
+			logrus.Debugf("[local] Position file %s did not exist", positionFile)
 			return true, nil
 		}
 	}
@@ -159,16 +163,16 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 
 	var planPosition types.NodePlanPosition
 	if err := json.NewDecoder(f).Decode(&planPosition); err != nil {
-		logrus.Errorf("Error encountered while decoding the node plan position: %v", err)
+		logrus.Errorf("[local] Error encountered while decoding the node plan position: %v", err)
 		return true, nil
 	}
 
 	computedChecksum := anp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
-		logrus.Debugf("Plan %s checksum (%s) matched", file, computedChecksum)
+		logrus.Debugf("[local] Plan %s checksum (%s) matched", file, computedChecksum)
 		return false, nil
 	}
-	logrus.Infof("Plan checksums differed for %s (%s:%s)", file, computedChecksum, planPosition.AppliedChecksum)
+	logrus.Infof("[local] Plan checksums differed for %s (%s:%s)", file, computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
 	return true, nil
