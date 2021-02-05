@@ -21,7 +21,9 @@ type ConnectionInfo struct {
 	KubeConfig string `json:"kubeConfig"`
 	Namespace  string `json:"namespace"`
 	SecretName string `json:"secretName"`
+	DockerConfig   string `json:"dockerConfig,omitempty"`
 }
+
 
 func Parse(path string, result interface{}) error {
 	if path == "" {

@@ -18,12 +18,14 @@ import (
 type Applyinator struct {
 	mu               *sync.Mutex
 	workingDirectory string
+	dockerConfig  string
 }
 
-func NewApplyinator(workingDirectory string) *Applyinator {
+func NewApplyinator(workingDirectory string, dockerConfig string) *Applyinator {
 	return &Applyinator{
 		mu:               &sync.Mutex{},
 		workingDirectory: workingDirectory,
+		dockerConfig: dockerConfig,
 	}
 }
 
@@ -55,7 +57,7 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error 
 func (a *Applyinator) execute(ctx context.Context, directory string, instruction types.Instruction) error {
 
 	logrus.Infof("Extracting image %s to directory %s", instruction.Image, directory)
-	err := image.Stage(directory, instruction.Image)
+	err := image.Stage(directory, instruction.Image, []byte(a.dockerConfig))
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
 		return err

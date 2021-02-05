@@ -52,17 +52,18 @@ func run() error {
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
 
-	applyinator := applyinator.NewApplyinator(cf.WorkDir)
+	var connInfo config.ConnectionInfo
+
+	err = config.Parse(cf.ConnectionInfoFile, &connInfo)
+
+	if err != nil {
+		logrus.Fatalf("Unable to parse connection info file %v", err)
+	}
+
+	applyinator := applyinator.NewApplyinator(cf.WorkDir, connInfo.DockerConfig)
 
 	if cf.RemoteEnabled {
 		logrus.Infof("Starting remote watch of plans")
-		var connInfo config.ConnectionInfo
-
-		err = config.Parse(cf.ConnectionInfoFile, &connInfo)
-
-		if err != nil {
-			logrus.Fatalf("Unable to parse connection info file %v", err)
-		}
 		remoteplan.Watch(topContext, *applyinator, connInfo)
 	}
 

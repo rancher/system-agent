@@ -2,11 +2,13 @@ package image
 
 import (
 	"archive/tar"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"github.com/oats87/rancher-agent/pkg/regkeychain"
 	errors2 "github.com/pkg/errors"
 	"github.com/rancher/wrangler/pkg/merr"
 	"github.com/sirupsen/logrus"
@@ -24,7 +26,7 @@ func imagesDir(dataDir string) string {
 
 // Stage extracts everything contained within the specified "image" to the specified destDir.
 // @TODO: This needs to support private registry credentials
-func Stage(destDir string, image string) error {
+func Stage(destDir string, image string, dockerConfigJson []byte) error {
 	var img v1.Image
 	ref, err := name.ParseReference(image)
 	if err != nil {
@@ -39,8 +41,16 @@ func Stage(destDir string, image string) error {
 	// If we didn't find the requested image in a tarball, pull it from the remote registry.
 	// Note that this will fail (potentially after a long delay) if the registry cannot be reached.
 	if img == nil {
+		var keychain authn.Keychain
 		logrus.Infof("Pulling runtime image %q", ref)
-		img, err = remote.Image(ref)
+		if len(dockerConfigJson) > 0 {
+			logrus.Debugf("Docker Config Json Byte Data was greater than zero, loading from byte data")
+			keychain = &regkeychain.ByteDataKeychain{DockerConfigJson: dockerConfigJson}
+		} else {
+			logrus.Debugf("Using default keychain")
+			keychain = authn.DefaultKeychain
+		}
+		img, err = remote.Image(ref, remote.WithAuthFromKeychain(keychain))
 		if err != nil {
 			return errors2.Wrapf(err, "Failed to pull runtime image %q", ref)
 		}
