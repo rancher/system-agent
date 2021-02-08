@@ -1,14 +1,21 @@
 # rancher-agent
 ========
 
-## ***FILL THIS OUT WITH A USEFUL DESCRIPTION OF THIS REPO***
+`rancher-agent` is a daemon designed to run on a system and apply "plans" to the system. `rancher-agent` can support both local and remote plans, and was built to be integrated with the Rancher2 project for provisioning next-generation, CAPI driven clusters.
 
 ## Building
 
 `make`
 
+### Cross Compiling
+
+You can also 
+
+`CROSS=true make` if you want cross-compiled binaries for Darwin/Windows.
 
 ## Running
+
+First, configure the agent by looking at the `examples/configuration` folder, then you can run the binary.
 
 `./bin/rancher-agent`
 
