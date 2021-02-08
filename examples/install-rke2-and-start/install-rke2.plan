@@ -1,0 +1,1 @@
+{"instructions":[{"name":"install","image":"docker.io/oats87/loltgz:install-rke2-and-start","command":"sh", "args":["-c","install.sh"]}]}
