@@ -175,10 +175,11 @@ do_install() {
     download_rancher_agent
 
     mkdir -p /etc/rancher/agent
+    mkdir -p /var/lib/rancher-agent/plans
 
 cat <<-EOF >"/etc/rancher/agent/config.yaml"
 workDirectory: /etc/rancher/agent/work
-localPlanDirectory: /etc/rancher/agent/plans
+localPlanDirectory: /var/lib/rancher-agent/plans
 remoteEnabled: true
 connectionInfoFile: /etc/rancher/agent/conninfo.json
 EOF
