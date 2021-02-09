@@ -17,6 +17,7 @@ fi
 #   - URL
 #   - TOKEN
 #   - CATTLE_CA_CHECKSUM
+#   - LOGLEVEL
 #
 
 CACERTS_PATH=cacerts
@@ -105,6 +106,7 @@ WantedBy=multi-user.target
 Type=simple
 Restart=always
 RestartSec=5s
+Environment=CATTLE_LOGLEVEL=debug
 ExecStart=/usr/bin/rancher-agent
 EOF
 }

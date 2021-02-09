@@ -19,10 +19,7 @@ import (
 	"strings"
 )
 
-// imagesDir returns the path to dataDir/agent/images.
-func imagesDir(dataDir string) string {
-	return filepath.Join(dataDir, "agent", "images")
-}
+const imagesDir string = "/var/lib/rancher-agent/images"
 
 // Stage extracts everything contained within the specified "image" to the specified destDir.
 // @TODO: This needs to support private registry credentials
@@ -33,7 +30,7 @@ func Stage(destDir string, image string, dockerConfigJson []byte) error {
 		return err
 	}
 
-	img, err = preloadBootstrapImage("", ref.String())
+	img, err = preloadBootstrapImage(ref.String())
 	if err != nil {
 		return err
 	}
@@ -176,8 +173,7 @@ func extractToDir(dir, prefix string, img v1.Image, imageName string) error {
 
 // preloadBootstrapImage attempts return an image named imageName from a tarball
 // within imagesDir.
-func preloadBootstrapImage(dataDir string, imageName string) (v1.Image, error) {
-	imagesDir := imagesDir(dataDir)
+func preloadBootstrapImage(imageName string) (v1.Image, error) {
 	if _, err := os.Stat(imagesDir); err != nil {
 		if os.IsNotExist(err) {
 			logrus.Debugf("No local image available for %q: dir %q does not exist", imageName, imagesDir)

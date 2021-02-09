@@ -8,6 +8,7 @@ import (
 	"github.com/oats87/rancher-agent/pkg/remoteplan"
 	"github.com/rancher/wrangler/pkg/signals"
 	"os"
+	"strings"
 
 	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"
@@ -20,16 +21,30 @@ var (
 
 func main() {
 	logrus.SetOutput(colorable.NewColorableStdout())
-	if os.Getenv("CATTLE_DEBUG") == "true" || os.Getenv("RANCHER_DEBUG") == "true" {
-		logrus.SetLevel(logrus.DebugLevel)
+
+	rawLevel := os.Getenv("CATTLE_LOGLEVEL")
+
+	if rawLevel != "" {
+		if lvl, err := logrus.ParseLevel(os.Getenv("CATTLE_LOGLEVEL")); err != nil {
+			logrus.Fatal(err)
+		} else {
+			logrus.SetLevel(lvl)
+		}
 	}
-	var err error
-	err = run()
+
+	err := run()
 
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
+}
+
+func isTrue(input string) bool {
+	if strings.ToLower(input) == "true" || input == "1" {
+		return true
+	}
+	return false
 }
 
 func run() error {
@@ -52,18 +67,19 @@ func run() error {
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
 
-	var connInfo config.ConnectionInfo
-
-	err = config.Parse(cf.ConnectionInfoFile, &connInfo)
-
-	if err != nil {
-		logrus.Fatalf("Unable to parse connection info file %v", err)
-	}
-
-	applyinator := applyinator.NewApplyinator(cf.WorkDir, connInfo.DockerConfig)
+	applyinator := applyinator.NewApplyinator(cf.WorkDir, "")
 
 	if cf.RemoteEnabled {
 		logrus.Infof("Starting remote watch of plans")
+
+		var connInfo config.ConnectionInfo
+
+		err = config.Parse(cf.ConnectionInfoFile, &connInfo)
+
+		if err != nil {
+			logrus.Fatalf("Unable to parse connection info file %v", err)
+		}
+
 		remoteplan.Watch(topContext, *applyinator, connInfo)
 	}
 

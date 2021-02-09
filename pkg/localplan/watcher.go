@@ -134,7 +134,7 @@ func (w *watcher) parsePlan(file string, anp *types.AgentNodePlan) error {
 		return err
 	}
 
-	logrus.Debugf("[local] Byte data: %v", b)
+	logrus.Tracef("[local] Byte data: %v", b)
 
 	logrus.Debugf("[local] Plan string was %s", string(b))
 
