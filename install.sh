@@ -113,7 +113,7 @@ EOF
 
 download_rancher_agent() {
     info "Downloading rancher-agent from GitHub"
-    curl -sfL https://github.com/Oats87/rancher-agent/releases/download/v0.0.1/rancher-agent -o /usr/bin/rancher-agent
+    curl -sfL https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent -o /usr/bin/rancher-agent
     chmod +x /usr/bin/rancher-agent
 }
 
