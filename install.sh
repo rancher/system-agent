@@ -69,56 +69,53 @@ fatal() {
 
 # parse_args will inspect the argv for --server, --token, --controlplane, --etcd, and --worker, --label x=y, and --taint dead=beef:NoSchedule
 parse_args() {
-    args=("$@")
-    argC=$(($#-1))
-    i=0
-    firstLabelSet=0
-    firstTaintSet=0
-    while [ $i -lt $argC ]; do
-        case "${args[$i]}" in
+    while [ $# -gt 0 ]; do	
+        case "$1" in
             "--controlplane")
                 info "Control plane node"
                 CATTLE_ROLE_CONTROLPLANE=true
+		shift 1
                 ;;
             "--etcd")
                 info "etcd node"
                 CATTLE_ROLE_ETCD=true
+		shift 1
                 ;;
             "--worker")
                 info "worker node"
                 CATTLE_ROLE_WORKER=true
+		shift 1
                 ;;
             "--label")
-                i=$(($i+1))
-                info "Label: ${args[$i]}"
+                info "Label: $2"
                 if [ -n "${CATTLE_LABELS}" ]; then
-                    CATTLE_LABELS="${CATTLE_LABELS},${args[$i]}"
+                    CATTLE_LABELS="${CATTLE_LABELS},$2"
                 else
-                    CATTLE_LABELS="${args[$i]}"
+                    CATTLE_LABELS="$2"
                 fi
+		shift 2
                 ;;
             "--taint")
-                i=$(($i+1))
-                info "Taint: ${args[$i]}"
+                info "Taint: $2"
                 if [ -n "${CATTLE_TAINTS}" ]; then
-                    CATTLE_TAINTS="${CATTLE_TAINTS},${args[$i]}"
+                    CATTLE_TAINTS="${CATTLE_TAINTS},$2"
                 else
-                    CATTLE_TAINTS="${args[$i]}"
+                    CATTLE_TAINTS="$2"
                 fi
+		shift 2
                 ;;
             "--server")
-                i=$(($i+1))
-                CATTLE_SERVER="${args[$i]}"
+                CATTLE_SERVER="$2"
+		shift 2
                 ;;
             "--token")
-                i=$(($i+1))
-                CATTLE_TOKEN="${args[$i]}"
+                CATTLE_TOKEN="$2"
+		shift 2
                 ;;
             *)
-                fatal "Unknown argument passed in (${args[$i]}) at $i"
+                fatal "Unknown argument passed in ($1)"
                 ;;
         esac
-        i=$(($i+1))
     done
 }
 
@@ -147,7 +144,7 @@ setup_env() {
         CATTLE_AGENT_LOGLEVEL=$(echo "${CATTLE_AGENT_LOGLEVEL}" | tr '[:upper:]' '[:lower:]')
     fi
 
-    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+    if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         if [ -z "${CATTLE_SERVER}" ]; then
             fatal "\$CATTLE_SERVER was not set"
         fi
@@ -276,7 +273,7 @@ validate_ca_checksum() {
 }
 
 retrieve_connection_info() {
-    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+    if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
             curl -v -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
         else
@@ -293,7 +290,7 @@ localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
 remoteEnabled: ${CATTLE_REMOTE_ENABLED}
 EOF
 
-    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+    if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         echo connectionInfoFile: ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json >> "${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
     fi
 }
@@ -327,10 +324,8 @@ do_install() {
     fi
 
     download_rancher_agent
-
     generate_config
     retrieve_connection_info
-
     create_systemd_service_file
     systemctl enable rancher-agent
     systemctl daemon-reload >/dev/null
