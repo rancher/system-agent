@@ -234,19 +234,18 @@ download_rancher_agent() {
 
 check_x509_cert()
 {
-    local cert=$1
-    local err
+    cert=$1
     err=$(openssl x509 -in $cert -noout 2>&1)
     if [ $? -eq 0 ]
     then
         echo ""
     else
-        echo ${err}
+        echo "${err}"
     fi
 }
 
 validate_ca_checksum() {
-    if [ -n "$CATTLE_CA_CHECKSUM" ]; then
+    if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
         temp=$(mktemp)
         curl --insecure -s -fL ${CATTLE_SERVER}/${CACERTS_PATH} > $temp
         if [ ! -s $temp ]; then
@@ -254,7 +253,7 @@ validate_ca_checksum() {
           exit 1
         fi
         err=$(check_x509_cert $temp)
-        if [[ $err ]]; then
+        if [ -n "${err}" ]; then
             error "Value from ${CATTLE_SERVER}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
             error "Retrieved cacerts:"
             cat $temp
