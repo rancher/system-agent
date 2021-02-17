@@ -75,7 +75,7 @@ parse_args() {
     firstLabelSet=0
     firstTaintSet=0
     while [ $i -lt $argC ]; do
-        case ${args[$i]} in
+        case "${args[$i]}" in
             "--controlplane")
                 info "Control plane node"
                 CATTLE_ROLE_CONTROLPLANE=true
