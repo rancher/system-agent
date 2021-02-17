@@ -43,11 +43,14 @@ func Stage(destDir string, image string, dockerConfigJson []byte) error {
 		if len(dockerConfigJson) > 0 {
 			logrus.Debugf("Docker Config Json Byte Data was greater than zero, loading from byte data")
 			keychain = &regkeychain.ByteDataKeychain{DockerConfigJson: dockerConfigJson}
-		} else {
-			logrus.Debugf("Using default keychain")
-			keychain = authn.DefaultKeychain
 		}
-		img, err = remote.Image(ref, remote.WithAuthFromKeychain(keychain))
+		if keychain != nil {
+			logrus.Debugf("Pulling with keychain provided")
+			img, err = remote.Image(ref, remote.WithAuthFromKeychain(keychain))
+		} else {
+			logrus.Debugf("Performing anonymous pull of image")
+			img, err = remote.Image(ref)
+		}
 		if err != nil {
 			return errors2.Wrapf(err, "Failed to pull runtime image %q", ref)
 		}
