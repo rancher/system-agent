@@ -14,13 +14,33 @@ fi
 
 # Environment variables:
 #
-#   - URL
-#   - TOKEN
+#   - CATTLE_SERVER
+#   - CATTLE_TOKEN
 #   - CATTLE_CA_CHECKSUM
-#   - LOGLEVEL
 #
+#   - CATTLE_AGENT_LOGLEVEL
+#   - CATTLE_AGENT_CONFIG_DIR (default: /etc/rancher/agent)
+#   - CATTLE_AGENT_VAR_DIR (default: /var/lib/rancher/agent)
+#
+#CATTLE_AGENT_LOGLEVEL=debug
+#CATTLE_AGENT_CONFIG_DIR=/etc/rancher/agent
+#CATTLE_AGENT_VAR_DIR=
+#CATTLE_ROLE_CONTROLPLANE=false
+#CATTLE_ROLE_ETCD=false
+#CATTLE_ROLE_WORKER=false
+#CATTLE_CA_CHECKSUM=
+#CATTLE_REMOTE_ENABLED=true // defaults to true
+#CATTLE_SERVER=
+#CATTLE_TOKEN=
+#
+#CATTLE_LABELS=
+#CATTLE_TAINTS=
+#
+#CATTLE_ID
+#CATTLE_AGENT_BINARY_URL
 
 CACERTS_PATH=cacerts
+CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
 
 # info logs the given argument at info log level.
 info() {
@@ -46,15 +66,112 @@ fatal() {
     exit 1
 }
 
+
+# parse_args will inspect the argv for --server, --token, --controlplane, --etcd, and --worker, --label x=y, and --taint dead=beef:NoSchedule
+parse_args() {
+    args=("$@")
+    argC=$(($#-1))
+    i=0
+    firstLabelSet=0
+    firstTaintSet=0
+    while [ $i -lt $argC ]; do
+        case ${args[$i]} in
+            "--controlplane")
+                info "Control plane node"
+                CATTLE_ROLE_CONTROLPLANE=true
+                ;;
+            "--etcd")
+                info "etcd node"
+                CATTLE_ROLE_ETCD=true
+                ;;
+            "--worker")
+                info "worker node"
+                CATTLE_ROLE_WORKER=true
+                ;;
+            "--label")
+                i=$(($i+1))
+                info "Label: ${args[$i]}"
+                if [ -n "${CATTLE_LABELS}" ]; then
+                    CATTLE_LABELS="${CATTLE_LABELS},${args[$i]}"
+                else
+                    CATTLE_LABELS="${args[$i]}"
+                fi
+                ;;
+            "--taint")
+                i=$(($i+1))
+                info "Taint: ${args[$i]}"
+                if [ -n "${CATTLE_TAINTS}" ]; then
+                    CATTLE_TAINTS="${CATTLE_TAINTS},${args[$i]}"
+                else
+                    CATTLE_TAINTS="${args[$i]}"
+                fi
+                ;;
+            "--server")
+                i=$(($i+1))
+                CATTLE_SERVER="${args[$i]}"
+                ;;
+            "--token")
+                i=$(($i+1))
+                CATTLE_TOKEN="${args[$i]}"
+                ;;
+            *)
+                fatal "Unknown argument passed in (${args[$i]}) at $i"
+                ;;
+        esac
+        i=$(($i+1))
+    done
+}
+
 setup_env() {
-    if [ -z "${URL}" ]; then
-        fatal "\$URL was not set"
+    if [ -z "${CATTLE_ROLE_CONTROLPLANE}" ]; then
+        CATTLE_ROLE_CONTROLPLANE=false
     fi
 
-    if [ -z "${TOKEN}" ]; then
-        fatal "\$TOKEN was not set"
+    if [ -z "${CATTLE_ROLE_ETCD}" ]; then
+        CATTLE_ROLE_ETCD=false
     fi
 
+    if [ -z "${CATTLE_ROLE_WORKER}" ]; then
+        CATTLE_ROLE_WORKER=false
+    fi
+
+    if [ -z "${CATTLE_REMOTE_ENABLED}" ]; then
+        CATTLE_REMOTE_ENABLED=true
+    else
+        CATTLE_REMOTE_ENABLED=$(echo "${CATTLE_REMOTE_ENABLED}" | tr '[:upper:]' '[:lower:]')
+    fi
+
+    if [ -z "${CATTLE_AGENT_LOGLEVEL}" ]; then
+        CATTLE_AGENT_LOGLEVEL=debug
+    else
+        CATTLE_AGENT_LOGLEVEL=$(echo "${CATTLE_AGENT_LOGLEVEL}" | tr '[:upper:]' '[:lower:]')
+    fi
+
+    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+        if [ -z "${CATTLE_SERVER}" ]; then
+            fatal "\$CATTLE_SERVER was not set"
+        fi
+
+        if [ -z "${CATTLE_TOKEN}" ]; then
+            fatal "\$CATTLE_TOKEN was not set"
+        fi
+    fi
+
+    if [ -z "${CATTLE_AGENT_CONFIG_DIR}" ]; then
+        CATTLE_AGENT_CONFIG_DIR=/etc/rancher/agent
+        info "Using default agent configuration directory ${CATTLE_AGENT_CONFIG_DIR}"
+    fi
+
+    if [ -z "${CATTLE_AGENT_VAR_DIR}" ]; then
+        CATTLE_AGENT_VAR_DIR=/var/lib/rancher/agent
+        info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
+    fi
+
+}
+
+ensure_directories() {
+    mkdir -p ${CATTLE_AGENT_VAR_DIR}
+    mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
 }
 
 # setup_arch set arch and suffix,
@@ -106,14 +223,15 @@ WantedBy=multi-user.target
 Type=simple
 Restart=always
 RestartSec=5s
-Environment=CATTLE_LOGLEVEL=debug
+Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
+Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 ExecStart=/usr/bin/rancher-agent
 EOF
 }
 
 download_rancher_agent() {
-    info "Downloading rancher-agent from GitHub"
-    curl -sfL https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent -o /usr/bin/rancher-agent
+    info "Downloading rancher-agent from ${CATTLE_AGENT_BINARY_URL}"
+    curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-agent
     chmod +x /usr/bin/rancher-agent
 }
 
@@ -133,40 +251,74 @@ check_x509_cert()
 validate_ca_checksum() {
     if [ -n "$CATTLE_CA_CHECKSUM" ]; then
         temp=$(mktemp)
-        curl --insecure -s -fL ${URL}/${CACERTS_PATH} > $temp
+        curl --insecure -s -fL ${CATTLE_SERVER}/${CACERTS_PATH} > $temp
         if [ ! -s $temp ]; then
-          error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${URL}/${CACERTS_PATH}"
+          error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${CATTLE_SERVER}/${CACERTS_PATH}"
           exit 1
         fi
         err=$(check_x509_cert $temp)
         if [[ $err ]]; then
-            error "Value from ${URL}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
+            error "Value from ${CATTLE_SERVER}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
             error "Retrieved cacerts:"
             cat $temp
             exit 1
         else
-            info "Value from ${URL}/${CACERTS_PATH} is an x509 certificate"
+            info "Value from ${CATTLE_SERVER}/${CACERTS_PATH} is an x509 certificate"
         fi
         CATTLE_SERVER_CHECKSUM=$(sha256sum $temp | awk '{print $1}')
         if [ $CATTLE_SERVER_CHECKSUM != $CATTLE_CA_CHECKSUM ]; then
             rm -f $temp
             error "Configured cacerts checksum ($CATTLE_SERVER_CHECKSUM) does not match given --ca-checksum ($CATTLE_CA_CHECKSUM)"
-            error "Please check if the correct certificate is configured at ${URL}/${CACERTS_PATH}"
+            error "Please check if the correct certificate is configured at${CATTLE_SERVER}/${CACERTS_PATH}"
             exit 1
         fi
     fi
 }
 
 retrieve_connection_info() {
-    if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
-        curl -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
-    else
-        curl --insecure -k -v -H "Authorization: Bearer ${TOKEN}" ${URL}/v3/connect/agent -o /etc/rancher/agent/conninfo.json
+    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+        if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
+            echo curl -v -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
+        else
+            echo curl --insecure -k -v -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}"  -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
+        fi
     fi
 }
 
+generate_config() {
+
+cat <<-EOF >"${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
+workDirectory: ${CATTLE_AGENT_VAR_DIR}/work
+localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
+remoteEnabled: ${CATTLE_REMOTE_ENABLED}
+EOF
+
+    if [ "${CATTLE_REMOTE_ENABLED}" == "true" ]; then
+        echo connectionInfoFile: ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json >> "${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
+    fi
+}
+
+generate_cattle_identifier() {
+    if [ -z "${CATTLE_ID}" ]; then
+        info "Generating Cattle ID"
+        if [ -f "${CATTLE_AGENT_CONFIG_DIR}/cattle-id" ]; then
+            CATTLE_ID=$(cat ${CATTLE_AGENT_CONFIG_DIR}/cattle-id);
+            info "Cattle ID was already detected as ${CATTLE_ID}. Not generating a new one."
+            return
+        fi
+
+        CATTLE_ID=$(sha256sum /etc/machine-id | awk '{print $1}'); # awk may not be installed. need to think of a way around this.
+        echo "${CATTLE_ID}" > ${CATTLE_AGENT_CONFIG_DIR}/cattle-id
+        return
+    fi
+    info "Not generating Cattle ID"
+}
+
 do_install() {
+    parse_args $@
     setup_env
+    ensure_directories
+    generate_cattle_identifier
     setup_arch
     verify_downloader curl || fatal "can not find curl for downloading files"
 
@@ -176,16 +328,7 @@ do_install() {
 
     download_rancher_agent
 
-    mkdir -p /etc/rancher/agent
-    mkdir -p /var/lib/rancher-agent/plans
-
-cat <<-EOF >"/etc/rancher/agent/config.yaml"
-workDirectory: /etc/rancher/agent/work
-localPlanDirectory: /var/lib/rancher-agent/plans
-remoteEnabled: true
-connectionInfoFile: /etc/rancher/agent/conninfo.json
-EOF
-
+    generate_config
     retrieve_connection_info
 
     create_systemd_service_file
@@ -194,5 +337,5 @@ EOF
     systemctl restart rancher-agent
 }
 
-do_install
+do_install $@
 exit 0
