@@ -1,0 +1,8 @@
+ARG ALPINE=alpine:3.11
+FROM ${ALPINE}
+
+RUN mkdir /opt/rancher-agent-suc
+COPY install.sh /opt/rancher-agent-suc/install.sh
+COPY suc/run.sh /opt/rancher-agent-suc/run.sh
+
+ENTRYPOINT ["/opt/rancher-agent-suc/run.sh"]

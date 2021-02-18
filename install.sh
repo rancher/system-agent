@@ -28,6 +28,7 @@ fi
 #CATTLE_ROLE_CONTROLPLANE=false
 #CATTLE_ROLE_ETCD=false
 #CATTLE_ROLE_WORKER=false
+#CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
 #CATTLE_CA_CHECKSUM=
 #CATTLE_REMOTE_ENABLED=true // defaults to true
 #CATTLE_SERVER=
@@ -40,7 +41,6 @@ fi
 #CATTLE_AGENT_BINARY_URL
 
 CACERTS_PATH=cacerts
-CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
 
 # info logs the given argument at info log level.
 info() {
@@ -144,13 +144,17 @@ setup_env() {
         CATTLE_AGENT_LOGLEVEL=$(echo "${CATTLE_AGENT_LOGLEVEL}" | tr '[:upper:]' '[:lower:]')
     fi
 
-    if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
-        if [ -z "${CATTLE_SERVER}" ]; then
-            fatal "\$CATTLE_SERVER was not set"
-        fi
+    if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
+        CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
+    fi
 
+    if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         if [ -z "${CATTLE_TOKEN}" ]; then
-            fatal "\$CATTLE_TOKEN was not set"
+            info "\$CATTLE_TOKEN was not set. Will not retrieve a remote connection configuration from Rancher2."
+        else
+            if [ -z "${CATTLE_SERVER}" ]; then
+                fatal "\$CATTLE_SERVER was not set"
+            fi
         fi
     fi
 
@@ -310,11 +314,18 @@ generate_cattle_identifier() {
     info "Not generating Cattle ID"
 }
 
+
+ensure_systemd_service_stopped() {
+    if systemctl status rancher-agent.service; then
+        info "Rancher Agent was detected on this host. Ensuring the rancher-agent is stopped."
+        systemctl stop rancher-agent
+    fi
+}
+
 do_install() {
     parse_args $@
     setup_env
     ensure_directories
-    generate_cattle_identifier
     setup_arch
     verify_downloader curl || fatal "can not find curl for downloading files"
 
@@ -322,12 +333,21 @@ do_install() {
         validate_ca_checksum
     fi
 
+    # Instead of just always stopping the service, go and stage the binary and verify the checksum between what I have and what I need
+    ensure_systemd_service_stopped
+
     download_rancher_agent
     generate_config
-    retrieve_connection_info
+
+    if [ -n "${CATTLE_TOKEN}" ]; then
+        generate_cattle_identifier
+        retrieve_connection_info # Only retrieve connection information from Rancher if a token was passed in.
+    fi
     create_systemd_service_file
+    info "Enabling rancher-agent.service"
     systemctl enable rancher-agent
     systemctl daemon-reload >/dev/null
+    info "Starting/restarting rancher-agent.service"
     systemctl restart rancher-agent
 }
 

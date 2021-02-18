@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rancher-agent-install-environment
+  namespace: system-upgrade
+type: Opaque
+stringData:
+  environment: |
+    CATTLE_SERVER=wow
+    CATTLE_TOKEN=why
+---
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: rancher-agent
+  namespace: system-upgrade
+  labels:
+    rancher: agent
+spec:
+  concurrency: 1
+  version: pre-v1
+  nodeSelector:
+    matchExpressions:
+      - {key: k3s.io/hostname, operator: Exists}
+  serviceAccountName: system-upgrade
+  secrets:
+  - name: rancher-agent-install-environment
+    path: /opt/sucenv
+  upgrade:
+    image: oats87/rancher-agent-suc
