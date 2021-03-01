@@ -8,7 +8,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
-	"github.com/oats87/rancher-agent/pkg/regkeychain"
+	"github.com/rancher/system-agent/pkg/regkeychain"
 	errors2 "github.com/pkg/errors"
 	"github.com/rancher/wrangler/pkg/merr"
 	"github.com/sirupsen/logrus"

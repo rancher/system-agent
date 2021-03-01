@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"github.com/oats87/rancher-agent/pkg/applyinator"
-	"github.com/oats87/rancher-agent/pkg/config"
-	"github.com/oats87/rancher-agent/pkg/localplan"
-	"github.com/oats87/rancher-agent/pkg/remoteplan"
+	"github.com/rancher/system-agent/pkg/applyinator"
+	"github.com/rancher/system-agent/pkg/config"
+	"github.com/rancher/system-agent/pkg/localplan"
+	"github.com/rancher/system-agent/pkg/remoteplan"
 	"github.com/rancher/wrangler/pkg/signals"
 	"os"
 	"strings"

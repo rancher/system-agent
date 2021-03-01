@@ -1,4 +1,4 @@
-module github.com/oats87/rancher-agent
+module github.com/rancher/system-agent
 
 go 1.13
 
