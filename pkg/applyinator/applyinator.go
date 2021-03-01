@@ -18,14 +18,14 @@ import (
 type Applyinator struct {
 	mu               *sync.Mutex
 	workingDirectory string
-	dockerConfig  string
+	dockerConfig     string
 }
 
 func NewApplyinator(workingDirectory string, dockerConfig string) *Applyinator {
 	return &Applyinator{
 		mu:               &sync.Mutex{},
 		workingDirectory: workingDirectory,
-		dockerConfig: dockerConfig,
+		dockerConfig:     dockerConfig,
 	}
 }
 

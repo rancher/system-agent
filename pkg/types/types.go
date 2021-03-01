@@ -25,6 +25,6 @@ type NodePlanPosition struct {
 }
 
 type AgentNodePlan struct {
-	Plan NodePlan
+	Plan     NodePlan
 	Checksum string
 }

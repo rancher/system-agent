@@ -2,9 +2,9 @@ package regkeychain
 
 import (
 	"bytes"
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/types"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
