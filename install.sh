@@ -212,9 +212,9 @@ verify_downloader() {
 # --- write systemd service file ---
 create_systemd_service_file() {
     info "systemd: Creating service file"
-    cat <<-EOF >"/etc/systemd/system/rancher-agent.service"
+    cat <<-EOF >"/etc/systemd/system/rancher-system-agent.service"
 [Unit]
-Description=Next Generation Rancher Agent
+Description=Rancher System Agent
 Documentation=https://www.rancher.com
 Wants=network-online.target
 After=network-online.target
@@ -226,14 +226,14 @@ Restart=always
 RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
-ExecStart=/usr/bin/rancher-agent
+ExecStart=/usr/bin/rancher-system-agent
 EOF
 }
 
 download_rancher_agent() {
-    info "Downloading rancher-agent from ${CATTLE_AGENT_BINARY_URL}"
-    curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-agent
-    chmod +x /usr/bin/rancher-agent
+    info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
+    curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+    chmod +x /usr/bin/rancher-system-agent
 }
 
 check_x509_cert()
@@ -316,9 +316,9 @@ generate_cattle_identifier() {
 
 
 ensure_systemd_service_stopped() {
-    if systemctl status rancher-agent.service; then
-        info "Rancher Agent was detected on this host. Ensuring the rancher-agent is stopped."
-        systemctl stop rancher-agent
+    if systemctl status rancher-system-agent.service; then
+        info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
+        systemctl stop rancher-system-agent
     fi
 }
 
@@ -344,11 +344,11 @@ do_install() {
         retrieve_connection_info # Only retrieve connection information from Rancher if a token was passed in.
     fi
     create_systemd_service_file
-    info "Enabling rancher-agent.service"
-    systemctl enable rancher-agent
+    info "Enabling rancher-system-agent.service"
+    systemctl enable rancher-system-agent
     systemctl daemon-reload >/dev/null
-    info "Starting/restarting rancher-agent.service"
-    systemctl restart rancher-agent
+    info "Starting/restarting rancher-system-agent.service"
+    systemctl restart rancher-system-agent
 }
 
 do_install $@
