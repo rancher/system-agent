@@ -12,7 +12,8 @@ require (
 	github.com/rancher/lasso v0.0.0-20200905045615-7fcb07d6a20b
 	github.com/rancher/wrangler v0.7.2
 	github.com/sirupsen/logrus v1.6.0
-	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c // indirect
+	golang.org/x/net v0.0.0-20201021035429-f5854403a974 // indirect
+	golang.org/x/sys v0.0.0-20210303074136-134d130e1a04 // indirect
 	gotest.tools/v3 v3.0.3 // indirect
 	k8s.io/api v0.18.8
 	k8s.io/apimachinery v0.18.8

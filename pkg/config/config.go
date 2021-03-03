@@ -6,8 +6,9 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"strings"
+
+	"sigs.k8s.io/yaml"
 )
 
 type AgentConfig struct {
@@ -49,7 +50,6 @@ func Parse(path string, result interface{}) error {
 	default:
 		return fmt.Errorf("file %s was not a JSON or YAML file", file)
 	}
-	return nil
 }
 
 // Use the token for basic auth, post the config file....

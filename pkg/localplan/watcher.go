@@ -5,15 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/rancher/system-agent/pkg/applyinator"
-	"github.com/rancher/system-agent/pkg/types"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/rancher/system-agent/pkg/applyinator"
+	"github.com/rancher/system-agent/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases ...string) error {
@@ -104,6 +105,12 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		logrus.Debugf("[local] Plan from file %s was: %v", path, anp.Plan)
 
 		needsApplied, err := w.needsApplication(path, anp)
+
+		if err != nil {
+			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
+			continue
+		}
+
 		if !needsApplied {
 			continue
 		}

@@ -4,15 +4,16 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/rancher/system-agent/pkg/image"
-	"github.com/rancher/system-agent/pkg/types"
-	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/rancher/system-agent/pkg/image"
+	"github.com/rancher/system-agent/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 type Applyinator struct {

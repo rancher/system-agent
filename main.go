@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
+
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/localplan"
 	"github.com/rancher/system-agent/pkg/remoteplan"
 	"github.com/rancher/wrangler/pkg/signals"
-	"os"
-	"strings"
 
 	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"

@@ -2,9 +2,15 @@ package image
 
 import (
 	"archive/tar"
+	"io"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
@@ -12,18 +18,13 @@ import (
 	"github.com/rancher/system-agent/pkg/regkeychain"
 	"github.com/rancher/wrangler/pkg/merr"
 	"github.com/sirupsen/logrus"
-	"io"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 const imagesDir string = "/var/lib/rancher-agent/images"
 
 // Stage extracts everything contained within the specified "image" to the specified destDir.
 // @TODO: This needs to support private registry credentials
-func Stage(destDir string, image string, dockerConfigJson []byte) error {
+func Stage(destDir string, image string, dockerConfigJSON []byte) error {
 	var img v1.Image
 	ref, err := name.ParseReference(image)
 	if err != nil {
@@ -40,9 +41,9 @@ func Stage(destDir string, image string, dockerConfigJson []byte) error {
 	if img == nil {
 		var keychain authn.Keychain
 		logrus.Infof("Pulling runtime image %q", ref)
-		if len(dockerConfigJson) > 0 {
+		if len(dockerConfigJSON) > 0 {
 			logrus.Debugf("Docker Config Json Byte Data was greater than zero, loading from byte data")
-			keychain = &regkeychain.ByteDataKeychain{DockerConfigJson: dockerConfigJson}
+			keychain = &regkeychain.ByteDataKeychain{DockerConfigJSON: dockerConfigJSON}
 		}
 		if keychain != nil {
 			logrus.Debugf("Pulling with keychain provided")
