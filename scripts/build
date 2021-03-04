@@ -11,8 +11,8 @@ if [ "$(uname)" = "Linux" ]; then
 fi
 LINKFLAGS="-X github.com/rancher/system-agent.Version=$VERSION"
 LINKFLAGS="-X github.com/rancher/system-agent.GitCommit=$COMMIT $LINKFLAGS"
-CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/rancher-agent
+CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/rancher-system-agent
 if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
-    GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/rancher-agent-darwin
-    GOOS=windows go build -ldflags "$LINKFLAGS" -o bin/rancher-agent-windows
+    GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/rancher-system-agent-darwin
+    GOOS=windows go build -ldflags "$LINKFLAGS" -o bin/rancher-system-agent-windows
 fi

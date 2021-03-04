@@ -6,9 +6,9 @@ source $(dirname $0)/version
 cd $(dirname $0)/..
 
 mkdir -p dist/artifacts
-cp bin/rancher-agent dist/artifacts/rancher-agent${SUFFIX}
+cp bin/rancher-system-agent dist/artifacts/rancher-system-agent${SUFFIX}
 
-IMAGE=${REPO}/rancher-agent:${TAG}
+IMAGE=${REPO}/rancher-system-agent:${TAG}
 DOCKERFILE=package/Dockerfile
 if [ -e ${DOCKERFILE}.${ARCH} ]; then
     DOCKERFILE=${DOCKERFILE}.${ARCH}

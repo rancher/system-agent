@@ -1,3 +1,3 @@
 FROM alpine
-COPY bin/rancher-agent /usr/bin/
-CMD ["rancher-agent"]
+COPY bin/rancher-system-agent /usr/bin/
+CMD ["rancher-system-agent"]

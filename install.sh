@@ -145,7 +145,18 @@ setup_env() {
     fi
 
     if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
-        CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
+        FALLBACK=v0.0.1-alpha1
+        if [[ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]]; then
+            info "GitHub Rate Limit exceeded, falling back to known good version"
+            VERSION=$FALLBACK
+        else
+            VERSION=$(curl --silent "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            if [[ -z "$VERSION" ]]; then # Fall back to a known good fallback version because we had an error pulling the latest
+                info "Error contacting GitHub to retrieve the latest version"
+                VERSION=$FALLBACK
+            fi
+        fi
+        CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent"
     fi
 
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
