@@ -156,7 +156,7 @@ setup_env() {
                 VERSION=$FALLBACK
             fi
         fi
-        CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent"
+        CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-amd64" # eventually need to detect arch
     fi
 
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
