@@ -39,6 +39,9 @@ fi
 #
 #CATTLE_ID
 #CATTLE_AGENT_BINARY_URL
+#
+#CATTLE_AGENT_BINARY_LOCAL
+#CATTLE_AGENT_BINARY_LOCAL_LOCATION
 
 CACERTS_PATH=cacerts
 
@@ -144,19 +147,25 @@ setup_env() {
         CATTLE_AGENT_LOGLEVEL=$(echo "${CATTLE_AGENT_LOGLEVEL}" | tr '[:upper:]' '[:lower:]')
     fi
 
-    if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
-        FALLBACK=v0.0.1-alpha1
-        if [[ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]]; then
-            info "GitHub Rate Limit exceeded, falling back to known good version"
-            VERSION=$FALLBACK
-        else
-            VERSION=$(curl --silent "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-            if [[ -z "$VERSION" ]]; then # Fall back to a known good fallback version because we had an error pulling the latest
-                info "Error contacting GitHub to retrieve the latest version"
-                VERSION=$FALLBACK
-            fi
+    if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
+        if [ -z "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" ]; then
+            fatal "No local binary location was specified"
         fi
-        CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-amd64" # eventually need to detect arch
+    else
+        if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
+            FALLBACK=v0.0.1-alpha1
+            if [[ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]]; then
+                info "GitHub Rate Limit exceeded, falling back to known good version"
+                VERSION=$FALLBACK
+            else
+                VERSION=$(curl --silent "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+                if [[ -z "$VERSION" ]]; then # Fall back to a known good fallback version because we had an error pulling the latest
+                    info "Error contacting GitHub to retrieve the latest version"
+                    VERSION=$FALLBACK
+                fi
+            fi
+            CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-amd64" # eventually need to detect arch
+        fi
     fi
 
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
@@ -242,9 +251,14 @@ EOF
 }
 
 download_rancher_agent() {
-    info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
-    curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
-    chmod +x /usr/bin/rancher-system-agent
+    if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
+        info "Using local rancher-system-agent binary from ${CATTLE_AGENT_BINARY_LOCAL_LOCATION}"
+        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/bin/rancher-system-agent
+    else
+        info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
+        curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+        chmod +x /usr/bin/rancher-system-agent
+    fi
 }
 
 check_x509_cert()

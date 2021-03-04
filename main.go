@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"github.com/rancher/system-agent/pkg/version"
 	"os"
 	"strings"
+
+	"github.com/rancher/system-agent/pkg/version"
 
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
@@ -21,7 +22,6 @@ func main() {
 
 	rawLevel := os.Getenv("CATTLE_LOGLEVEL")
 
-	logrus.Infof("Setting log level to %s", rawLevel)
 	if rawLevel != "" {
 		if lvl, err := logrus.ParseLevel(os.Getenv("CATTLE_LOGLEVEL")); err != nil {
 			logrus.Fatal(err)

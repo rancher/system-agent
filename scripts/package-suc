@@ -7,11 +7,12 @@ cd $(dirname $0)/..
 
 mkdir -p dist/artifacts
 cp bin/rancher-system-agent dist/artifacts/rancher-system-agent${SUFFIX}
+cp install.sh dist/artifacts/install.sh
 
-IMAGE=${REPO}/system-agent:${TAG}
-DOCKERFILE=package/Dockerfile
-if [ -e ${DOCKERFILE}.${ARCH} ]; then
-    DOCKERFILE=${DOCKERFILE}.${ARCH}
+IMAGE=${REPO}/system-agent:${TAG}-suc
+DOCKERFILE=package/Dockerfile.suc
+if [ -e ${DOCKERFILE}.suc.${ARCH} ]; then
+    DOCKERFILE=${DOCKERFILE}.suc.${ARCH}
 fi
 
 docker build -f ${DOCKERFILE} -t ${IMAGE} .

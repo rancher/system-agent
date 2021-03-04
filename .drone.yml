@@ -55,6 +55,25 @@ steps:
     event:
     - tag
 
+- name: docker-publish-suc
+  image: plugins/docker
+  settings:
+    dockerfile: package/Dockerfile.suc
+    password:
+      from_secret: docker_password
+    repo: "rancher/system-agent"
+    tag: "${DRONE_TAG}-suc"
+    username:
+      from_secret: docker_username
+  when:
+    instance:
+    - drone-publish.rancher.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+    event:
+    - tag
+
 volumes:
 - name: docker
   host:

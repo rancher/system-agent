@@ -12,7 +12,8 @@ cleanup() {
     rm -rf "/host${TMPDIR}"
 }
 
-cp /opt/rancher-agent-suc/install.sh "/host${TMPDIR}"
+cp /opt/rancher-system-agent-suc/install.sh "/host${TMPDIR}"
+cp /opt/rancher-system-agent-suc/rancher-system-agent "/host${TMPDIR}"
 chmod +x "/host${TMPDIR}/install.sh"
 
 cp /opt/sucenv/environment "/host${TMPDIR}/env"
@@ -24,6 +25,6 @@ EOF
 
 chmod +x /host${TMPDIR}/run-install.sh
 
-chroot /host /bin/sh -c "env TMPDIR=${TMPDIR} ${TMPDIR}/run-install.sh $@"
+chroot /host /bin/sh -c "env TMPDIR=${TMPDIR} CATTLE_AGENT_BINARY_LOCAL=true CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent ${TMPDIR}/run-install.sh $@"
 
 cleanup
