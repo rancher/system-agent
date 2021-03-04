@@ -99,8 +99,8 @@ func extract(imageName string, targetDir string, prefix string, reader io.Reader
 
 		targetName := filepath.Join(targetDir, filepath.Base(n))
 		//mode := h.FileInfo().Mode() & 0755
-		mode := os.ModePerm
-		f, err := os.OpenFile(targetName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode)
+		//mode := os.ModePerm
+		f, err := os.OpenFile(targetName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, h.FileInfo().Mode())
 		if err != nil {
 			return err
 		}
