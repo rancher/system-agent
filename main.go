@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/rancher/system-agent/pkg/version"
 	"os"
 	"strings"
 
@@ -13,11 +14,6 @@ import (
 
 	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"
-)
-
-var (
-	Version   = "v0.0.0-dev"
-	GitCommit = "HEAD"
 )
 
 func main() {
@@ -52,7 +48,7 @@ func isTrue(input string) bool {
 func run() error {
 	topContext := signals.SetupSignalHandler(context.Background())
 
-	logrus.Infof("Rancher System Agent version %s is starting", Version)
+	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
 	configFile := os.Getenv("CATTLE_AGENT_CONFIG")
 
