@@ -66,6 +66,7 @@ func (a *Applyinator) execute(ctx context.Context, directory string, instruction
 	cmd := exec.CommandContext(ctx, instruction.Command, instruction.Args...)
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = append(os.Environ(), instruction.Env...)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("CATTLE_TMP_WORKDIR=%s", directory))
 	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+directory)
 
 	stdout, err := cmd.StdoutPipe()
