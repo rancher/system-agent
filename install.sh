@@ -154,12 +154,12 @@ setup_env() {
     else
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
             FALLBACK=v0.0.1-alpha1
-            if [[ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]]; then
+            if [ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
                 info "GitHub Rate Limit exceeded, falling back to known good version"
                 VERSION=$FALLBACK
             else
                 VERSION=$(curl --silent "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-                if [[ -z "$VERSION" ]]; then # Fall back to a known good fallback version because we had an error pulling the latest
+                if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
                     info "Error contacting GitHub to retrieve the latest version"
                     VERSION=$FALLBACK
                 fi
