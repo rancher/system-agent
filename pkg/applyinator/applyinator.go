@@ -63,7 +63,14 @@ func (a *Applyinator) execute(ctx context.Context, workingDirectory string, inst
 		logrus.Errorf("error while staging: %v", err)
 		return err
 	}
-	cmd := exec.CommandContext(ctx, instruction.Command, instruction.Args...)
+
+	command := instruction.Command
+
+	if command == "" {
+		command = workingDirectory + "/run.sh"
+	}
+
+	cmd := exec.CommandContext(ctx, command, instruction.Args...)
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
@@ -89,7 +96,7 @@ func (a *Applyinator) execute(ctx context.Context, workingDirectory string, inst
 		return err
 	}
 
-	logrus.Infof("Done running command: %s %v", instruction.Command, instruction.Args)
+	logrus.Infof("Done running command: %s %v", command, instruction.Args)
 
 	return nil
 }
