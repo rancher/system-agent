@@ -55,10 +55,10 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error 
 	return nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, directory string, instruction types.Instruction) error {
+func (a *Applyinator) execute(ctx context.Context, workingDirectory string, instruction types.Instruction) error {
 
-	logrus.Infof("Extracting image %s to directory %s", instruction.Image, directory)
-	err := image.Stage(directory, instruction.Image, []byte(a.dockerConfig))
+	logrus.Infof("Extracting image %s to directory %s", instruction.Image, workingDirectory)
+	err := image.Stage(workingDirectory, instruction.Image, []byte(a.dockerConfig))
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
 		return err
@@ -67,8 +67,9 @@ func (a *Applyinator) execute(ctx context.Context, directory string, instruction
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("CATTLE_AGENT_EXECUTION_PWD=%s", directory))
-	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+directory)
+	cmd.Env = append(cmd.Env, fmt.Sprintf("CATTLE_AGENT_EXECUTION_PWD=%s", workingDirectory))
+	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+workingDirectory)
+	cmd.Dir = workingDirectory
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
