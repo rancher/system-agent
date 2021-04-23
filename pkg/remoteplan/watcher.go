@@ -65,12 +65,11 @@ func (w *watcher) start(ctx context.Context) {
 
 		secret = secret.DeepCopy()
 		logrus.Debugf("[remote] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
-
 		if planData, ok := secret.Data["plan"]; ok {
 			logrus.Tracef("[remote] Byte data: %v", planData)
 			var plan types.NodePlan
 			planString := string(planData)
-			logrus.Debugf("[remote] Plan string was %s", planString)
+			logrus.Tracef("[remote] Plan string was %s", planString)
 			err = w.parsePlan(planString, &plan)
 			if err != nil {
 				logrus.Errorf("error parsing plan from remote: %v", err)
@@ -96,8 +95,7 @@ func (w *watcher) start(ctx context.Context) {
 
 			err := w.applyinator.Apply(ctx, anp)
 			if err != nil {
-				logrus.Errorf("error applying plan: %v", err)
-				return secret, fmt.Errorf("error applying plan")
+				return secret, fmt.Errorf("error applying plan: %v", err)
 			}
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
 			secret.Data[appliedChecksumKey] = []byte(anp.Checksum)

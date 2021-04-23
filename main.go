@@ -65,7 +65,7 @@ func run() error {
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
 
-	applyinator := applyinator.NewApplyinator(cf.WorkDir, "")
+	applyinator := applyinator.NewApplyinator(cf.WorkDir, cf.PreserveWorkDir, cf.AppliedPlanDir, "")
 
 	if cf.RemoteEnabled {
 		logrus.Infof("Starting remote watch of plans")

@@ -86,7 +86,6 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 	}
 	sort.Strings(keys)
 
-	//var errs []error
 	for _, path := range keys {
 		if skipFile(files[path].Name(), skips) {
 			continue

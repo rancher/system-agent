@@ -11,14 +11,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func writeFile(path string, base64Content string) error {
-	if path == "" {
-		return fmt.Errorf("path was empty")
-	}
-
-	content, err := base64.StdEncoding.DecodeString(base64Content)
+func writeBase64ContentToFile(path string, base64EncodedContent string) error {
+	content, err := base64.StdEncoding.DecodeString(base64EncodedContent)
 	if err != nil {
 		return err
+	}
+	if err := writeContentToFile(path, content); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeContentToFile(path string, content []byte) error {
+	if path == "" {
+		return fmt.Errorf("path was empty")
 	}
 
 	existing, err := ioutil.ReadFile(path)

@@ -3,6 +3,7 @@ package applyinator
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/types"
@@ -17,48 +19,80 @@ import (
 )
 
 type Applyinator struct {
-	mu               *sync.Mutex
-	workingDirectory string
-	dockerConfig     string
+	mu              *sync.Mutex
+	workDir         string
+	dockerConfig    string
+	preserveWorkDir bool
+	appliedPlanDir  string
 }
 
-func NewApplyinator(workingDirectory string, dockerConfig string) *Applyinator {
+const appliedPlanFileSuffix = "-applied.plan"
+const applyinatorDateCodeLayout = "20060102-150405"
+const defaultCommand = "/run.sh"
+
+func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, dockerConfig string) *Applyinator {
 	return &Applyinator{
-		mu:               &sync.Mutex{},
-		workingDirectory: workingDirectory,
-		dockerConfig:     dockerConfig,
+		mu:              &sync.Mutex{},
+		workDir:         workDir,
+		dockerConfig:    dockerConfig,
+		preserveWorkDir: preserveWorkDir,
+		appliedPlanDir:  appliedPlanDir,
 	}
 }
 
 func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error {
-	logrus.Debugf("Attempting to get lock")
+	logrus.Infof("Applying plan with checksum %s", anp.Checksum)
+	logrus.Tracef("Applying plan - attempting to get lock")
 	a.mu.Lock()
-	logrus.Debugf("Lock achieved")
+	logrus.Tracef("Applying plan - lock achieved")
 	defer a.mu.Unlock()
-	logrus.Debugf("Applying plan %v", anp)
-
-	for _, file := range anp.Plan.Files {
-		path := filepath.Join(file.Path, file.Name)
-		logrus.Debugf("Writing file %s to %s", file.Name, file.Path)
-		if err := writeFile(path, file.Content); err != nil {
+	now := time.Now().Format(applyinatorDateCodeLayout)
+	executionDir := filepath.Join(a.workDir, now+appliedPlanFileSuffix)
+	logrus.Tracef("Applying plan contents %v", anp)
+	logrus.Tracef("Using %s as execution directory", executionDir)
+	if a.appliedPlanDir != "" {
+		logrus.Debugf("Writing applied plan contents to historical plan directory %s", a.appliedPlanDir)
+		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0755); err != nil {
+			return err
+		}
+		anpString, err := json.Marshal(anp)
+		if err != nil {
+			return err
+		}
+		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, now), anpString); err != nil {
 			return err
 		}
 	}
 
-	checksum := anp.Checksum
+	for _, file := range anp.Plan.Files {
+		path := filepath.Join(file.Path, file.Name)
+		logrus.Debugf("Writing file %s to %s", file.Name, file.Path)
+		if err := writeBase64ContentToFile(path, file.Content); err != nil {
+			return err
+		}
+	}
+
+	if !a.preserveWorkDir {
+		logrus.Debugf("Cleaning working directory before applying %s", a.workDir)
+		if err := os.RemoveAll(a.workDir); err != nil {
+			return err
+		}
+	}
+
 	for index, instruction := range anp.Plan.Instructions {
-		directory := filepath.Join(a.workingDirectory, checksum+"_"+strconv.Itoa(index))
-		if err := a.execute(ctx, directory, instruction); err != nil {
-			return fmt.Errorf("error executing instruction: %v", err)
+		logrus.Debugf("Executing instruction %d for plan %s", index, anp.Checksum)
+		executionInstructionDir := filepath.Join(executionDir, anp.Checksum+"_"+strconv.Itoa(index))
+		if err := a.execute(ctx, executionInstructionDir, instruction); err != nil {
+			return fmt.Errorf("error executing instruction %d: %v", index, err)
 		}
 	}
 	return nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, workingDirectory string, instruction types.Instruction) error {
+func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction types.Instruction) error {
 
-	logrus.Infof("Extracting image %s to directory %s", instruction.Image, workingDirectory)
-	err := image.Stage(workingDirectory, instruction.Image, []byte(a.dockerConfig))
+	logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
+	err := image.Stage(executionDir, instruction.Image, []byte(a.dockerConfig))
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
 		return err
@@ -67,16 +101,17 @@ func (a *Applyinator) execute(ctx context.Context, workingDirectory string, inst
 	command := instruction.Command
 
 	if command == "" {
-		command = workingDirectory + "/run.sh"
+		logrus.Debugf("Command was not specified, defaulting to %s%s", executionDir, defaultCommand)
+		command = executionDir + defaultCommand
 	}
 
 	cmd := exec.CommandContext(ctx, command, instruction.Args...)
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("CATTLE_AGENT_EXECUTION_PWD=%s", workingDirectory))
-	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+workingDirectory)
-	cmd.Dir = workingDirectory
+	cmd.Env = append(cmd.Env, fmt.Sprintf("CATTLE_AGENT_EXECUTION_PWD=%s", executionDir))
+	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+executionDir)
+	cmd.Dir = executionDir
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

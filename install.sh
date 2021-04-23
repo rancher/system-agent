@@ -13,35 +13,27 @@ fi
 #
 
 # Environment variables:
-#
-#   - CATTLE_SERVER
-#   - CATTLE_TOKEN
-#   - CATTLE_CA_CHECKSUM
-#
-#   - CATTLE_AGENT_LOGLEVEL
+#   System Agent Variables
+#   - CATTLE_AGENT_LOGLEVEL (default: debug)
 #   - CATTLE_AGENT_CONFIG_DIR (default: /etc/rancher/agent)
 #   - CATTLE_AGENT_VAR_DIR (default: /var/lib/rancher/agent)
 #
-#CATTLE_AGENT_LOGLEVEL=debug
-#CATTLE_AGENT_CONFIG_DIR=/etc/rancher/agent
-#CATTLE_AGENT_VAR_DIR=
-#CATTLE_ROLE_CONTROLPLANE=false
-#CATTLE_ROLE_ETCD=false
-#CATTLE_ROLE_WORKER=false
-#CATTLE_AGENT_BINARY_URL=https://github.com/Oats87/rancher-agent/releases/download/v0.0.2/rancher-agent
-#CATTLE_CA_CHECKSUM=
-#CATTLE_REMOTE_ENABLED=true // defaults to true
-#CATTLE_SERVER=
-#CATTLE_TOKEN=
+#   Rancher 2.6+ Variables
+#   - CATTLE_SERVER
+#   - CATTLE_TOKEN
+#   - CATTLE_CA_CHECKSUM
+#   - CATTLE_ROLE_CONTROLPLANE=false
+#   - CATTLE_ROLE_ETCD=false
+#   - CATTLE_ROLE_WORKER=false
+#   - CATTLE_LABELS
+#   - CATTLE_TAINTS
 #
-#CATTLE_LABELS=
-#CATTLE_TAINTS=
-#
-#CATTLE_ID
-#CATTLE_AGENT_BINARY_URL
-#
-#CATTLE_AGENT_BINARY_LOCAL
-#CATTLE_AGENT_BINARY_LOCAL_LOCATION
+#   Advanced Environment Variables
+#   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
+#   - CATTLE_REMOTE_ENABLED=true (default: true)
+#   - CATTLE_ID (default: autogenerate)
+#   - CATTLE_AGENT_BINARY_LOCAL (default: false)
+#   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
 
 CACERTS_PATH=cacerts
 
