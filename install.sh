@@ -316,6 +316,7 @@ workDirectory: ${CATTLE_AGENT_VAR_DIR}/work
 localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
 appliedPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/applied
 remoteEnabled: ${CATTLE_REMOTE_ENABLED}
+preserveWorkDirectory: ${CATTLE_PRESERVE_WORKDIR}
 EOF
 
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
