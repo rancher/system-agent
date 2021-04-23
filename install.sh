@@ -30,7 +30,8 @@ fi
 #
 #   Advanced Environment Variables
 #   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
-#   - CATTLE_REMOTE_ENABLED=true (default: true)
+#   - CATTLE_PRESERVE_WORKDIR (default: false)
+#   - CATTLE_REMOTE_ENABLED (default: true)
 #   - CATTLE_ID (default: autogenerate)
 #   - CATTLE_AGENT_BINARY_LOCAL (default: false)
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
@@ -131,6 +132,12 @@ setup_env() {
         CATTLE_REMOTE_ENABLED=true
     else
         CATTLE_REMOTE_ENABLED=$(echo "${CATTLE_REMOTE_ENABLED}" | tr '[:upper:]' '[:lower:]')
+    fi
+
+    if [ -z "${CATTLE_PRESERVE_WORKDIR}" ]; then
+        CATTLE_PRESERVE_WORKDIR=false
+    else
+        CATTLE_PRESERVE_WORKDIR=$(echo "${CATTLE_PRESERVE_WORKDIR}" | tr '[:upper:]' '[:lower:]')
     fi
 
     if [ -z "${CATTLE_AGENT_LOGLEVEL}" ]; then
@@ -307,6 +314,7 @@ generate_config() {
 cat <<-EOF >"${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
 workDirectory: ${CATTLE_AGENT_VAR_DIR}/work
 localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
+appliedPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/applied
 remoteEnabled: ${CATTLE_REMOTE_ENABLED}
 EOF
 
