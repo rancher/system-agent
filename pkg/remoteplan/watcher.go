@@ -20,6 +20,7 @@ import (
 )
 
 const appliedChecksumKey = "applied-checksum"
+const appliedOutputKey = "applied-output"
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) error {
 	w := &watcher{
@@ -93,12 +94,13 @@ func (w *watcher) start(ctx context.Context) {
 
 			logrus.Debugf("[remote] Calling Applyinator to apply the plan")
 
-			err := w.applyinator.Apply(ctx, anp)
+			output, err := w.applyinator.Apply(ctx, anp)
 			if err != nil {
 				return secret, fmt.Errorf("error applying plan: %v", err)
 			}
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
 			secret.Data[appliedChecksumKey] = []byte(anp.Checksum)
+			secret.Data[appliedOutputKey] = output
 			logrus.Debugf("[remote] writing an applied checksum value of %s to the remote plan", anp.Checksum)
 			return core.Secret().Update(secret)
 		}

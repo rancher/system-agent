@@ -2,17 +2,22 @@ package types
 
 type Instruction struct {
 	Name    string   `json:"name,omitempty"`
+	SaveOutput bool `json:"saveOutput,omitempty"`
 	Image   string   `json:"image,omitempty"`
 	Env     []string `json:"env,omitempty"`
 	Args    []string `json:"args,omitempty"`
 	Command string   `json:"command,omitempty"`
 }
 
-// Name would be `ca.pem`, Path would be `/etc/kubernetes/ssl`, Contents is base64 encoded
+// Path would be `/etc/kubernetes/ssl/ca.pem`, Content is base64 encoded.
+// If Directory is true, then we are creating a directory, not a file
 type File struct {
 	Content string `json:"content,omitempty"`
-	Name    string `json:"name,omitempty"`
+	Directory bool `json:"directory,omitempty"`
+	UID int `json:"uid,omitempty"`
+	GID int `json:"gid,omitempty"`
 	Path    string `json:"path,omitempty"`
+	Permissions string `json:"permissions,omitempty"` // internally, the string will be converted to a uint32 to satisfy os.FileMode
 }
 
 type NodePlan struct {
@@ -20,8 +25,10 @@ type NodePlan struct {
 	Instructions []Instruction `json:"instructions,omitempty"`
 }
 
+// stdout and stderr are both base64, gzipped
 type NodePlanPosition struct {
 	AppliedChecksum string `json:"appliedChecksum,omitempty"`
+	Output []byte `json:"output",omitempty"`
 }
 
 type AgentNodePlan struct {

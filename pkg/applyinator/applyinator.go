@@ -2,6 +2,8 @@ package applyinator
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,6 +31,7 @@ type Applyinator struct {
 const appliedPlanFileSuffix = "-applied.plan"
 const applyinatorDateCodeLayout = "20060102-150405"
 const defaultCommand = "/run.sh"
+const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
 
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, dockerConfig string) *Applyinator {
 	return &Applyinator{
@@ -40,7 +43,7 @@ func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string,
 	}
 }
 
-func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error {
+func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byte, error) {
 	logrus.Infof("Applying plan with checksum %s", anp.Checksum)
 	logrus.Tracef("Applying plan - attempting to get lock")
 	a.mu.Lock()
@@ -53,49 +56,74 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) error 
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("Writing applied plan contents to historical plan directory %s", a.appliedPlanDir)
 		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0755); err != nil {
-			return err
+			return nil, err
 		}
 		anpString, err := json.Marshal(anp)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, now), anpString); err != nil {
-			return err
+		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, now), os.Getuid(), os.Getgid(), 0600, anpString); err != nil {
+			return nil, err
 		}
 	}
 
 	for _, file := range anp.Plan.Files {
-		path := filepath.Join(file.Path, file.Name)
-		logrus.Debugf("Writing file %s to %s", file.Name, file.Path)
-		if err := writeBase64ContentToFile(path, file.Content); err != nil {
-			return err
+		if file.Directory {
+			logrus.Debugf("Creating directory %s", file.Path)
+			if err := createDirectory(file); err != nil {
+				return nil, err
+			}
+		} else {
+			logrus.Debugf("Writing file %s", file.Path)
+			if err := writeBase64ContentToFile(file); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	if !a.preserveWorkDir {
 		logrus.Debugf("Cleaning working directory before applying %s", a.workDir)
 		if err := os.RemoveAll(a.workDir); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
+	executionOutputs := make(map[string][]byte)
 	for index, instruction := range anp.Plan.Instructions {
 		logrus.Debugf("Executing instruction %d for plan %s", index, anp.Checksum)
 		executionInstructionDir := filepath.Join(executionDir, anp.Checksum+"_"+strconv.Itoa(index))
-		if err := a.execute(ctx, executionInstructionDir, instruction); err != nil {
-			return fmt.Errorf("error executing instruction %d: %v", index, err)
+		if output, err := a.execute(ctx, executionInstructionDir, instruction); err != nil {
+			return nil, fmt.Errorf("error executing instruction %d: %v", index, err)
+		} else {
+			if instruction.Name == "" {
+				logrus.Errorf("instruction does not have a name set, cannot save output data")
+			} else {
+				executionOutputs[instruction.Name] = output
+			}
 		}
 	}
-	return nil
+
+	var gzOutput bytes.Buffer
+
+	gzWriter := gzip.NewWriter(&gzOutput)
+
+	if marshalledExecutionOutputs, err := json.Marshal(executionOutputs); err != nil {
+		return nil, err
+	} else {
+		gzWriter.Write(marshalledExecutionOutputs)
+		if err := gzWriter.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return gzOutput.Bytes(), nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction types.Instruction) error {
-
+func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction types.Instruction) ([]byte, error) {
 	logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
 	err := image.Stage(executionDir, instruction.Image, []byte(a.dockerConfig))
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
-		return err
+		return nil, err
 	}
 
 	command := instruction.Command
@@ -109,37 +137,48 @@ func (a *Applyinator) execute(ctx context.Context, executionDir string, instruct
 	logrus.Infof("Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("CATTLE_AGENT_EXECUTION_PWD=%s", executionDir))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", cattleAgentExecutionPwdEnvKey, executionDir))
 	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+executionDir)
 	cmd.Dir = executionDir
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		logrus.Errorf("Error running command: %v", err)
-		return err
+		logrus.Errorf("error running command: %v", err)
+		return nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		logrus.Errorf("Error running command: %v", err)
-		return err
+		logrus.Errorf("error running command: %v", err)
+		return nil, err
 	}
 
-	go streamLogs("[stdout]", stdout)
-	go streamLogs("[stderr]", stderr)
+	defer stdout.Close()
+	defer stderr.Close()
 
-	if err := cmd.Run(); err != nil {
-		return err
+	var logMu sync.Mutex
+	output := make([]byte, 0)
+
+	go streamLogs("[stdout]", &logMu, &output, stdout)
+	go streamLogs("[stderr]", &logMu, &output, stderr)
+
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
 
-	logrus.Infof("Done running command: %s %v", command, instruction.Args)
+	if err := cmd.Wait(); err != nil {
+		return output, err
+	}
 
-	return nil
+	return output, nil
 }
 
-func streamLogs(prefix string, reader io.Reader) {
+func streamLogs(prefix string, mutex *sync.Mutex, output *[]byte, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		logrus.Infof("%s: %s", prefix, scanner.Text())
+		mutex.Lock()
+		*output = append(*output, scanner.Bytes()...)
+		*output = append(*output, []byte("\n")...)
+		mutex.Unlock()
 	}
-
 }

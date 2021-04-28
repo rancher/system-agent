@@ -114,12 +114,13 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			continue
 		}
 
-		if err := w.applyinator.Apply(ctx, anp); err != nil {
+		output, err := w.applyinator.Apply(ctx, anp)
+		if err != nil {
 			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 			continue
 		}
 
-		if err := w.writePosition(path, anp); err != nil {
+		if err := w.writePosition(path, anp, output); err != nil {
 			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
 		}
 	}
@@ -185,7 +186,7 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 
 }
 
-func (w *watcher) writePosition(file string, anp types.AgentNodePlan) error {
+func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []byte) error {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Create(positionFile)
 	if err != nil {
@@ -196,7 +197,7 @@ func (w *watcher) writePosition(file string, anp types.AgentNodePlan) error {
 
 	var npp types.NodePlanPosition
 	npp.AppliedChecksum = anp.Checksum
-
+	npp.Output = output
 	return json.NewEncoder(f).Encode(npp)
 }
 
