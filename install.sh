@@ -29,6 +29,7 @@ fi
 #   - CATTLE_TAINTS
 #
 #   Advanced Environment Variables
+#   - CATTLE_AGENT_BINARY_BASE_URL (default: latest GitHub release)
 #   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
 #   - CATTLE_PRESERVE_WORKDIR (default: false)
 #   - CATTLE_REMOTE_ENABLED (default: true)
@@ -151,6 +152,15 @@ setup_env() {
             fatal "No local binary location was specified"
         fi
     else
+        if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -z "${CATTLE_AGENT_BINARY_BASE_URL}" ] && [ -n "${CATTLE_SERVER}" ]; then
+        # We want to pull the agent from Rancher. So set `CATTLE_AGENT_BINARY_BASE_URL to CATTLE_SERVER/assets/
+        CATTLE_AGENT_BINARY_BASE_URL="${CATTLE_SERVER}/assets"
+        fi
+
+        if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
+        CATTLE_AGENT_BINARY_URL="${CATTLE_AGENT_BINARY_BASE_URL}/rancher-system-agent-${ARCH}"
+        fi
+
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
             FALLBACK=v0.0.1-alpha1
             if [ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
@@ -163,7 +173,7 @@ setup_env() {
                     VERSION=$FALLBACK
                 fi
             fi
-            CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-amd64" # eventually need to detect arch
+            CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-${ARCH}"
         fi
     fi
 
@@ -206,6 +216,18 @@ setup_arch() {
         ARCH=amd64
         SUFFIX=$(uname -s | tr '[:upper:]' '[:lower:]')-${ARCH}
         ;;
+    arm64)
+        ARCH=arm64
+        SUFFIX=-${ARCH}
+        ;;
+    aarch64)
+        ARCH=arm64
+        SUFFIX=-${ARCH}
+        ;;
+    arm*)
+        ARCH=arm
+        SUFFIX=-${ARCH}hf
+        ;;
     *)
         fatal "unsupported architecture ${ARCH}"
         ;;
@@ -240,6 +262,9 @@ After=network-online.target
 [Install]
 WantedBy=multi-user.target
 [Service]
+EnvironmentFile=-/etc/default/rancher-system-agent
+EnvironmentFile=-/etc/sysconfig/rancher-system-agent
+EnvironmentFile=-/etc/systemd/system/rancher-system-agent.env
 Type=simple
 Restart=always
 RestartSec=5s
@@ -348,11 +373,20 @@ ensure_systemd_service_stopped() {
     fi
 }
 
+create_env_file() {
+    FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
+    info "Creating environment file ${FILE_SA_ENV}"
+    UMASK=$(umask)
+    umask 0377
+    env | egrep -i '^(NO|HTTP|HTTPS)_PROXY' | tee -a ${FILE_SA_ENV} >/dev/null
+    umask $UMASK
+}
+
 do_install() {
     parse_args $@
+    setup_arch
     setup_env
     ensure_directories
-    setup_arch
     verify_downloader curl || fatal "can not find curl for downloading files"
 
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
@@ -370,9 +404,10 @@ do_install() {
         retrieve_connection_info # Only retrieve connection information from Rancher if a token was passed in.
     fi
     create_systemd_service_file
+    create_env_file
+    systemctl daemon-reload >/dev/null
     info "Enabling rancher-system-agent.service"
     systemctl enable rancher-system-agent
-    systemctl daemon-reload >/dev/null
     info "Starting/restarting rancher-system-agent.service"
     systemctl restart rancher-system-agent
 }

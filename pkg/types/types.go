@@ -28,7 +28,7 @@ type NodePlan struct {
 // stdout and stderr are both base64, gzipped
 type NodePlanPosition struct {
 	AppliedChecksum string `json:"appliedChecksum,omitempty"`
-	Output          []byte `json:"output",omitempty"`
+	Output          []byte `json:"output,omitempty"`
 }
 
 type AgentNodePlan struct {
