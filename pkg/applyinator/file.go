@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"github.com/rancher/system-agent/pkg/types"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/rancher/system-agent/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 const defaultDirectoryPermissions os.FileMode = 0755
