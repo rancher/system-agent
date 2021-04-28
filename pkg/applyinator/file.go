@@ -26,11 +26,11 @@ func writeBase64ContentToFile(file types.File) error {
 		logrus.Debugf("requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
 		fileMode = defaultFilePermissions
 	} else {
-		if parsedPerm, err := parsePerm(file.Permissions); err != nil {
+		parsedPerm, err := parsePerm(file.Permissions)
+		if err != nil {
 			return err
-		} else {
-			fileMode = parsedPerm
 		}
+		fileMode = parsedPerm
 	}
 	return writeContentToFile(file.Path, file.UID, file.GID, fileMode, content)
 }
@@ -64,11 +64,11 @@ func createDirectory(file types.File) error {
 		logrus.Debugf("requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
 		fileMode = defaultDirectoryPermissions
 	} else {
-		if parsedPerm, err := parsePerm(file.Permissions); err != nil {
+		parsedPerm, err := parsePerm(file.Permissions)
+		if err != nil {
 			return err
-		} else {
-			fileMode = parsedPerm
 		}
+		fileMode = parsedPerm
 	}
 
 	if err := os.MkdirAll(file.Path, fileMode); err != nil {
@@ -79,11 +79,11 @@ func createDirectory(file types.File) error {
 }
 
 func parsePerm(perm string) (os.FileMode, error) {
-	if parsedPerm, err := strconv.ParseInt(perm, 8, 32); err != nil {
+	parsedPerm, err := strconv.ParseInt(perm, 8, 32)
+	if err != nil {
 		return defaultFilePermissions, err
-	} else {
-		return os.FileMode(parsedPerm), nil
 	}
+	return os.FileMode(parsedPerm), nil
 }
 
 func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {

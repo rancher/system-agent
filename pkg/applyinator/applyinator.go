@@ -92,14 +92,14 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 	for index, instruction := range anp.Plan.Instructions {
 		logrus.Debugf("Executing instruction %d for plan %s", index, anp.Checksum)
 		executionInstructionDir := filepath.Join(executionDir, anp.Checksum+"_"+strconv.Itoa(index))
-		if output, err := a.execute(ctx, executionInstructionDir, instruction); err != nil {
+		output, err := a.execute(ctx, executionInstructionDir, instruction)
+		if err != nil {
 			return nil, fmt.Errorf("error executing instruction %d: %v", index, err)
+		}
+		if instruction.Name == "" {
+			logrus.Errorf("instruction does not have a name set, cannot save output data")
 		} else {
-			if instruction.Name == "" {
-				logrus.Errorf("instruction does not have a name set, cannot save output data")
-			} else {
-				executionOutputs[instruction.Name] = output
-			}
+			executionOutputs[instruction.Name] = output
 		}
 	}
 
@@ -107,13 +107,13 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 
 	gzWriter := gzip.NewWriter(&gzOutput)
 
-	if marshalledExecutionOutputs, err := json.Marshal(executionOutputs); err != nil {
+	marshalledExecutionOutputs, err := json.Marshal(executionOutputs)
+	if err != nil {
 		return nil, err
-	} else {
-		gzWriter.Write(marshalledExecutionOutputs)
-		if err := gzWriter.Close(); err != nil {
-			return nil, err
-		}
+	}
+	gzWriter.Write(marshalledExecutionOutputs)
+	if err := gzWriter.Close(); err != nil {
+		return nil, err
 	}
 	return gzOutput.Bytes(), nil
 }
