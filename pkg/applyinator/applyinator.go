@@ -143,42 +143,38 @@ func (a *Applyinator) execute(ctx context.Context, executionDir string, instruct
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		logrus.Errorf("error running command: %v", err)
+		logrus.Errorf("error setting up stdout pipe: %v", err)
 		return nil, err
 	}
+	defer stdout.Close()
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		logrus.Errorf("error running command: %v", err)
+		logrus.Errorf("error setting up stderr pipe: %v", err)
 		return nil, err
 	}
-
-	defer stdout.Close()
 	defer stderr.Close()
 
-	var logMu sync.Mutex
-	output := make([]byte, 0)
+	var outputBuffer bytes.Buffer
 
-	go streamLogs("[stdout]", &logMu, &output, stdout)
-	go streamLogs("[stderr]", &logMu, &output, stderr)
+	go streamLogs("[stdout]", &outputBuffer, stdout)
+	go streamLogs("[stderr]", &outputBuffer, stderr)
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return output, err
+		return outputBuffer.Bytes(), err
 	}
 
-	return output, nil
+	return outputBuffer.Bytes(), nil
 }
 
-func streamLogs(prefix string, mutex *sync.Mutex, output *[]byte, reader io.Reader) {
+func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		logrus.Infof("%s: %s", prefix, scanner.Text())
-		mutex.Lock()
-		*output = append(*output, scanner.Bytes()...)
-		*output = append(*output, []byte("\n")...)
-		mutex.Unlock()
+		outputBuffer.Write(append(scanner.Bytes(), []byte("\n")...))
 	}
 }
