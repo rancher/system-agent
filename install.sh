@@ -109,6 +109,10 @@ parse_args() {
                 CATTLE_TOKEN="$2"
 		shift 2
                 ;;
+            "--ca-checksum")
+                CATTLE_CA_CHECKSUM="$2"
+        shift 2
+                ;;
             *)
                 fatal "Unknown argument passed in ($1)"
                 ;;
