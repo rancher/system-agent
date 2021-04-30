@@ -281,7 +281,11 @@ download_rancher_agent() {
         cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/bin/rancher-system-agent
     else
         info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
-        curl -sfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+        if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
+            curl -vfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+        else
+            curl -kvfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+        fi
         chmod +x /usr/bin/rancher-system-agent
     fi
 }
