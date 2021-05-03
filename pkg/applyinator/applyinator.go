@@ -96,7 +96,7 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 		if err != nil {
 			return nil, fmt.Errorf("error executing instruction %d: %v", index, err)
 		}
-		if instruction.Name == "" {
+		if instruction.Name == "" && instruction.SaveOutput {
 			logrus.Errorf("instruction does not have a name set, cannot save output data")
 		} else {
 			executionOutputs[instruction.Name] = output
