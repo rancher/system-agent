@@ -3,6 +3,7 @@ package image
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -17,8 +18,16 @@ import (
 
 const imagesDir string = "/var/lib/rancher/agent/images"
 const cacheDir string = "/var/lib/rancher/agent/cache"
+const rke2RegistriesFile = "/etc/rancher/rke2/registries.yaml"
+const k3sRegistriesFile = "/etc/rancher/k3s/registries.yaml"
+const agentRegistriesFile = "/etc/rancher/agent/registries.yaml"
 
-func Stage(destDir string, imgString string, dockerConfigJson []byte) error {
+func Stage(destDir string, imgString string) error {
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return err
+	}
+
 	var img v1.Image
 	image, err := name.ParseReference(imgString)
 	if err != nil {
@@ -37,7 +46,7 @@ func Stage(destDir string, imgString string, dockerConfigJson []byte) error {
 	img = i
 
 	if img == nil {
-		registry, err := registries.GetPrivateRegistries("")
+		registry, err := registries.GetPrivateRegistries(findRegistriesYaml())
 
 		if err != nil {
 			return err
@@ -52,4 +61,17 @@ func Stage(destDir string, imgString string, dockerConfigJson []byte) error {
 	}
 
 	return extract.Extract(img, destDir)
+}
+
+func findRegistriesYaml() string {
+	if _, err := os.Stat(agentRegistriesFile); err == nil {
+		return agentRegistriesFile
+	}
+	if _, err := os.Stat(rke2RegistriesFile); err == nil {
+		return rke2RegistriesFile
+	}
+	if _, err := os.Stat(k3sRegistriesFile); err == nil {
+		return k3sRegistriesFile
+	}
+	return ""
 }

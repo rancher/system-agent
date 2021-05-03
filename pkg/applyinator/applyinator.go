@@ -23,7 +23,6 @@ import (
 type Applyinator struct {
 	mu              *sync.Mutex
 	workDir         string
-	dockerConfig    string
 	preserveWorkDir bool
 	appliedPlanDir  string
 }
@@ -33,11 +32,10 @@ const applyinatorDateCodeLayout = "20060102-150405"
 const defaultCommand = "/run.sh"
 const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
 
-func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, dockerConfig string) *Applyinator {
+func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string) *Applyinator {
 	return &Applyinator{
 		mu:              &sync.Mutex{},
 		workDir:         workDir,
-		dockerConfig:    dockerConfig,
 		preserveWorkDir: preserveWorkDir,
 		appliedPlanDir:  appliedPlanDir,
 	}
@@ -120,7 +118,7 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 
 func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction types.Instruction) ([]byte, error) {
 	logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
-	err := image.Stage(executionDir, instruction.Image, []byte(a.dockerConfig))
+	err := image.Stage(executionDir, instruction.Image)
 	if err != nil {
 		logrus.Errorf("error while staging: %v", err)
 		return nil, err
