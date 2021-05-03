@@ -17,7 +17,6 @@ import (
 )
 
 const imagesDir string = "/var/lib/rancher/agent/images"
-const cacheDir string = "/var/lib/rancher/agent/cache"
 const rke2RegistriesFile = "/etc/rancher/rke2/registries.yaml"
 const k3sRegistriesFile = "/etc/rancher/k3s/registries.yaml"
 const agentRegistriesFile = "/etc/rancher/agent/registries.yaml"
