@@ -156,13 +156,8 @@ setup_env() {
             fatal "No local binary location was specified"
         fi
     else
-        if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -z "${CATTLE_AGENT_BINARY_BASE_URL}" ] && [ -n "${CATTLE_SERVER}" ]; then
-        # We want to pull the agent from Rancher. So set `CATTLE_AGENT_BINARY_BASE_URL to CATTLE_SERVER/assets/
-        CATTLE_AGENT_BINARY_BASE_URL="${CATTLE_SERVER}/assets"
-        fi
-
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
-        CATTLE_AGENT_BINARY_URL="${CATTLE_AGENT_BINARY_BASE_URL}/rancher-system-agent-${ARCH}"
+            CATTLE_AGENT_BINARY_URL="${CATTLE_AGENT_BINARY_BASE_URL}/rancher-system-agent-${ARCH}"
         fi
 
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
