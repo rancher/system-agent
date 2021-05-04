@@ -1,9 +1,10 @@
 #!/bin/sh
 
-set -e
-
 if [ "${DEBUG}" = 1 ]; then
     set -x
+    CURL_LOG="-v"
+else
+    CURL_LOG="-s"
 fi
 
 # Usage:
@@ -56,10 +57,7 @@ error() {
 
 # fatal logs the given argument at fatal log level.
 fatal() {
-    echo "[ERROR] " "$@" >&2
-    if [ -n "${SUFFIX}" ]; then
-        echo "[ALT] Fill me in" >&2
-    fi
+    echo "[FATAL] " "$@" >&2
     exit 1
 }
 
@@ -69,17 +67,17 @@ parse_args() {
     while [ $# -gt 0 ]; do	
         case "$1" in
             "--controlplane")
-                info "Control plane node"
+                info "Role requested: controlplane"
                 CATTLE_ROLE_CONTROLPLANE=true
 		shift 1
                 ;;
             "--etcd")
-                info "etcd node"
+                info "Role requested: etcd"
                 CATTLE_ROLE_ETCD=true
 		shift 1
                 ;;
             "--worker")
-                info "worker node"
+                info "Role requested: worker"
                 CATTLE_ROLE_WORKER=true
 		shift 1
                 ;;
@@ -155,7 +153,9 @@ setup_env() {
         if [ -z "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" ]; then
             fatal "No local binary location was specified"
         fi
+        BINARY_SOURCE=local
     else
+        BINARY_SOURCE=remote
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
             CATTLE_AGENT_BINARY_URL="${CATTLE_AGENT_BINARY_BASE_URL}/rancher-system-agent-${ARCH}"
         fi
@@ -173,16 +173,19 @@ setup_env() {
                 fi
             fi
             CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-${ARCH}"
+            BINARY_SOURCE=upstream
         fi
     fi
 
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         if [ -z "${CATTLE_TOKEN}" ]; then
-            info "\$CATTLE_TOKEN was not set. Will not retrieve a remote connection configuration from Rancher2."
-        else
-            if [ -z "${CATTLE_SERVER}" ]; then
-                fatal "\$CATTLE_SERVER was not set"
-            fi
+            fatal "\$CATTLE_TOKEN was not set."
+        fi
+        if [ -z "${CATTLE_SERVER}" ]; then
+            fatal "\$CATTLE_SERVER was not set"
+        fi
+        if [ "${CATTLE_ROLE_CONTROLPLANE}" = "false" ] && [ "${CATTLE_ROLE_ETCD}" = "false" ] && [ "${CATTLE_ROLE_WORKER}" = "false" ]; then
+            fatal "You must select at least one role."
         fi
     fi
 
@@ -279,11 +282,30 @@ download_rancher_agent() {
         cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/bin/rancher-system-agent
     else
         info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
-        if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
-            curl -vfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+        if [ "${BINARY_SOURCE}" != "upstream" ]; then
+            CURL_BIN_CAFLAG="${CURL_CAFLAG}"
         else
-            curl -kvfL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent
+            CURL_BIN_CAFLAG=""
         fi
+        i=1
+        while [ "${i}" -ne 10 ]; do
+            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_BIN_CAFLAG $CURL_LOG -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
+            case "${RESPONSE}" in
+            200)
+                info "Successfully downloaded the rancher-system-agent binary."
+                break
+                ;;
+            000)
+                fatal "There was a fatal error downloading the rancher-system-agent binary."
+                ;;
+            *)
+                i=$i+1
+                info "$RESPONSE received while downloading the rancher-system-agent binary. Sleeping for 5 seconds and trying again"
+                sleep 5
+                continue
+                ;;
+            esac
+        done
         chmod +x /usr/bin/rancher-system-agent
     fi
 }
@@ -302,38 +324,72 @@ check_x509_cert()
 
 validate_ca_checksum() {
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
-        temp=$(mktemp)
-        curl --insecure -s -fL ${CATTLE_SERVER}/${CACERTS_PATH} > $temp
-        if [ ! -s $temp ]; then
+        CACERT=$(mktemp)
+        i=1
+        while [ "${i}" -ne 10 ]; do
+            RESPONSE=$(curl --write-out "%{http_code}\n" --insecure $CURL_LOG -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o $CACERT)
+            case "${RESPONSE}" in
+            200)
+                info "Successfully downloaded CA certificate"
+                break
+                ;;
+            000)
+                fatal "There was an error downloading CA certificate from Rancher"
+                ;;
+            *)
+                i=$i+1
+                info "$RESPONSE received while downloading the CA certificate. Sleeping for 5 seconds and trying again"
+                sleep 5
+                continue
+                ;;
+            esac
+        done
+        if [ ! -s $CACERT ]; then
           error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${CATTLE_SERVER}/${CACERTS_PATH}"
           exit 1
         fi
-        err=$(check_x509_cert $temp)
+        err=$(check_x509_cert $CACERT)
         if [ -n "${err}" ]; then
             error "Value from ${CATTLE_SERVER}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
             error "Retrieved cacerts:"
-            cat $temp
+            cat $CACERT
+            rm -f $CACERT
             exit 1
         else
             info "Value from ${CATTLE_SERVER}/${CACERTS_PATH} is an x509 certificate"
         fi
-        CATTLE_SERVER_CHECKSUM=$(sha256sum $temp | awk '{print $1}')
+        CATTLE_SERVER_CHECKSUM=$(sha256sum $CACERT | awk '{print $1}')
         if [ $CATTLE_SERVER_CHECKSUM != $CATTLE_CA_CHECKSUM ]; then
-            rm -f $temp
+            rm -f $CACERT
             error "Configured cacerts checksum ($CATTLE_SERVER_CHECKSUM) does not match given --ca-checksum ($CATTLE_CA_CHECKSUM)"
             error "Please check if the correct certificate is configured at${CATTLE_SERVER}/${CACERTS_PATH}"
             exit 1
         fi
+        CURL_CAFLAG="--cacert ${CACERT}"
     fi
 }
 
 retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
-        if [ -z "${CATTLE_CA_CHECKSUM}" ]; then
-            curl -v -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
-        else
-            curl --insecure -k -v -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}"  -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
-        fi
+        i=1
+        while [ "${i}" -ne 10 ]; do
+            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_CAFLAG $CURL_LOG -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            case "${RESPONSE}" in
+            200)
+                info "Successfully downloaded Rancher connection information"
+                break
+                ;;
+            000)
+                fatal "There was an error downloading Rancher connection information. Perhaps --ca-checksum needs to be set?"
+                ;;
+            *)
+                i=$((i + 1))
+                info "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
+                sleep 5
+                continue
+                ;;
+            esac
+        done
     fi
 }
 
@@ -370,7 +426,7 @@ generate_cattle_identifier() {
 
 
 ensure_systemd_service_stopped() {
-    if systemctl status rancher-system-agent.service; then
+    if systemctl is-active --quiet rancher-system-agent.service; then
         info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
         systemctl stop rancher-system-agent
     fi
@@ -396,7 +452,6 @@ do_install() {
         validate_ca_checksum
     fi
 
-    # Instead of just always stopping the service, go and stage the binary and verify the checksum between what I have and what I need
     ensure_systemd_service_stopped
 
     download_rancher_agent
