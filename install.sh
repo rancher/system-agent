@@ -38,7 +38,9 @@ fi
 #   - CATTLE_AGENT_BINARY_LOCAL (default: false)
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
 
+FALLBACK=v0.0.1-alpha1
 CACERTS_PATH=cacerts
+RETRYCOUNT=4500
 
 # info logs the given argument at info log level.
 info() {
@@ -161,12 +163,11 @@ setup_env() {
         fi
 
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
-            FALLBACK=v0.0.1-alpha1
-            if [ $(curl --silent https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
+            if [ $(curl -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
                 info "GitHub Rate Limit exceeded, falling back to known good version"
                 VERSION=$FALLBACK
             else
-                VERSION=$(curl --silent "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+                VERSION=$(curl -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
                 if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
                     info "Error contacting GitHub to retrieve the latest version"
                     VERSION=$FALLBACK
@@ -288,7 +289,7 @@ download_rancher_agent() {
             CURL_BIN_CAFLAG=""
         fi
         i=1
-        while [ "${i}" -ne 10 ]; do
+        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_BIN_CAFLAG $CURL_LOG -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
@@ -326,7 +327,7 @@ validate_ca_checksum() {
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
         CACERT=$(mktemp)
         i=1
-        while [ "${i}" -ne 10 ]; do
+        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             RESPONSE=$(curl --write-out "%{http_code}\n" --insecure $CURL_LOG -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o $CACERT)
             case "${RESPONSE}" in
             200)
@@ -372,7 +373,7 @@ validate_ca_checksum() {
 retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
-        while [ "${i}" -ne 10 ]; do
+        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_CAFLAG $CURL_LOG -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
