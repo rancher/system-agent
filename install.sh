@@ -26,6 +26,7 @@ fi
 #   - CATTLE_ROLE_CONTROLPLANE=false
 #   - CATTLE_ROLE_ETCD=false
 #   - CATTLE_ROLE_WORKER=false
+#   - CATTLE_ROLE_NONE=false
 #   - CATTLE_LABELS
 #   - CATTLE_TAINTS
 #
@@ -133,6 +134,10 @@ setup_env() {
         CATTLE_ROLE_WORKER=false
     fi
 
+    if [ -z "${CATTLE_ROLE_NONE}" ]; then
+        CATTLE_ROLE_NONE=false
+    fi
+
     if [ -z "${CATTLE_REMOTE_ENABLED}" ]; then
         CATTLE_REMOTE_ENABLED=true
     else
@@ -185,7 +190,7 @@ setup_env() {
         if [ -z "${CATTLE_SERVER}" ]; then
             fatal "\$CATTLE_SERVER was not set"
         fi
-        if [ "${CATTLE_ROLE_CONTROLPLANE}" = "false" ] && [ "${CATTLE_ROLE_ETCD}" = "false" ] && [ "${CATTLE_ROLE_WORKER}" = "false" ]; then
+        if [ "${CATTLE_ROLE_CONTROLPLANE}" = "false" ] && [ "${CATTLE_ROLE_ETCD}" = "false" ] && [ "${CATTLE_ROLE_WORKER}" = "false" ] && [ "${CATTLE_ROLE_NONE}" = "false" ]; then
             fatal "You must select at least one role."
         fi
     fi
