@@ -84,6 +84,11 @@ parse_args() {
                 CATTLE_ROLE_WORKER=true
 		shift 1
                 ;;
+            "--no-roles")
+                info "Role requested: none"
+                CATTLE_ROLE_NONE=true
+                shift 1
+                ;;
             "--label")
                 info "Label: $2"
                 if [ -n "${CATTLE_LABELS}" ]; then
@@ -136,6 +141,13 @@ setup_env() {
 
     if [ -z "${CATTLE_ROLE_NONE}" ]; then
         CATTLE_ROLE_NONE=false
+    fi
+
+    if [ "${CATTLE_ROLE_NONE}" = "true" ]; then
+        info "--no-roles flag passed, unsetting all other requested roles"
+        CATTLE_ROLE_CONTROLPLANE=false
+        CATTLE_ROLE_ETCD=false
+        CATTLE_ROLE_WORKER=false
     fi
 
     if [ -z "${CATTLE_REMOTE_ENABLED}" ]; then
