@@ -4,7 +4,7 @@ if [ "${DEBUG}" = 1 ]; then
     set -x
     CURL_LOG="-v"
 else
-    CURL_LOG="-s"
+    CURL_LOG="-sS"
 fi
 
 # Usage:
@@ -67,61 +67,61 @@ fatal() {
 
 # parse_args will inspect the argv for --server, --token, --controlplane, --etcd, and --worker, --label x=y, and --taint dead=beef:NoSchedule
 parse_args() {
-    while [ $# -gt 0 ]; do	
+    while [ $# -gt 0 ]; do
         case "$1" in
-            "--controlplane")
-                info "Role requested: controlplane"
-                CATTLE_ROLE_CONTROLPLANE=true
-		shift 1
+        "--controlplane")
+            info "Role requested: controlplane"
+            CATTLE_ROLE_CONTROLPLANE=true
+            shift 1
+            ;;
+        "--etcd")
+            info "Role requested: etcd"
+            CATTLE_ROLE_ETCD=true
+            shift 1
                 ;;
-            "--etcd")
-                info "Role requested: etcd"
-                CATTLE_ROLE_ETCD=true
-		shift 1
-                ;;
-            "--worker")
-                info "Role requested: worker"
-                CATTLE_ROLE_WORKER=true
-		shift 1
-                ;;
-            "--no-roles")
-                info "Role requested: none"
-                CATTLE_ROLE_NONE=true
-                shift 1
-                ;;
-            "--label")
-                info "Label: $2"
-                if [ -n "${CATTLE_LABELS}" ]; then
-                    CATTLE_LABELS="${CATTLE_LABELS},$2"
-                else
-                    CATTLE_LABELS="$2"
-                fi
-		shift 2
-                ;;
-            "--taint")
-                info "Taint: $2"
-                if [ -n "${CATTLE_TAINTS}" ]; then
-                    CATTLE_TAINTS="${CATTLE_TAINTS},$2"
-                else
-                    CATTLE_TAINTS="$2"
-                fi
-		shift 2
-                ;;
-            "--server")
-                CATTLE_SERVER="$2"
-		shift 2
-                ;;
-            "--token")
-                CATTLE_TOKEN="$2"
-		shift 2
-                ;;
-            "--ca-checksum")
-                CATTLE_CA_CHECKSUM="$2"
-        shift 2
-                ;;
-            *)
-                fatal "Unknown argument passed in ($1)"
-                ;;
+        "--worker")
+            info "Role requested: worker"
+            CATTLE_ROLE_WORKER=true
+		        shift 1
+            ;;
+        "--no-roles")
+            info "Role requested: none"
+            CATTLE_ROLE_NONE=true
+            shift 1
+            ;;
+        "--label")
+            info "Label: $2"
+            if [ -n "${CATTLE_LABELS}" ]; then
+                CATTLE_LABELS="${CATTLE_LABELS},$2"
+            else
+                CATTLE_LABELS="$2"
+            fi
+		        shift 2
+            ;;
+        "--taint")
+            info "Taint: $2"
+            if [ -n "${CATTLE_TAINTS}" ]; then
+                CATTLE_TAINTS="${CATTLE_TAINTS},$2"
+            else
+                CATTLE_TAINTS="$2"
+            fi
+		        shift 2
+            ;;
+        "--server")
+            CATTLE_SERVER="$2"
+		        shift 2
+            ;;
+        "--token")
+            CATTLE_TOKEN="$2"
+		        shift 2
+            ;;
+        "--ca-checksum")
+            CATTLE_CA_CHECKSUM="$2"
+            shift 2
+            ;;
+        *)
+            fatal "Unknown argument passed in ($1)"
+            ;;
         esac
     done
 }
@@ -313,12 +313,9 @@ download_rancher_agent() {
                 info "Successfully downloaded the rancher-system-agent binary."
                 break
                 ;;
-            000)
-                fatal "There was a fatal error downloading the rancher-system-agent binary."
-                ;;
             *)
-                i=$i+1
-                info "$RESPONSE received while downloading the rancher-system-agent binary. Sleeping for 5 seconds and trying again"
+                i=$((i + 1))
+                error "$RESPONSE received while downloading the rancher-system-agent binary. Sleeping for 5 seconds and trying again"
                 sleep 5
                 continue
                 ;;
@@ -351,12 +348,9 @@ validate_ca_checksum() {
                 info "Successfully downloaded CA certificate"
                 break
                 ;;
-            000)
-                fatal "There was an error downloading CA certificate from Rancher"
-                ;;
             *)
-                i=$i+1
-                info "$RESPONSE received while downloading the CA certificate. Sleeping for 5 seconds and trying again"
+                i=$((i + 1))
+                error "$RESPONSE received while downloading the CA certificate. Sleeping for 5 seconds and trying again"
                 sleep 5
                 continue
                 ;;
@@ -387,6 +381,32 @@ validate_ca_checksum() {
     fi
 }
 
+validate_rancher_connection() {
+    RANCHER_SUCCESS=false
+    if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
+        i=1
+        while [ "${i}" -ne "12" ]; do
+            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_CAFLAG $CURL_LOG -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
+            case "${RESPONSE}" in
+            200)
+                info "Successfully tested Rancher connection"
+                RANCHER_SUCCESS=true
+                break
+                ;;
+            *)
+                i=$((i + 1))
+                error "$RESPONSE received while testing Rancher connection. Sleeping for 5 seconds and trying again"
+                sleep 5
+                continue
+                ;;
+            esac
+        done
+        if [ "${RANCHER_SUCCESS}" != "true" ]; then
+          fatal "Error connecting to Rancher. Perhaps --ca-checksum needs to be set?"
+        fi
+    fi
+}
+
 retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
@@ -397,12 +417,9 @@ retrieve_connection_info() {
                 info "Successfully downloaded Rancher connection information"
                 break
                 ;;
-            000)
-                fatal "There was an error downloading Rancher connection information. Perhaps --ca-checksum needs to be set?"
-                ;;
             *)
                 i=$((i + 1))
-                info "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
+                error "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
                 sleep 5
                 continue
                 ;;
@@ -469,6 +486,7 @@ do_install() {
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
         validate_ca_checksum
     fi
+    validate_rancher_connection
 
     ensure_systemd_service_stopped
 
