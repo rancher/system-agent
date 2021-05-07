@@ -10,18 +10,63 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/rancher/wharfie/pkg/credentialprovider/plugin"
 	"github.com/rancher/wharfie/pkg/extract"
 	"github.com/rancher/wharfie/pkg/registries"
 	"github.com/rancher/wharfie/pkg/tarfile"
 	"github.com/sirupsen/logrus"
 )
 
-const imagesDir string = "/var/lib/rancher/agent/images"
-const rke2RegistriesFile = "/etc/rancher/rke2/registries.yaml"
-const k3sRegistriesFile = "/etc/rancher/k3s/registries.yaml"
-const agentRegistriesFile = "/etc/rancher/agent/registries.yaml"
+const (
+	baseRancherDir                       string = "/var/lib/rancher/"
+	defaultImagesDir                            = baseRancherDir + "agent/images"
+	defaultImageCredentialProviderConfig        = baseRancherDir + "credentialprovider/config.yaml"
+	defaultImageCredentialProviderBinDir        = baseRancherDir + "credentialprovider/bin"
+	defaultAgentRegistriesFile           string = "/etc/rancher/agent/registries.yaml"
+	rke2RegistriesFile                   string = "/etc/rancher/rke2/registries.yaml"
+	k3sRegistriesFile                    string = "/etc/rancher/k3s/registries.yaml"
+)
 
-func Stage(destDir string, imgString string) error {
+type Utility struct {
+	imagesDir                     string
+	imageCredentialProviderConfig string
+	imageCredentialProviderBinDir string
+	agentRegistriesFile           string
+}
+
+func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProviderBinDir, agentRegistriesFile string) *Utility {
+	var u Utility
+
+	if imagesDir != "" {
+		u.imagesDir = imagesDir
+	} else {
+		u.imagesDir = defaultImagesDir
+	}
+
+	if imageCredentialProviderConfig != "" {
+		u.imageCredentialProviderConfig = imageCredentialProviderConfig
+	} else {
+		u.imageCredentialProviderConfig = defaultImageCredentialProviderConfig
+	}
+
+	if imageCredentialProviderBinDir != "" {
+		u.imageCredentialProviderBinDir = imageCredentialProviderBinDir
+	} else {
+		u.imageCredentialProviderBinDir = defaultImageCredentialProviderBinDir
+	}
+
+	if agentRegistriesFile != "" {
+		u.agentRegistriesFile = agentRegistriesFile
+	} else {
+		u.agentRegistriesFile = defaultAgentRegistriesFile
+	}
+
+	logrus.Debugf("Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
+
+	return &u
+}
+
+func (u *Utility) Stage(destDir string, imgString string) error {
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -33,25 +78,38 @@ func Stage(destDir string, imgString string) error {
 		return err
 	}
 
-	imagesDir, err := filepath.Abs(imagesDir)
+	imagesDir, err := filepath.Abs(u.imagesDir)
 	if err != nil {
 		return err
 	}
 
 	i, err := tarfile.FindImage(imagesDir, image)
-	if err != nil && !errors.Is(err, tarfile.NotFoundError) {
+	if err != nil && !errors.Is(err, tarfile.ErrNotFound) {
 		return err
 	}
 	img = i
 
 	if img == nil {
-		registry, err := registries.GetPrivateRegistries(findRegistriesYaml())
+		registry, err := registries.GetPrivateRegistries(u.findRegistriesYaml())
 
 		if err != nil {
 			return err
 		}
 
-		multiKeychain := authn.NewMultiKeychain(registry, authn.DefaultKeychain)
+		kcs := []authn.Keychain{registry}
+
+		if _, err := os.Stat(u.imageCredentialProviderConfig); os.IsExist(err) {
+			logrus.Debugf("Image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
+			plugins, err := plugin.RegisterCredentialProviderPlugins(u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
+			if err != nil {
+				return err
+			}
+			kcs = append(kcs, plugins)
+		} else {
+			kcs = append(kcs, authn.DefaultKeychain)
+		}
+
+		multiKeychain := authn.NewMultiKeychain(kcs...)
 		logrus.Infof("Pulling image %s", image.Name())
 		img, err = remote.Image(registry.Rewrite(image), remote.WithAuthFromKeychain(multiKeychain), remote.WithTransport(registry))
 		if err != nil {
@@ -62,9 +120,9 @@ func Stage(destDir string, imgString string) error {
 	return extract.Extract(img, destDir)
 }
 
-func findRegistriesYaml() string {
-	if _, err := os.Stat(agentRegistriesFile); err == nil {
-		return agentRegistriesFile
+func (u *Utility) findRegistriesYaml() string {
+	if _, err := os.Stat(u.agentRegistriesFile); err == nil {
+		return u.agentRegistriesFile
 	}
 	if _, err := os.Stat(rke2RegistriesFile); err == nil {
 		return rke2RegistriesFile

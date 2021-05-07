@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/rancher/system-agent/pkg/image"
+
 	"github.com/rancher/system-agent/pkg/version"
 
 	"github.com/rancher/system-agent/pkg/applyinator"
@@ -65,7 +67,9 @@ func run() error {
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
 
-	applyinator := applyinator.NewApplyinator(cf.WorkDir, cf.PreserveWorkDir, cf.AppliedPlanDir)
+	imageUtil := image.NewUtility(cf.ImagesDir, cf.ImageCredentialProviderConfig, cf.ImageCredentialProviderBinDir, cf.AgentRegistriesFile)
+
+	applyinator := applyinator.NewApplyinator(cf.WorkDir, cf.PreserveWorkDir, cf.AppliedPlanDir, imageUtil)
 
 	if cf.RemoteEnabled {
 		logrus.Infof("Starting remote watch of plans")
