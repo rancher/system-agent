@@ -12,12 +12,16 @@ import (
 )
 
 type AgentConfig struct {
-	WorkDir            string `json:"workDirectory,omitempty"`
-	LocalPlanDir       string `json:"localPlanDirectory,omitempty"`
-	AppliedPlanDir     string `json:"appliedPlanDirectory,omitempty"`
-	RemoteEnabled      bool   `json:"remoteEnabled,omitempty"`
-	ConnectionInfoFile string `json:"connectionInfoFile,omitempty"`
-	PreserveWorkDir    bool   `json:"preserveWorkDirectory,omitempty"`
+	WorkDir                       string `json:"workDirectory,omitempty"`
+	LocalPlanDir                  string `json:"localPlanDirectory,omitempty"`
+	AppliedPlanDir                string `json:"appliedPlanDirectory,omitempty"`
+	RemoteEnabled                 bool   `json:"remoteEnabled,omitempty"`
+	ConnectionInfoFile            string `json:"connectionInfoFile,omitempty"`
+	PreserveWorkDir               bool   `json:"preserveWorkDirectory,omitempty"`
+	ImagesDir                     string `json:"imagesDirectory,omitempty"`
+	AgentRegistriesFile           string `json:"agentRegistriesFile,omitempty"`
+	ImageCredentialProviderConfig string `json:"imageCredentialProviderConfig,omitempty"`
+	ImageCredentialProviderBinDir string `json:"imageCredentialProviderBinDirectory,omitempty"`
 }
 
 type ConnectionInfo struct {
