@@ -39,7 +39,7 @@ fi
 #   - CATTLE_AGENT_BINARY_LOCAL (default: false)
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
 
-FALLBACK=v0.0.1-alpha1
+FALLBACK=v0.0.1-alpha18
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 
