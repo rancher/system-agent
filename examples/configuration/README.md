@@ -5,10 +5,11 @@ Assuming a folder `/etc/rancher/agent`
 Create a file called `config.yaml` in `/etc/rancher/agent` with the contents like:
 
 ```
-workDirectory: /var/rancher/agent/work
-localPlanDirectory: /etc/rancher/agent/plans
+workDirectory: /var/lib/rancher/agent/work
+localPlanDirectory: /var/lib/rancher/agent/plans
 remoteEnabled: true
 connectionInfoFile: /etc/rancher/agent/conninfo.yaml
+preserveWorkDirectory: true
 ```
 
 Create a file called `conninfo.yaml` in `/etc/rancher/agent` with the contents like:
@@ -45,7 +46,7 @@ metadata:
   namespace: mynamespace
 type: Opaque
 data:
-  plan: eyJpbnN0cnVjdGlvbnMiOlt7Im5hbWUiOiJpbnN0YWxsIiwiaW1hZ2UiOiJkb2NrZXIuaW8vb2F0czg3L2xvbHRnejppbnN0YWxsLXJrZTIiLCJjb21tYW5kIjoic2giLCAiYXJncyI6WyItYyIsImluc3RhbGwuc2giXX1dfQ==
+  plan: e2luc3RydWN0aW9uczpbbmFtZTppbnN0YWxsLWszc119IHtpbnN0cnVjdGlvbnM6W2ltYWdlOmRvY2tlci5pby9yYW5jaGVyL3N5c3RlbS1hZ2VudC1pbnN0YWxsZXItazNzOnYxLjIxLjAtazNzMV19Cg==
 ```
 
-The above secret is going to install RKE2.
+The above secret is going to install K3s.

@@ -1,1 +1,1 @@
-{"instructions":[{"name":"install","image":"docker.io/oats87/loltgz:install-k3s","command":"sh", "args":["-c","install.sh"]}]}
+{"instructions":[{"name":"install-k3s","image":"docker.io/rancher/system-agent-installer-k3s:v1.21.0-k3s1"}]}
