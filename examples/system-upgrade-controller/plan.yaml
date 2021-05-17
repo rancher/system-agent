@@ -6,8 +6,8 @@ metadata:
 type: Opaque
 stringData:
   environment: |
-    CATTLE_SERVER=wow
-    CATTLE_TOKEN=why
+    CATTLE_SERVER=foo
+    CATTLE_TOKEN=bar
 ---
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
