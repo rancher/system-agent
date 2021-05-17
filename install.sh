@@ -307,7 +307,7 @@ download_rancher_agent() {
         fi
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_BIN_CAFLAG $CURL_LOG -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
+            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded the rancher-system-agent binary."
@@ -328,7 +328,7 @@ download_rancher_agent() {
 check_x509_cert()
 {
     cert=$1
-    err=$(openssl x509 -in $cert -noout 2>&1)
+    err=$(openssl x509 -in "${cert}" -noout 2>&1)
     if [ $? -eq 0 ]
     then
         echo ""
@@ -342,7 +342,7 @@ validate_ca_checksum() {
         CACERT=$(mktemp)
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" --insecure $CURL_LOG -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o $CACERT)
+            RESPONSE=$(curl --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded CA certificate"
@@ -356,23 +356,23 @@ validate_ca_checksum() {
                 ;;
             esac
         done
-        if [ ! -s $CACERT ]; then
+        if [ ! -s "${CACERT}" ]; then
           error "The environment variable CATTLE_CA_CHECKSUM is set but there is no CA certificate configured at ${CATTLE_SERVER}/${CACERTS_PATH}"
           exit 1
         fi
-        err=$(check_x509_cert $CACERT)
+        err=$(check_x509_cert "${CACERT}")
         if [ -n "${err}" ]; then
             error "Value from ${CATTLE_SERVER}/${CACERTS_PATH} does not look like an x509 certificate (${err})"
             error "Retrieved cacerts:"
-            cat $CACERT
-            rm -f $CACERT
+            cat "${CACERT}"
+            rm -f "${CACERT}"
             exit 1
         else
             info "Value from ${CATTLE_SERVER}/${CACERTS_PATH} is an x509 certificate"
         fi
-        CATTLE_SERVER_CHECKSUM=$(sha256sum $CACERT | awk '{print $1}')
-        if [ $CATTLE_SERVER_CHECKSUM != $CATTLE_CA_CHECKSUM ]; then
-            rm -f $CACERT
+        CATTLE_SERVER_CHECKSUM=$(sha256sum "${CACERT}" | awk '{print $1}')
+        if [ "${CATTLE_SERVER_CHECKSUM}" != "${CATTLE_CA_CHECKSUM}" ]; then
+            rm -f "${CACERT}"
             error "Configured cacerts checksum ($CATTLE_SERVER_CHECKSUM) does not match given --ca-checksum ($CATTLE_CA_CHECKSUM)"
             error "Please check if the correct certificate is configured at${CATTLE_SERVER}/${CACERTS_PATH}"
             exit 1
@@ -386,7 +386,7 @@ validate_rancher_connection() {
     if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "12" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_CAFLAG $CURL_LOG -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
+            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
             case "${RESPONSE}" in
             200)
                 info "Successfully tested Rancher connection"
@@ -411,7 +411,7 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" $CURL_CAFLAG $CURL_LOG -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" ${CATTLE_SERVER}/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
@@ -472,12 +472,12 @@ create_env_file() {
     info "Creating environment file ${FILE_SA_ENV}"
     UMASK=$(umask)
     umask 0377
-    env | egrep -i '^(NO|HTTP|HTTPS)_PROXY' | tee -a ${FILE_SA_ENV} >/dev/null
-    umask $UMASK
+    env | grep -E -i '^(NO|HTTP|HTTPS)_PROXY' | tee -a ${FILE_SA_ENV} >/dev/null
+    umask "${UMASK}"
 }
 
 do_install() {
-    parse_args $@
+    parse_args "$@"
     setup_arch
     setup_env
     ensure_directories
@@ -506,5 +506,5 @@ do_install() {
     systemctl restart rancher-system-agent
 }
 
-do_install $@
+do_install "$@"
 exit 0
