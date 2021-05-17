@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"os"
-	"strings"
-
 	"github.com/rancher/system-agent/pkg/image"
+	"os"
 
 	"github.com/rancher/system-agent/pkg/version"
 
@@ -40,13 +38,6 @@ func main() {
 
 }
 
-func isTrue(input string) bool {
-	if strings.ToLower(input) == "true" || input == "1" {
-		return true
-	}
-	return false
-}
-
 func run() error {
 	topContext := signals.SetupSignalHandler(context.Background())
 
@@ -76,17 +67,20 @@ func run() error {
 
 		var connInfo config.ConnectionInfo
 
-		err = config.Parse(cf.ConnectionInfoFile, &connInfo)
-
-		if err != nil {
+		if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
 			logrus.Fatalf("Unable to parse connection info file %v", err)
 		}
 
-		remoteplan.Watch(topContext, *applyinator, connInfo)
+		if err := remoteplan.Watch(topContext, *applyinator, connInfo); err != nil {
+			return err
+		}
 	}
 
 	logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
-	localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
+
+	if err := localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir); err != nil {
+		return err
+	}
 
 	<-topContext.Done()
 	return nil
