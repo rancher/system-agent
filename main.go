@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"github.com/rancher/system-agent/pkg/image"
 	"os"
+
+	"github.com/rancher/system-agent/pkg/image"
 
 	"github.com/rancher/system-agent/pkg/version"
 
