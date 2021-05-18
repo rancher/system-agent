@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/rancher/lasso/pkg/cache"
 	"github.com/rancher/lasso/pkg/client"
@@ -21,6 +22,7 @@ import (
 
 const appliedChecksumKey = "applied-checksum"
 const appliedOutputKey = "applied-output"
+const enqueueAfterDuration = "5s"
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) error {
 	w := &watcher{
@@ -58,6 +60,14 @@ func (w *watcher) start(ctx context.Context) {
 
 	controllerFactory := controller.NewSharedControllerFactory(cacheFactory, nil)
 	core := corecontrollers.New(controllerFactory)
+
+	healthcheckDuration, err := time.ParseDuration(enqueueAfterDuration)
+
+	if err != nil {
+		panic(err)
+	}
+
+	core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
