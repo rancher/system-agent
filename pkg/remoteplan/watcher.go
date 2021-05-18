@@ -112,6 +112,7 @@ func (w *watcher) start(ctx context.Context) {
 			secret.Data[appliedChecksumKey] = []byte(anp.Checksum)
 			secret.Data[appliedOutputKey] = output
 			logrus.Debugf("[remote] writing an applied checksum value of %s to the remote plan", anp.Checksum)
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
 			return core.Secret().Update(secret)
 		}
 
