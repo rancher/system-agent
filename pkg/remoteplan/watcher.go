@@ -71,6 +71,7 @@ func (w *watcher) start(ctx context.Context) {
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
 			return secret, nil
 		}
 
@@ -85,6 +86,7 @@ func (w *watcher) start(ctx context.Context) {
 			if err != nil {
 				logrus.Errorf("error parsing plan from remote: %v", err)
 				// we should do some intelligent error handling here
+				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
 				return secret, nil
 			}
 
@@ -98,6 +100,7 @@ func (w *watcher) start(ctx context.Context) {
 				logrus.Debugf("[remote] Remote plan had an applied checksum value of %s", secretChecksum)
 				if secretChecksum == anp.Checksum {
 					logrus.Debugf("[remote] Applied checksum was the same as the plan from remote. Not applying.")
+					core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
 					return secret, nil
 				}
 			}
