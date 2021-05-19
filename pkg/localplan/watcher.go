@@ -134,20 +134,20 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 			go func() {
 				defer wg.Done()
-				logrus.Debugf("[local] running probe %s", probeName)
+				logrus.Debugf("[local] (%s) running probe", probeName)
 				mu.Lock()
-				logrus.Debugf("[local] retrieving probe status from map")
+				logrus.Debugf("[local] (%s) retrieving probe status from map", probeName)
 				probeStatus, ok := probeStatuses[probeName]
 				mu.Unlock()
 				if !ok {
-					logrus.Debugf("[local] probe status was not present in map, initializing")
+					logrus.Debugf("[local] (%s) probe status was not present in map, initializing", probeName)
 					probeStatus = types.ProbeStatus{}
 				}
 				if err := prober.Probe(probe, &probeStatus, initialApplication); err != nil {
 					logrus.Errorf("error running probe %s", probeName)
 				}
 				mu.Lock()
-				logrus.Debugf("[local] writing probe status from map")
+				logrus.Debugf("[local] (%s) writing probe status from map", probeName)
 				probeStatuses[probeName] = probeStatus
 				mu.Unlock()
 			}()
