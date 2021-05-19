@@ -6,12 +6,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/rancher/system-agent/pkg/types"
 	k8sprobe "k8s.io/kubernetes/pkg/probe"
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )
 
 func Probe(probe types.Probe, probeStatus *types.ProbeStatus, initial bool) error {
+	logrus.Tracef("running probe %v", probe)
 	if initial {
 		initialDuration, err := time.ParseDuration(strconv.Itoa(probe.InitialDelaySeconds))
 		if err != nil {

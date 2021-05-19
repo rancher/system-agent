@@ -126,6 +126,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		}
 
 		for probeName, probe := range anp.Plan.Probes {
+			logrus.Debugf("[local] running probe %s", probeName)
 			probeStatus, ok := probeStatuses[probeName]
 			if !ok {
 				probeStatus = types.ProbeStatus{}
