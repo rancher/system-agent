@@ -23,6 +23,7 @@ type File struct {
 type NodePlan struct {
 	Files        []File        `json:"files,omitempty"`
 	Instructions []Instruction `json:"instructions,omitempty"`
+	Probes       []Probe       `json:"probes,omitempty"`
 }
 
 // stdout and stderr are both base64, gzipped
@@ -34,4 +35,26 @@ type NodePlanPosition struct {
 type AgentNodePlan struct {
 	Plan     NodePlan
 	Checksum string
+}
+
+type HttpGetAction struct {
+	Path       string `json:"path,omitempty"`
+	ClientCert string `json:"clientCert,omitempty"`
+	ClientKey  string `json:"clientKey,omitempty"`
+	CACert     string `json:"caCert,omitempty"`
+}
+
+type Probe struct {
+	Name                string        `json:"name,omitempty"`
+	InitialDelaySeconds int           `json:"initialDelaySeconds,omitempty"` // default 0
+	TimeoutSeconds      int           `json:"timeoutSeconds,omitempty"`      // default 1
+	SuccessThreshold    int           `json:"successThreshold,omitempty"`    // default 1
+	FailureThreshold    int           `json:"failureThreshold,omitempty"`    // default 3
+	HttpGetAction       HttpGetAction `json:"httpGet,omitempty"`
+}
+
+type ProbeStatus struct {
+	Healthy      bool `json:"healthy,omitempty"`
+	SuccessCount int  `json:"successCount,omitempty"`
+	FailureCount int  `json:"failureCount,omitempty"`
 }
