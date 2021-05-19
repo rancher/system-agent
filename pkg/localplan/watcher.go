@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rancher/system-agent/pkg/prober"
@@ -125,17 +126,34 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			}
 		}
 
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
 		for probeName, probe := range anp.Plan.Probes {
-			logrus.Debugf("[local] running probe %s", probeName)
-			probeStatus, ok := probeStatuses[probeName]
-			if !ok {
-				probeStatus = types.ProbeStatus{}
-			}
-			if err := prober.Probe(probe, &probeStatus, initialApplication); err != nil {
-				logrus.Errorf("error running probe %s", probeName)
-			}
-			probeStatuses[probeName] = probeStatus
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				logrus.Debugf("[local] running probe %s", probeName)
+				mu.Lock()
+				logrus.Debugf("[local] retrieving probe status from map")
+				probeStatus, ok := probeStatuses[probeName]
+				mu.Unlock()
+				if !ok {
+					logrus.Debugf("[local] probe status was not present in map, initializing")
+					probeStatus = types.ProbeStatus{}
+				}
+				if err := prober.Probe(probe, &probeStatus, initialApplication); err != nil {
+					logrus.Errorf("error running probe %s", probeName)
+				}
+				mu.Lock()
+				logrus.Debugf("[local] writing probe status from map")
+				probeStatuses[probeName] = probeStatus
+				mu.Unlock()
+			}()
 		}
+
+		wg.Wait()
 
 		if err := w.writePosition(path, anp, output, probeStatuses); err != nil {
 			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
