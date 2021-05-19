@@ -21,17 +21,19 @@ type File struct {
 }
 
 type NodePlan struct {
-	Files        []File        `json:"files,omitempty"`
-	Instructions []Instruction `json:"instructions,omitempty"`
-	Probes       []Probe       `json:"probes,omitempty"`
+	Files        []File           `json:"files,omitempty"`
+	Instructions []Instruction    `json:"instructions,omitempty"`
+	Probes       map[string]Probe `json:"probes,omitempty"`
 }
 
 // stdout and stderr are both base64, gzipped
 type NodePlanPosition struct {
-	AppliedChecksum string `json:"appliedChecksum,omitempty"`
-	Output          []byte `json:"output,omitempty"`
+	AppliedChecksum string                 `json:"appliedChecksum,omitempty"`
+	Output          []byte                 `json:"output,omitempty"`
+	ProbeStatus     map[string]ProbeStatus `json:"probeStatus,omitempty"`
 }
 
+// AgentNodePlan is passed into Applyinator
 type AgentNodePlan struct {
 	Plan     NodePlan
 	Checksum string

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rancher/system-agent/pkg/prober"
+
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -103,24 +105,38 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		logrus.Debugf("[local] Plan from file %s was: %v", path, anp.Plan)
 
-		needsApplied, err := w.needsApplication(path, anp)
+		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(path, anp)
 
 		if err != nil {
 			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
 			continue
 		}
 
-		if !needsApplied {
-			continue
+		if probeStatuses == nil {
+			probeStatuses = make(map[string]types.ProbeStatus)
 		}
 
-		output, err := w.applyinator.Apply(ctx, anp)
-		if err != nil {
-			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
-			continue
+		var output []byte
+		if needsApplied {
+			output, err = w.applyinator.Apply(ctx, anp)
+			if err != nil {
+				logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
+				continue
+			}
 		}
 
-		if err := w.writePosition(path, anp, output); err != nil {
+		for probeName, probe := range anp.Plan.Probes {
+			probeStatus, ok := probeStatuses[probeName]
+			if !ok {
+				probeStatus = types.ProbeStatus{}
+			}
+			if err := prober.Probe(probe, &probeStatus, initialApplication); err != nil {
+				logrus.Errorf("error running probe %s", probeName)
+			}
+			probeStatuses[probeName] = probeStatus
+		}
+
+		if err := w.writePosition(path, anp, output, probeStatuses); err != nil {
 			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
 		}
 	}
@@ -157,13 +173,13 @@ func (w *watcher) parsePlan(file string, anp *types.AgentNodePlan) error {
 }
 
 // Returns true if the plan needs to be applied, false if not
-func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, error) {
+func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, map[string]types.ProbeStatus, bool, error) {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Open(positionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			logrus.Debugf("[local] Position file %s did not exist", positionFile)
-			return true, nil
+			return true, nil, true, nil
 		}
 	}
 	defer f.Close()
@@ -171,22 +187,22 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 	var planPosition types.NodePlanPosition
 	if err := json.NewDecoder(f).Decode(&planPosition); err != nil {
 		logrus.Errorf("[local] Error encountered while decoding the node plan position: %v", err)
-		return true, nil
+		return true, nil, true, nil
 	}
 
 	computedChecksum := anp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan %s checksum (%s) matched", file, computedChecksum)
-		return false, nil
+		return false, planPosition.ProbeStatus, false, nil
 	}
 	logrus.Infof("[local] Plan checksums differed for %s (%s:%s)", file, computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
-	return true, nil
+	return true, planPosition.ProbeStatus, false, nil
 
 }
 
-func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []byte) error {
+func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []byte, probeStatus map[string]types.ProbeStatus) error {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Create(positionFile)
 	if err != nil {
@@ -198,6 +214,7 @@ func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []b
 	var npp types.NodePlanPosition
 	npp.AppliedChecksum = anp.Checksum
 	npp.Output = output
+	npp.ProbeStatus = probeStatus
 	return json.NewEncoder(f).Encode(npp)
 }
 

@@ -31,7 +31,7 @@ replace (
 )
 
 require (
-	github.com/docker/cli v20.10.6+incompatible
+	github.com/docker/cli v20.10.6+incompatible // indirect
 	github.com/google/go-containerregistry v0.5.0
 	github.com/mattn/go-colorable v0.1.8
 	github.com/rancher/lasso v0.0.0-20210408231703-9ddd9378d08d
@@ -41,5 +41,6 @@ require (
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.0
 	k8s.io/client-go v0.21.0
+	k8s.io/kubernetes v1.21.0
 	sigs.k8s.io/yaml v1.2.0
 )
