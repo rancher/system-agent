@@ -35,15 +35,6 @@ func Probe(probe types.Probe, probeStatus *types.ProbeStatus, initial bool) erro
 		return err
 	}
 
-	switch result {
-	case k8sprobe.Success:
-		probeStatus.SuccessCount = probeStatus.SuccessCount + 1
-		probeStatus.FailureCount = 0
-	default:
-		probeStatus.FailureCount = probeStatus.FailureCount + 1
-		probeStatus.SuccessCount = 0
-	}
-
 	var successThreshold, failureThreshold int
 
 	if probe.SuccessThreshold == 0 {
@@ -56,6 +47,19 @@ func Probe(probe types.Probe, probeStatus *types.ProbeStatus, initial bool) erro
 		failureThreshold = 3
 	} else {
 		failureThreshold = probe.FailureThreshold
+	}
+
+	switch result {
+	case k8sprobe.Success:
+		if probeStatus.SuccessCount < probe.SuccessThreshold {
+			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
+		}
+		probeStatus.FailureCount = 0
+	default:
+		if probeStatus.FailureCount < probe.FailureThreshold {
+			probeStatus.FailureCount = probeStatus.FailureCount + 1
+		}
+		probeStatus.SuccessCount = 0
 	}
 
 	if probeStatus.SuccessCount >= successThreshold {
