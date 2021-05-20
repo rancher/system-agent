@@ -50,7 +50,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		return err
 	}
 
-	result, _, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
+	probeResult, _, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
 
 	if err != nil {
 		return err
@@ -70,25 +70,23 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		failureThreshold = probe.FailureThreshold
 	}
 
-	switch result {
+	switch probeResult {
 	case k8sprobe.Success:
 		if probeStatus.SuccessCount < probe.SuccessThreshold {
 			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
+			if probeStatus.SuccessCount >= successThreshold {
+				probeStatus.Healthy = true
+			}
 		}
 		probeStatus.FailureCount = 0
 	default:
 		if probeStatus.FailureCount < probe.FailureThreshold {
 			probeStatus.FailureCount = probeStatus.FailureCount + 1
+			if probeStatus.FailureCount >= failureThreshold {
+				probeStatus.Healthy = false
+			}
 		}
 		probeStatus.SuccessCount = 0
-	}
-
-	if probeStatus.SuccessCount >= successThreshold {
-		probeStatus.Healthy = true
-	}
-
-	if probeStatus.FailureCount >= failureThreshold {
-		probeStatus.Healthy = false
 	}
 
 	return nil
