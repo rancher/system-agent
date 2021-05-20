@@ -1,7 +1,6 @@
 package prober
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -37,11 +36,8 @@ type ProbeStatus struct {
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	logrus.Tracef("running probe %v", probe)
 	if initial {
-		initialDuration, err := time.ParseDuration(fmt.Sprintf("%ds", probe.InitialDelaySeconds))
-		if err != nil {
-			return err
-		}
-		time.Sleep(initialDuration)
+		logrus.Debugf("sleeping for %d seconds before running probe", probe.InitialDelaySeconds)
+		time.Sleep(time.Duration(probe.InitialDelaySeconds))
 	}
 	k8sProber := k8shttp.New(false)
 
@@ -59,12 +55,14 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	var successThreshold, failureThreshold int
 
 	if probe.SuccessThreshold == 0 {
+		logrus.Debugf("Setting default success threshold")
 		successThreshold = 1
 	} else {
 		successThreshold = probe.SuccessThreshold
 	}
 
 	if probe.FailureThreshold == 0 {
+		logrus.Debugf("Setting default failure threshold")
 		failureThreshold = 3
 	} else {
 		failureThreshold = probe.FailureThreshold
@@ -72,8 +70,8 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 
 	switch probeResult {
 	case k8sprobe.Success:
+		logrus.Debug("probe was successful")
 		if probeStatus.SuccessCount < successThreshold {
-			logrus.Debug("probe was successful")
 			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
 			if probeStatus.SuccessCount >= successThreshold {
 				probeStatus.Healthy = true
