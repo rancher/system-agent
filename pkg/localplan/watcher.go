@@ -1,6 +1,7 @@
 package localplan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/ioutil"
@@ -108,7 +109,13 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		logrus.Debugf("[local] Plan from file %s was: %v", path, cp.Plan)
 
-		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(path, cp)
+		posFile := positionFileName(path)
+		posData, err := readPositionFile(posFile)
+		if err != nil {
+			logrus.Errorf("error reading position file: %v", err)
+		}
+
+		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(posData, cp)
 
 		if err != nil {
 			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
@@ -157,8 +164,21 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		wg.Wait()
 
-		if err := w.writePosition(path, cp, output, probeStatuses); err != nil {
-			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
+		var npp NodePlanPosition
+		npp.AppliedChecksum = cp.Checksum
+		npp.Output = output
+		npp.ProbeStatus = probeStatuses
+
+		newPPData, err := json.Marshal(npp)
+		if err != nil {
+			logrus.Errorf("error marshalling new plan position data: %v", err)
+		}
+
+		if bytes.Compare(newPPData, posData) == 1 {
+			logrus.Debugf("[local] Writing position data")
+			if err := os.WriteFile(posFile, posData, 0600); err != nil {
+				logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
+			}
 		}
 	}
 
@@ -189,50 +209,41 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	return cp, nil
 }
 
-// Returns true if the plan needs to be applied, false if not
-func (w *watcher) needsApplication(file string, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, bool, error) {
-	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
-	f, err := os.Open(positionFile)
+func positionFileName(planPath string) string {
+	return strings.TrimSuffix(planPath, planSuffix) + positionSuffix
+}
+
+func readPositionFile(positionFile string) ([]byte, error) {
+	data, err := os.ReadFile(positionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			logrus.Debugf("[local] Position file %s did not exist", positionFile)
-			return true, nil, true, nil
+			return []byte{}, nil
 		}
+		return []byte{}, err
 	}
-	defer f.Close()
+	return data, nil
+}
 
+// Returns true if the plan needs to be applied, false if not
+// needsApplication, probeStatus, initialApplication, error
+func (w *watcher) needsApplication(fileData []byte, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, bool, error) {
 	var planPosition NodePlanPosition
-	if err := json.NewDecoder(f).Decode(&planPosition); err != nil {
+	if err := json.Unmarshal(fileData, &planPosition); err != nil {
 		logrus.Errorf("[local] Error encountered while decoding the node plan position: %v", err)
 		return true, nil, true, nil
 	}
 
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
-		logrus.Debugf("[local] Plan %s checksum (%s) matched", file, computedChecksum)
+		logrus.Debugf("[local] Plan checksum (%s) matched", computedChecksum)
 		return false, planPosition.ProbeStatus, false, nil
 	}
-	logrus.Infof("[local] Plan checksums differed for %s (%s:%s)", file, computedChecksum, planPosition.AppliedChecksum)
+	logrus.Infof("[local] Plan checksums differed (%s:%s)", computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
 	return true, planPosition.ProbeStatus, false, nil
 
-}
-
-func (w *watcher) writePosition(file string, cp applyinator.CalculatedPlan, output []byte, probeStatus map[string]prober.ProbeStatus) error {
-	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
-	f, err := os.Create(positionFile)
-	if err != nil {
-		logrus.Errorf("Error encountered when opening position file %s for writing: %v", positionFile, err)
-		return err
-	}
-	defer f.Close()
-
-	var npp NodePlanPosition
-	npp.AppliedChecksum = cp.Checksum
-	npp.Output = output
-	npp.ProbeStatus = probeStatus
-	return json.NewEncoder(f).Encode(npp)
 }
 
 func skipFile(fileName string, skips map[string]bool) bool {
