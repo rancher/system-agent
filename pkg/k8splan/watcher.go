@@ -76,19 +76,9 @@ func (w *watcher) start(ctx context.Context) {
 		logrus.Debugf("[remote] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
 		if planData, ok := secret.Data["plan"]; ok {
 			logrus.Tracef("[remote] Byte data: %v", planData)
-			var plan applyinator.Plan
-			planString := string(planData)
-			logrus.Tracef("[remote] Plan string was %s", planString)
-			err = w.parsePlan(planString, &plan)
-			if err != nil {
-				logrus.Errorf("error parsing plan from remote: %v", err)
-				// we should do some intelligent error handling here
-				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, healthcheckDuration)
-				return secret, nil
-			}
+			logrus.Tracef("[remote] Plan string was %s", string(planData))
 
-			cp, err := applyinator.CalculatePlan([]byte(planString))
-
+			cp, err := applyinator.CalculatePlan(planData)
 			if err != nil {
 				return secret, err
 			}
