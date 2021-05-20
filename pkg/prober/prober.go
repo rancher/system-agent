@@ -84,11 +84,13 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		return err
 	}
 
-	probeResult, _, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
+	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
 
 	if err != nil {
 		return err
 	}
+
+	logrus.Debugf("probe output was %s", output)
 
 	var successThreshold, failureThreshold int
 
