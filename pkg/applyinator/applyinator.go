@@ -152,7 +152,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 		}
 		if instruction.Name == "" && instruction.SaveOutput {
 			logrus.Errorf("instruction does not have a name set, cannot save output data")
-		} else {
+		} else if instruction.SaveOutput {
 			executionOutputs[instruction.Name] = output
 		}
 	}

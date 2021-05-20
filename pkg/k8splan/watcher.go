@@ -21,11 +21,14 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const appliedChecksumKey = "applied-checksum"
-const appliedOutputKey = "applied-output"
-const probeStatusesKey = "probe-statuses"
-const planKey = "plan"
-const enqueueAfterDuration = "5s"
+const (
+	appliedChecksumKey   = "applied-checksum"
+	appliedOutputKey     = "applied-output"
+	probeStatusesKey     = "probe-statuses"
+	probePeriod          = "probe-period"
+	planKey              = "plan"
+	enqueueAfterDuration = "5s"
+)
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) error {
 	w := &watcher{
@@ -101,7 +104,6 @@ func (w *watcher) start(ctx context.Context) {
 			}
 			logrus.Debugf("[K8s] Calculated checksum to be %s", cp.Checksum)
 			needsApplied := true
-			initialApplication := true
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
 				logrus.Debugf("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
@@ -117,8 +119,6 @@ func (w *watcher) start(ctx context.Context) {
 				if err != nil {
 					return nil, fmt.Errorf("error applying plan: %v", err)
 				}
-			} else {
-				initialApplication = false
 			}
 
 			var wg sync.WaitGroup
@@ -138,7 +138,7 @@ func (w *watcher) start(ctx context.Context) {
 						logrus.Debugf("[K8s] (%s) probe status was not present in map, initializing", probeName)
 						probeStatus = prober.ProbeStatus{}
 					}
-					if err := prober.DoProbe(probe, &probeStatus, initialApplication); err != nil {
+					if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
 						logrus.Errorf("error running probe %s", probeName)
 					}
 					mu.Lock()

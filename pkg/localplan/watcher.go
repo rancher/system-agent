@@ -41,8 +41,10 @@ type watcher struct {
 	applyinator applyinator.Applyinator
 }
 
-const planSuffix = ".plan"
-const positionSuffix = ".pos"
+const (
+	planSuffix     = ".plan"
+	positionSuffix = ".pos"
+)
 
 func (w *watcher) start(ctx context.Context) {
 	force := true
@@ -115,7 +117,12 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			logrus.Errorf("error reading position file: %v", err)
 		}
 
-		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(posData, cp)
+		planPosition, err := parsePositionData(posData)
+		if err != nil { // this is going to be mad that its empty
+			logrus.Errorf("error parsing position data: %v", err)
+		}
+
+		needsApplied, probeStatuses, err := w.needsApplication(planPosition, cp)
 
 		if err != nil {
 			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
@@ -133,6 +140,8 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 				logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 				continue
 			}
+		} else {
+			output = planPosition.Output
 		}
 
 		var wg sync.WaitGroup
@@ -152,7 +161,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 					logrus.Debugf("[local] (%s) probe status was not present in map, initializing", probeName)
 					probeStatus = prober.ProbeStatus{}
 				}
-				if err := prober.DoProbe(probe, &probeStatus, initialApplication); err != nil {
+				if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
 					logrus.Errorf("error running probe %s", probeName)
 				}
 				mu.Lock()
@@ -225,24 +234,27 @@ func readPositionFile(positionFile string) ([]byte, error) {
 	return data, nil
 }
 
-// Returns true if the plan needs to be applied, false if not
-// needsApplication, probeStatus, initialApplication, error
-func (w *watcher) needsApplication(fileData []byte, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, bool, error) {
+func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 	var planPosition NodePlanPosition
-	if err := json.Unmarshal(fileData, &planPosition); err != nil {
-		logrus.Errorf("[local] Error encountered while decoding the node plan position: %v", err)
-		return true, nil, true, nil
+	if len(positionData) == 0 {
+		return planPosition, nil
 	}
+	err := json.Unmarshal(positionData, &planPosition)
+	return planPosition, err
+}
 
+// Returns true if the plan needs to be applied, false if not
+// needsApplication, probeStatus, error
+func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, error) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan checksum (%s) matched", computedChecksum)
-		return false, planPosition.ProbeStatus, false, nil
+		return false, planPosition.ProbeStatus, nil
 	}
 	logrus.Infof("[local] Plan checksums differed (%s:%s)", computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
-	return true, planPosition.ProbeStatus, false, nil
+	return true, planPosition.ProbeStatus, nil
 
 }
 
