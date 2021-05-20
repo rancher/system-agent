@@ -1,9 +1,9 @@
 package prober
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -37,7 +37,7 @@ type ProbeStatus struct {
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	logrus.Tracef("running probe %v", probe)
 	if initial {
-		initialDuration, err := time.ParseDuration(strconv.Itoa(probe.InitialDelaySeconds))
+		initialDuration, err := time.ParseDuration(fmt.Sprintf("%ds", probe.InitialDelaySeconds))
 		if err != nil {
 			return err
 		}

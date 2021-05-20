@@ -162,7 +162,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 					probeStatus = prober.ProbeStatus{}
 				}
 				if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
-					logrus.Errorf("error running probe %s", probeName)
+					logrus.Errorf("error running probe %s: %v", probeName, err)
 				}
 				mu.Lock()
 				logrus.Debugf("[local] (%s) writing probe status from map", probeName)
