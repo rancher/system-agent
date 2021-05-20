@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,8 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rancher/system-agent/pkg/prober"
+
 	"github.com/rancher/system-agent/pkg/image"
-	"github.com/rancher/system-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,6 +28,38 @@ type Applyinator struct {
 	preserveWorkDir bool
 	appliedPlanDir  string
 	imageUtil       *image.Utility
+}
+
+// CalculatedPlan is passed into Applyinator and is a Plan with checksum calculated
+type CalculatedPlan struct {
+	Plan     Plan
+	Checksum string
+}
+
+type Plan struct {
+	Files        []File                  `json:"files,omitempty"`
+	Instructions []Instruction           `json:"instructions,omitempty"`
+	Probes       map[string]prober.Probe `json:"probes,omitempty"`
+}
+
+type Instruction struct {
+	Name       string   `json:"name,omitempty"`
+	SaveOutput bool     `json:"saveOutput,omitempty"`
+	Image      string   `json:"image,omitempty"`
+	Env        []string `json:"env,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	Command    string   `json:"command,omitempty"`
+}
+
+// Path would be `/etc/kubernetes/ssl/ca.pem`, Content is base64 encoded.
+// If Directory is true, then we are creating a directory, not a file
+type File struct {
+	Content     string `json:"content,omitempty"`
+	Directory   bool   `json:"directory,omitempty"`
+	UID         int    `json:"uid,omitempty"`
+	GID         int    `json:"gid,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Permissions string `json:"permissions,omitempty"` // internally, the string will be converted to a uint32 to satisfy os.FileMode
 }
 
 const appliedPlanFileSuffix = "-applied.plan"
@@ -43,22 +77,42 @@ func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string,
 	}
 }
 
-func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byte, error) {
-	logrus.Infof("Applying plan with checksum %s", anp.Checksum)
+func CalculatePlan(rawPlanByteData []byte) (CalculatedPlan, error) {
+	var cp CalculatedPlan
+	var plan Plan
+	if err := json.Unmarshal(rawPlanByteData, &plan); err != nil {
+		return cp, err
+	}
+
+	cp.Checksum = checksum(rawPlanByteData)
+	cp.Plan = plan
+
+	return cp, nil
+}
+
+func checksum(input []byte) string {
+	h := sha256.New()
+	h.Write(input)
+
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, error) {
+	logrus.Infof("Applying plan with checksum %s", cp.Checksum)
 	logrus.Tracef("Applying plan - attempting to get lock")
 	a.mu.Lock()
 	logrus.Tracef("Applying plan - lock achieved")
 	defer a.mu.Unlock()
 	now := time.Now().Format(applyinatorDateCodeLayout)
 	executionDir := filepath.Join(a.workDir, now+appliedPlanFileSuffix)
-	logrus.Tracef("Applying plan contents %v", anp)
+	logrus.Tracef("Applying calculated node plan contents %v", cp)
 	logrus.Tracef("Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
-		logrus.Debugf("Writing applied plan contents to historical plan directory %s", a.appliedPlanDir)
+		logrus.Debugf("Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
 		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0755); err != nil {
 			return nil, err
 		}
-		anpString, err := json.Marshal(anp)
+		anpString, err := json.Marshal(cp)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +121,7 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 		}
 	}
 
-	for _, file := range anp.Plan.Files {
+	for _, file := range cp.Plan.Files {
 		if file.Directory {
 			logrus.Debugf("Creating directory %s", file.Path)
 			if err := createDirectory(file); err != nil {
@@ -89,9 +143,9 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 	}
 
 	executionOutputs := make(map[string][]byte)
-	for index, instruction := range anp.Plan.Instructions {
-		logrus.Debugf("Executing instruction %d for plan %s", index, anp.Checksum)
-		executionInstructionDir := filepath.Join(executionDir, anp.Checksum+"_"+strconv.Itoa(index))
+	for index, instruction := range cp.Plan.Instructions {
+		logrus.Debugf("Executing instruction %d for plan %s", index, cp.Checksum)
+		executionInstructionDir := filepath.Join(executionDir, cp.Checksum+"_"+strconv.Itoa(index))
 		output, err := a.execute(ctx, executionInstructionDir, instruction)
 		if err != nil {
 			return nil, fmt.Errorf("error executing instruction %d: %v", index, err)
@@ -118,7 +172,7 @@ func (a *Applyinator) Apply(ctx context.Context, anp types.AgentNodePlan) ([]byt
 	return gzOutput.Bytes(), nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction types.Instruction) ([]byte, error) {
+func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction Instruction) ([]byte, error) {
 	logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
 	err := a.imageUtil.Stage(executionDir, instruction.Image)
 	if err != nil {

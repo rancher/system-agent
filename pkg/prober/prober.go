@@ -8,12 +8,33 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/rancher/system-agent/pkg/types"
 	k8sprobe "k8s.io/kubernetes/pkg/probe"
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )
 
-func Probe(probe types.Probe, probeStatus *types.ProbeStatus, initial bool) error {
+type HttpGetAction struct {
+	Path       string `json:"path,omitempty"`
+	ClientCert string `json:"clientCert,omitempty"`
+	ClientKey  string `json:"clientKey,omitempty"`
+	CACert     string `json:"caCert,omitempty"`
+}
+
+type Probe struct {
+	Name                string        `json:"name,omitempty"`
+	InitialDelaySeconds int           `json:"initialDelaySeconds,omitempty"` // default 0
+	TimeoutSeconds      int           `json:"timeoutSeconds,omitempty"`      // default 1
+	SuccessThreshold    int           `json:"successThreshold,omitempty"`    // default 1
+	FailureThreshold    int           `json:"failureThreshold,omitempty"`    // default 3
+	HttpGetAction       HttpGetAction `json:"httpGet,omitempty"`
+}
+
+type ProbeStatus struct {
+	Healthy      bool `json:"healthy,omitempty"`
+	SuccessCount int  `json:"successCount,omitempty"`
+	FailureCount int  `json:"failureCount,omitempty"`
+}
+
+func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	logrus.Tracef("running probe %v", probe)
 	if initial {
 		initialDuration, err := time.ParseDuration(strconv.Itoa(probe.InitialDelaySeconds))

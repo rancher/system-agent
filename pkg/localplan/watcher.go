@@ -2,9 +2,7 @@ package localplan
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -16,7 +14,6 @@ import (
 	"github.com/rancher/system-agent/pkg/prober"
 
 	"github.com/rancher/system-agent/pkg/applyinator"
-	"github.com/rancher/system-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,6 +26,13 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 	go w.start(ctx)
 
 	return nil
+}
+
+// stdout and stderr are both base64, gzipped
+type NodePlanPosition struct {
+	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
+	Output          []byte                        `json:"output,omitempty"`
+	ProbeStatus     map[string]prober.ProbeStatus `json:"probeStatus,omitempty"`
 }
 
 type watcher struct {
@@ -96,17 +100,15 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		logrus.Debugf("[local] Processing file %s", path)
 
-		var anp types.AgentNodePlan
-
-		err := w.parsePlan(path, &anp)
+		cp, err := w.parsePlan(path)
 		if err != nil {
 			logrus.Errorf("[local] Error received when parsing plan: %s", err)
 			continue
 		}
 
-		logrus.Debugf("[local] Plan from file %s was: %v", path, anp.Plan)
+		logrus.Debugf("[local] Plan from file %s was: %v", path, cp.Plan)
 
-		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(path, anp)
+		needsApplied, probeStatuses, initialApplication, err := w.needsApplication(path, cp)
 
 		if err != nil {
 			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
@@ -114,12 +116,12 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		}
 
 		if probeStatuses == nil {
-			probeStatuses = make(map[string]types.ProbeStatus)
+			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
 
 		var output []byte
 		if needsApplied {
-			output, err = w.applyinator.Apply(ctx, anp)
+			output, err = w.applyinator.Apply(ctx, cp)
 			if err != nil {
 				logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 				continue
@@ -129,7 +131,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
-		for probeName, probe := range anp.Plan.Probes {
+		for probeName, probe := range cp.Plan.Probes {
 			wg.Add(1)
 
 			go func() {
@@ -141,9 +143,9 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 				mu.Unlock()
 				if !ok {
 					logrus.Debugf("[local] (%s) probe status was not present in map, initializing", probeName)
-					probeStatus = types.ProbeStatus{}
+					probeStatus = prober.ProbeStatus{}
 				}
-				if err := prober.Probe(probe, &probeStatus, initialApplication); err != nil {
+				if err := prober.DoProbe(probe, &probeStatus, initialApplication); err != nil {
 					logrus.Errorf("error running probe %s", probeName)
 				}
 				mu.Lock()
@@ -155,7 +157,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		wg.Wait()
 
-		if err := w.writePosition(path, anp, output, probeStatuses); err != nil {
+		if err := w.writePosition(path, cp, output, probeStatuses); err != nil {
 			logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
 		}
 	}
@@ -163,36 +165,32 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 	return nil
 }
 
-func (w *watcher) parsePlan(file string, anp *types.AgentNodePlan) error {
-	var np types.NodePlan
+func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return err
+		return applyinator.CalculatedPlan{}, err
 	}
 	defer f.Close()
 
 	b, err := ioutil.ReadAll(f)
 	if err != nil {
-		return err
+		return applyinator.CalculatedPlan{}, err
 	}
 
 	logrus.Tracef("[local] Byte data: %v", b)
 
 	logrus.Debugf("[local] Plan string was %s", string(b))
 
-	err = json.Unmarshal(b, &np)
+	cp, err := applyinator.CalculatePlan(b)
 	if err != nil {
-		return err
+		return cp, err
 	}
 
-	anp.Checksum = checksum(b)
-	anp.Plan = np
-
-	return nil
+	return cp, nil
 }
 
 // Returns true if the plan needs to be applied, false if not
-func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, map[string]types.ProbeStatus, bool, error) {
+func (w *watcher) needsApplication(file string, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, bool, error) {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Open(positionFile)
 	if err != nil {
@@ -203,13 +201,13 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 	}
 	defer f.Close()
 
-	var planPosition types.NodePlanPosition
+	var planPosition NodePlanPosition
 	if err := json.NewDecoder(f).Decode(&planPosition); err != nil {
 		logrus.Errorf("[local] Error encountered while decoding the node plan position: %v", err)
 		return true, nil, true, nil
 	}
 
-	computedChecksum := anp.Checksum
+	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan %s checksum (%s) matched", file, computedChecksum)
 		return false, planPosition.ProbeStatus, false, nil
@@ -221,7 +219,7 @@ func (w *watcher) needsApplication(file string, anp types.AgentNodePlan) (bool, 
 
 }
 
-func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []byte, probeStatus map[string]types.ProbeStatus) error {
+func (w *watcher) writePosition(file string, cp applyinator.CalculatedPlan, output []byte, probeStatus map[string]prober.ProbeStatus) error {
 	positionFile := strings.TrimSuffix(file, planSuffix) + positionSuffix
 	f, err := os.Create(positionFile)
 	if err != nil {
@@ -230,8 +228,8 @@ func (w *watcher) writePosition(file string, anp types.AgentNodePlan, output []b
 	}
 	defer f.Close()
 
-	var npp types.NodePlanPosition
-	npp.AppliedChecksum = anp.Checksum
+	var npp NodePlanPosition
+	npp.AppliedChecksum = cp.Checksum
 	npp.Output = output
 	npp.ProbeStatus = probeStatus
 	return json.NewEncoder(f).Encode(npp)
@@ -248,11 +246,4 @@ func skipFile(fileName string, skips map[string]bool) bool {
 	default:
 		return true
 	}
-}
-
-func checksum(input []byte) string {
-	h := sha256.New()
-	h.Write(input)
-
-	return fmt.Sprintf("%x", h.Sum(nil))
 }

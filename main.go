@@ -10,8 +10,8 @@ import (
 
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
+	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/pkg/localplan"
-	"github.com/rancher/system-agent/pkg/remoteplan"
 	"github.com/rancher/wrangler/pkg/signals"
 
 	"github.com/mattn/go-colorable"
@@ -72,7 +72,7 @@ func run() error {
 			logrus.Fatalf("Unable to parse connection info file %v", err)
 		}
 
-		if err := remoteplan.Watch(topContext, *applyinator, connInfo); err != nil {
+		if err := k8splan.Watch(topContext, *applyinator, connInfo); err != nil {
 			return err
 		}
 	}

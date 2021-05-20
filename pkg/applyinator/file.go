@@ -9,14 +9,13 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/rancher/system-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
 const defaultDirectoryPermissions os.FileMode = 0755
 const defaultFilePermissions os.FileMode = 0600
 
-func writeBase64ContentToFile(file types.File) error {
+func writeBase64ContentToFile(file File) error {
 	content, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
 		return err
@@ -55,7 +54,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 	return reconcileFilePermissions(path, uid, gid, perm)
 }
 
-func createDirectory(file types.File) error {
+func createDirectory(file File) error {
 	if !file.Directory {
 		return fmt.Errorf("%s was not a directory", file.Path)
 	}
