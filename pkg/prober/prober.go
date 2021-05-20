@@ -38,7 +38,7 @@ type ProbeStatus struct {
 }
 
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
-	logrus.Tracef("running probe %v", probe)
+	logrus.Tracef("Running probe %v", probe)
 	if initial {
 		logrus.Debugf("sleeping for %d seconds before running probe", probe.InitialDelaySeconds)
 		time.Sleep(time.Duration(probe.InitialDelaySeconds))
@@ -87,30 +87,33 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
 
 	if err != nil {
+		logrus.Errorf("error while running probe: %v", err)
 		return err
 	}
 
-	logrus.Debugf("probe output was %s", output)
+	logrus.Debugf("Probe output was %s", output)
 
 	var successThreshold, failureThreshold int
 
 	if probe.SuccessThreshold == 0 {
-		logrus.Debugf("Setting default success threshold")
+		logrus.Debugf("Setting success threshold to default")
 		successThreshold = 1
 	} else {
+		logrus.Debugf("Setting success threshold to %d", probe.SuccessThreshold)
 		successThreshold = probe.SuccessThreshold
 	}
 
 	if probe.FailureThreshold == 0 {
-		logrus.Debugf("Setting default failure threshold")
+		logrus.Debugf("Setting failure threshold to default")
 		failureThreshold = 3
 	} else {
+		logrus.Debugf("Setting failure threshold to %d", probe.FailureThreshold)
 		failureThreshold = probe.FailureThreshold
 	}
 
 	switch probeResult {
 	case k8sprobe.Success:
-		logrus.Debug("probe was successful")
+		logrus.Debug("Probe succeeded")
 		if probeStatus.SuccessCount < successThreshold {
 			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
 			if probeStatus.SuccessCount >= successThreshold {
@@ -119,7 +122,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		}
 		probeStatus.FailureCount = 0
 	default:
-		logrus.Debug("probe status failed")
+		logrus.Debug("Probe failed")
 		if probeStatus.FailureCount < failureThreshold {
 			probeStatus.FailureCount = probeStatus.FailureCount + 1
 			if probeStatus.FailureCount >= failureThreshold {

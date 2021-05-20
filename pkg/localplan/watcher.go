@@ -165,7 +165,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 					logrus.Errorf("error running probe %s: %v", probeName, err)
 				}
 				mu.Lock()
-				logrus.Debugf("[local] (%s) writing probe status from map", probeName)
+				logrus.Debugf("[local] (%s) writing probe status to map", probeName)
 				probeStatuses[probeName] = probeStatus
 				mu.Unlock()
 			}()
