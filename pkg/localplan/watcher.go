@@ -183,7 +183,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			logrus.Errorf("error marshalling new plan position data: %v", err)
 		}
 
-		if bytes.Compare(newPPData, posData) == 1 {
+		if bytes.Compare(newPPData, posData) != 0 {
 			logrus.Debugf("[local] Writing position data")
 			if err := os.WriteFile(posFile, newPPData, 0600); err != nil {
 				logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
