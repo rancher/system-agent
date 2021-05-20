@@ -176,7 +176,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		if bytes.Compare(newPPData, posData) == 1 {
 			logrus.Debugf("[local] Writing position data")
-			if err := os.WriteFile(posFile, posData, 0600); err != nil {
+			if err := os.WriteFile(posFile, newPPData, 0600); err != nil {
 				logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
 			}
 		}
