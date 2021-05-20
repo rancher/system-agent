@@ -1,6 +1,9 @@
 package prober
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,6 +16,7 @@ import (
 
 type HttpGetAction struct {
 	Path       string `json:"path,omitempty"`
+	Insecure   bool   `json:"insecure,omitempty"`
 	ClientCert string `json:"clientCert,omitempty"`
 	ClientKey  string `json:"clientKey,omitempty"`
 	CACert     string `json:"caCert,omitempty"`
@@ -39,7 +43,41 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		logrus.Debugf("sleeping for %d seconds before running probe", probe.InitialDelaySeconds)
 		time.Sleep(time.Duration(probe.InitialDelaySeconds))
 	}
-	k8sProber := k8shttp.New(false)
+
+	var k8sProber k8shttp.Prober
+
+	if probe.HttpGetAction.Insecure {
+		k8sProber = k8shttp.New(false)
+	} else {
+		tlsConfig := tls.Config{}
+		if probe.HttpGetAction.ClientCert != "" && probe.HttpGetAction.ClientKey != "" {
+			clientCert, err := tls.LoadX509KeyPair(probe.HttpGetAction.ClientCert, probe.HttpGetAction.ClientKey)
+			if err != nil {
+				logrus.Errorf("error loading x509 client cert/key (%s/%s): %v", probe.HttpGetAction.ClientCert, probe.HttpGetAction.ClientKey, err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{clientCert}
+		}
+
+		caCertPool, err := x509.SystemCertPool()
+
+		if err != nil {
+			caCertPool = x509.NewCertPool()
+			logrus.Errorf("error loading system cert pool: %v", err)
+		}
+
+		if probe.HttpGetAction.CACert != "" {
+			caCert, err := ioutil.ReadFile(probe.HttpGetAction.CACert)
+			if err != nil {
+				logrus.Errorf("error loading CA cert %s: %v", probe.HttpGetAction.CACert, err)
+			}
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				logrus.Errorf("error while appending ca cert to pool")
+			}
+		}
+
+		tlsConfig.RootCAs = caCertPool
+		k8sProber = k8shttp.NewWithTLSConfig(&tlsConfig, false)
+	}
 
 	probeURL, err := url.Parse(probe.HttpGetAction.Path)
 	if err != nil {
