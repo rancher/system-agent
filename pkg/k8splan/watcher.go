@@ -41,8 +41,9 @@ func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo co
 }
 
 type watcher struct {
-	connInfo    config.ConnectionInfo
-	applyinator applyinator.Applyinator
+	connInfo                   config.ConnectionInfo
+	applyinator                applyinator.Applyinator
+	lastAppliedResourceVersion string
 }
 
 func (w *watcher) start(ctx context.Context) {
@@ -85,7 +86,12 @@ func (w *watcher) start(ctx context.Context) {
 			return secret, nil
 		}
 		secret = secret.DeepCopy()
-		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
+		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
+		if w.lastAppliedResourceVersion == secret.ResourceVersion {
+			logrus.Errorf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+			return secret, nil
+		}
 		if planData, ok := secret.Data[planKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
 			logrus.Tracef("[K8s] Plan string was %s", string(planData))
@@ -172,7 +178,15 @@ func (w *watcher) start(ctx context.Context) {
 			secret.Data[appliedOutputKey] = output
 			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			return core.Secret().Update(secret)
+			secret, err := core.Secret().Update(secret)
+			if err != nil {
+				logrus.Errorf("error updating secret: %v", err)
+				return secret, err
+			} else {
+				logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", secret.ResourceVersion)
+				w.lastAppliedResourceVersion = secret.ResourceVersion
+				return secret, nil
+			}
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
@@ -181,5 +195,4 @@ func (w *watcher) start(ctx context.Context) {
 	if err := controllerFactory.Start(ctx, 1); err != nil {
 		panic(err)
 	}
-
 }
