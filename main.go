@@ -4,50 +4,48 @@ import (
 	"context"
 	"os"
 
-	"github.com/rancher/system-agent/pkg/image"
-
-	"github.com/rancher/system-agent/pkg/version"
-
+	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
+	"github.com/rancher/system-agent/pkg/image"
+	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/pkg/localplan"
-	"github.com/rancher/system-agent/pkg/remoteplan"
+	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
-
-	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	cattleLogLevelEnv    = "CATTLE_LOGLEVEL"
+	cattleAgentConfigEnv = "CATTLE_AGENT_CONFIG"
+	defaultConfigFile    = "/etc/rancher/agent/config.yaml"
 )
 
 func main() {
 	logrus.SetOutput(colorable.NewColorableStdout())
 
-	rawLevel := os.Getenv("CATTLE_LOGLEVEL")
+	rawLevel := os.Getenv(cattleLogLevelEnv)
 
 	if rawLevel != "" {
-		if lvl, err := logrus.ParseLevel(os.Getenv("CATTLE_LOGLEVEL")); err != nil {
+		if lvl, err := logrus.ParseLevel(os.Getenv(cattleLogLevelEnv)); err != nil {
 			logrus.Fatal(err)
 		} else {
 			logrus.SetLevel(lvl)
 		}
 	}
 
-	err := run()
-
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
+	run()
 }
 
-func run() error {
+func run() {
 	topContext := signals.SetupSignalHandler(context.Background())
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
-	configFile := os.Getenv("CATTLE_AGENT_CONFIG")
+	configFile := os.Getenv(cattleAgentConfigEnv)
 
 	if configFile == "" {
-		configFile = "/etc/rancher/agent/config.yaml"
+		configFile = defaultConfigFile
 	}
 
 	var cf config.AgentConfig
@@ -72,17 +70,11 @@ func run() error {
 			logrus.Fatalf("Unable to parse connection info file %v", err)
 		}
 
-		if err := remoteplan.Watch(topContext, *applyinator, connInfo); err != nil {
-			return err
-		}
+		k8splan.Watch(topContext, *applyinator, connInfo)
 	}
 
 	logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
-
-	if err := localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir); err != nil {
-		return err
-	}
+	localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
 
 	<-topContext.Done()
-	return nil
 }
