@@ -7,13 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rancher/system-agent/pkg/prober"
-
 	"github.com/rancher/lasso/pkg/cache"
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
+	"github.com/rancher/system-agent/pkg/prober"
 	corecontrollers "github.com/rancher/wrangler/pkg/generated/controllers/core/v1"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -25,7 +24,7 @@ const (
 	appliedChecksumKey   = "applied-checksum"
 	appliedOutputKey     = "applied-output"
 	probeStatusesKey     = "probe-statuses"
-	probePeriod          = "probe-period"
+	probePeriodKey       = "probe-period"
 	planKey              = "plan"
 	enqueueAfterDuration = "5s"
 )
@@ -67,17 +66,24 @@ func (w *watcher) start(ctx context.Context) {
 	controllerFactory := controller.NewSharedControllerFactory(cacheFactory, nil)
 	core := corecontrollers.New(controllerFactory)
 
-	defaultHealthcheckDuration, err := time.ParseDuration(enqueueAfterDuration)
+	probePeriod, err := time.ParseDuration(enqueueAfterDuration)
 	if err != nil {
 		panic(err)
 	}
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
+		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
+			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
+				logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
+			} else {
+				probePeriod = parsedPeriod
+			}
+		}
 		if secret == nil {
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, defaultHealthcheckDuration)
+			logrus.Debugf("[K8s] Secret was nil")
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
-
 		secret = secret.DeepCopy()
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d", secret.Name, secret.Namespace, secret.Generation)
 		if planData, ok := secret.Data[planKey]; ok {
@@ -85,24 +91,20 @@ func (w *watcher) start(ctx context.Context) {
 			logrus.Tracef("[K8s] Plan string was %s", string(planData))
 
 			var probeStatuses map[string]prober.ProbeStatus
-
+			// retrieve existing probe statuses from the secret if they exist
 			if rawProbeStatusByteData, ok := secret.Data[probeStatusesKey]; ok {
 				if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
 					logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
 					probeStatuses = make(map[string]prober.ProbeStatus, 0)
 				}
 			}
-
+			// calculate the checksum of the plan from the provided data
 			cp, err := applyinator.CalculatePlan(planData)
 			if err != nil {
 				return secret, err
 			}
-
-			output, ok := secret.Data[appliedOutputKey]
-			if !ok {
-				output = []byte{}
-			}
 			logrus.Debugf("[K8s] Calculated checksum to be %s", cp.Checksum)
+
 			needsApplied := true
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
@@ -113,11 +115,19 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
+			var output []byte
+
 			if needsApplied {
 				logrus.Debugf("[K8s] Calling Applyinator to apply the plan")
 				output, err = w.applyinator.Apply(ctx, cp)
 				if err != nil {
 					return nil, fmt.Errorf("error applying plan: %v", err)
+				}
+			} else {
+				// retrieve output from the previous run if we aren't applying
+				output, ok = secret.Data[appliedOutputKey]
+				if !ok {
+					output = []byte{}
 				}
 			}
 
@@ -131,7 +141,7 @@ func (w *watcher) start(ctx context.Context) {
 					defer wg.Done()
 					logrus.Debugf("[K8s] (%s) running probe", probeName)
 					mu.Lock()
-					logrus.Debugf("[K8s] (%s) retrieving probe status from map", probeName)
+					logrus.Debugf("[K8s] (%s) retrieving existing probe status from map if existing", probeName)
 					probeStatus, ok := probeStatuses[probeName]
 					mu.Unlock()
 					if !ok {
@@ -142,12 +152,12 @@ func (w *watcher) start(ctx context.Context) {
 						logrus.Errorf("error running probe %s", probeName)
 					}
 					mu.Lock()
-					logrus.Debugf("[K8s] (%s) writing probe status from map", probeName)
+					logrus.Debugf("[K8s] (%s) writing probe status to map", probeName)
 					probeStatuses[probeName] = probeStatus
 					mu.Unlock()
 				}()
 			}
-
+			// wait for all probes to complete
 			wg.Wait()
 
 			rawProbeStatusByteData, err := json.Marshal(probeStatuses)
@@ -161,12 +171,11 @@ func (w *watcher) start(ctx context.Context) {
 			secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
 			secret.Data[appliedOutputKey] = output
 			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, defaultHealthcheckDuration)
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return core.Secret().Update(secret)
 		}
-
+		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
-
 	})
 
 	if err := controllerFactory.Start(ctx, 1); err != nil {
