@@ -17,15 +17,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases ...string) error {
+func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases ...string) {
 	w := &watcher{
 		bases:       bases,
 		applyinator: applyinator,
 	}
 
 	go w.start(ctx)
-
-	return nil
 }
 
 // stdout and stderr are both base64, gzipped

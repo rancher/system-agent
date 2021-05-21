@@ -34,15 +34,10 @@ func main() {
 		}
 	}
 
-	err := run()
-
-	if err != nil {
-		logrus.Fatal(err)
-	}
-
+	run()
 }
 
-func run() error {
+func run() {
 	topContext := signals.SetupSignalHandler(context.Background())
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
@@ -75,17 +70,11 @@ func run() error {
 			logrus.Fatalf("Unable to parse connection info file %v", err)
 		}
 
-		if err := k8splan.Watch(topContext, *applyinator, connInfo); err != nil {
-			return err
-		}
+		k8splan.Watch(topContext, *applyinator, connInfo)
 	}
 
 	logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
-
-	if err := localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir); err != nil {
-		return err
-	}
+	localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
 
 	<-topContext.Done()
-	return nil
 }

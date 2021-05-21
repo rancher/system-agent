@@ -29,15 +29,13 @@ const (
 	enqueueAfterDuration = "5s"
 )
 
-func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) error {
+func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) {
 	w := &watcher{
 		connInfo:    connInfo,
 		applyinator: applyinator,
 	}
 
 	go w.start(ctx)
-
-	return nil
 }
 
 type watcher struct {
