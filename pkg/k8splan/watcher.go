@@ -143,7 +143,7 @@ func (w *watcher) start(ctx context.Context) {
 			for probeName, probe := range cp.Plan.Probes {
 				wg.Add(1)
 
-				go func() {
+				go func(probeName string, probe prober.Probe) {
 					defer wg.Done()
 					logrus.Debugf("[K8s] (%s) running probe", probeName)
 					mu.Lock()
@@ -161,7 +161,7 @@ func (w *watcher) start(ctx context.Context) {
 					logrus.Debugf("[K8s] (%s) writing probe status to map", probeName)
 					probeStatuses[probeName] = probeStatus
 					mu.Unlock()
-				}()
+				}(probeName, probe)
 			}
 			// wait for all probes to complete
 			wg.Wait()
@@ -182,11 +182,10 @@ func (w *watcher) start(ctx context.Context) {
 			if err != nil {
 				logrus.Errorf("error updating secret: %v", err)
 				return secret, err
-			} else {
-				logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", secret.ResourceVersion)
-				w.lastAppliedResourceVersion = secret.ResourceVersion
-				return secret, nil
 			}
+			logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", secret.ResourceVersion)
+			w.lastAppliedResourceVersion = secret.ResourceVersion
+			return secret, nil
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil

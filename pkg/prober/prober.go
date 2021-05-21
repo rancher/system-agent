@@ -13,7 +13,7 @@ import (
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )
 
-type HttpGetAction struct {
+type HTTPGetAction struct {
 	Path       string `json:"path,omitempty"`
 	Insecure   bool   `json:"insecure,omitempty"`
 	ClientCert string `json:"clientCert,omitempty"`
@@ -27,7 +27,7 @@ type Probe struct {
 	TimeoutSeconds      int           `json:"timeoutSeconds,omitempty"`      // default 1
 	SuccessThreshold    int           `json:"successThreshold,omitempty"`    // default 1
 	FailureThreshold    int           `json:"failureThreshold,omitempty"`    // default 3
-	HttpGetAction       HttpGetAction `json:"httpGet,omitempty"`
+	HTTPGetAction       HTTPGetAction `json:"httpGet,omitempty"`
 }
 
 type ProbeStatus struct {
@@ -45,14 +45,14 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 
 	var k8sProber k8shttp.Prober
 
-	if probe.HttpGetAction.Insecure {
+	if probe.HTTPGetAction.Insecure {
 		k8sProber = k8shttp.New(false)
 	} else {
 		tlsConfig := tls.Config{}
-		if probe.HttpGetAction.ClientCert != "" && probe.HttpGetAction.ClientKey != "" {
-			clientCert, err := tls.LoadX509KeyPair(probe.HttpGetAction.ClientCert, probe.HttpGetAction.ClientKey)
+		if probe.HTTPGetAction.ClientCert != "" && probe.HTTPGetAction.ClientKey != "" {
+			clientCert, err := tls.LoadX509KeyPair(probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey)
 			if err != nil {
-				logrus.Errorf("error loading x509 client cert/key (%s/%s): %v", probe.HttpGetAction.ClientCert, probe.HttpGetAction.ClientKey, err)
+				logrus.Errorf("error loading x509 client cert/key (%s/%s): %v", probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
 			}
 			tlsConfig.Certificates = []tls.Certificate{clientCert}
 		}
@@ -64,10 +64,10 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 			logrus.Errorf("error loading system cert pool: %v", err)
 		}
 
-		if probe.HttpGetAction.CACert != "" {
-			caCert, err := ioutil.ReadFile(probe.HttpGetAction.CACert)
+		if probe.HTTPGetAction.CACert != "" {
+			caCert, err := ioutil.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
-				logrus.Errorf("error loading CA cert %s: %v", probe.HttpGetAction.CACert, err)
+				logrus.Errorf("error loading CA cert %s: %v", probe.HTTPGetAction.CACert, err)
 			}
 			if !caCertPool.AppendCertsFromPEM(caCert) {
 				logrus.Errorf("error while appending ca cert to pool")
@@ -78,7 +78,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		k8sProber = k8shttp.NewWithTLSConfig(&tlsConfig, false)
 	}
 
-	probeURL, err := url.Parse(probe.HttpGetAction.Path)
+	probeURL, err := url.Parse(probe.HTTPGetAction.Path)
 	if err != nil {
 		return err
 	}
