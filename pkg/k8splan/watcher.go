@@ -166,11 +166,11 @@ func (w *watcher) start(ctx context.Context) {
 			// wait for all probes to complete
 			wg.Wait()
 
-			rawProbeStatusByteData, err := json.Marshal(probeStatuses)
+			marshalledProbeStatus, err := json.Marshal(probeStatuses)
 			if err != nil {
 				logrus.Errorf("error while marshalling probe statuses: %v", err)
 			} else {
-				secret.Data[probeStatusesKey] = rawProbeStatusByteData
+				secret.Data[probeStatusesKey] = marshalledProbeStatus
 			}
 
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
