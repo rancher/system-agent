@@ -76,14 +76,14 @@ func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string,
 	}
 }
 
-func CalculatePlan(rawPlanByteData []byte) (CalculatedPlan, error) {
+func CalculatePlan(rawPlan []byte) (CalculatedPlan, error) {
 	var cp CalculatedPlan
 	var plan Plan
-	if err := json.Unmarshal(rawPlanByteData, &plan); err != nil {
+	if err := json.Unmarshal(rawPlan, &plan); err != nil {
 		return cp, err
 	}
 
-	cp.Checksum = checksum(rawPlanByteData)
+	cp.Checksum = checksum(rawPlan)
 	cp.Plan = plan
 
 	return cp, nil
