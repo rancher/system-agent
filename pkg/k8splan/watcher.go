@@ -142,8 +142,7 @@ func (w *watcher) start(ctx context.Context) {
 
 			for probeName, probe := range cp.Plan.Probes {
 				wg.Add(1)
-
-				go func(probeName string, probe prober.Probe) {
+				go func(probeName string, probe prober.Probe, wg *sync.WaitGroup) {
 					defer wg.Done()
 					logrus.Debugf("[K8s] (%s) running probe", probeName)
 					mu.Lock()
@@ -161,7 +160,7 @@ func (w *watcher) start(ctx context.Context) {
 					logrus.Debugf("[K8s] (%s) writing probe status to map", probeName)
 					probeStatuses[probeName] = probeStatus
 					mu.Unlock()
-				}(probeName, probe)
+				}(probeName, probe, &wg)
 			}
 			// wait for all probes to complete
 			wg.Wait()

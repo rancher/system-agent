@@ -148,8 +148,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		for probeName, probe := range cp.Plan.Probes {
 			wg.Add(1)
-
-			go func(probeName string, probe prober.Probe) {
+			go func(probeName string, probe prober.Probe, wg *sync.WaitGroup) {
 				defer wg.Done()
 				logrus.Debugf("[local] (%s) running probe", probeName)
 				mu.Lock()
@@ -167,7 +166,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 				logrus.Debugf("[local] (%s) writing probe status to map", probeName)
 				probeStatuses[probeName] = probeStatus
 				mu.Unlock()
-			}(probeName, probe)
+			}(probeName, probe, &wg)
 		}
 
 		wg.Wait()
