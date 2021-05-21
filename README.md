@@ -1,7 +1,6 @@
-# rancher-agent
-========
+# rancher-system-agent
 
-`rancher-agent` is a daemon designed to run on a system and apply "plans" to the system. `rancher-agent` can support both local and remote plans, and was built to be integrated with the Rancher2 project for provisioning next-generation, CAPI driven clusters.
+`rancher-system-agent` is a daemon designed to run on a system and apply "plans" to the system. `rancher-system-agent` can support both local and remote plans, and was built to be integrated with the Rancher2 project for provisioning next-generation, CAPI driven clusters.
 
 ## Building
 
@@ -17,7 +16,7 @@ You can also
 
 First, configure the agent by looking at the `examples/configuration` folder, then you can run the binary.
 
-`./bin/rancher-agent`
+`./bin/rancher-system-agent`
 
 ## License
 Copyright (c) 2021 [Rancher Labs, Inc.](http://rancher.com)
