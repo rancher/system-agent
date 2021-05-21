@@ -16,9 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rancher/system-agent/pkg/prober"
-
 	"github.com/rancher/system-agent/pkg/image"
+	"github.com/rancher/system-agent/pkg/prober"
 	"github.com/sirupsen/logrus"
 )
 

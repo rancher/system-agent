@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-
 	k8sprobe "k8s.io/kubernetes/pkg/probe"
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )

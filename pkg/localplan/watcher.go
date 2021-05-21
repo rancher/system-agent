@@ -12,9 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rancher/system-agent/pkg/prober"
-
 	"github.com/rancher/system-agent/pkg/applyinator"
+	"github.com/rancher/system-agent/pkg/prober"
 	"github.com/sirupsen/logrus"
 )
 

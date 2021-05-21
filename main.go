@@ -4,27 +4,30 @@ import (
 	"context"
 	"os"
 
-	"github.com/rancher/system-agent/pkg/image"
-
-	"github.com/rancher/system-agent/pkg/version"
-
+	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
+	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/pkg/localplan"
+	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
-
-	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	cattleLogLevelEnv    = "CATTLE_LOGLEVEL"
+	cattleAgentConfigEnv = "CATTLE_AGENT_CONFIG"
+	defaultConfigFile    = "/etc/rancher/agent/config.yaml"
 )
 
 func main() {
 	logrus.SetOutput(colorable.NewColorableStdout())
 
-	rawLevel := os.Getenv("CATTLE_LOGLEVEL")
+	rawLevel := os.Getenv(cattleLogLevelEnv)
 
 	if rawLevel != "" {
-		if lvl, err := logrus.ParseLevel(os.Getenv("CATTLE_LOGLEVEL")); err != nil {
+		if lvl, err := logrus.ParseLevel(os.Getenv(cattleLogLevelEnv)); err != nil {
 			logrus.Fatal(err)
 		} else {
 			logrus.SetLevel(lvl)
@@ -44,10 +47,10 @@ func run() error {
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
-	configFile := os.Getenv("CATTLE_AGENT_CONFIG")
+	configFile := os.Getenv(cattleAgentConfigEnv)
 
 	if configFile == "" {
-		configFile = "/etc/rancher/agent/config.yaml"
+		configFile = defaultConfigFile
 	}
 
 	var cf config.AgentConfig
