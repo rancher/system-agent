@@ -477,6 +477,10 @@ create_env_file() {
 }
 
 do_install() {
+    if [ $(id -u) != 0 ]; then
+      fatal "This script must be run as root."
+    fi
+
     parse_args "$@"
     setup_arch
     setup_env
