@@ -98,7 +98,7 @@ parse_args() {
             fi
 		        shift 2
             ;;
-        "--taint")
+        "--taint" | "--taints")
             info "Taint: $2"
             if [ -n "${CATTLE_TAINTS}" ]; then
                 CATTLE_TAINTS="${CATTLE_TAINTS},$2"
