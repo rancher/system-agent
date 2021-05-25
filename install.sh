@@ -69,17 +69,24 @@ fatal() {
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-        "--controlplane")
+        "-a" | "--all-roles")
+            info "All roles requested"
+            CATTLE_ROLE_CONTROLPLANE=true
+            CATTLE_ROLE_ETCD=true
+            CATTLE_ROLE_WORKER=true
+            shift 1
+            ;;
+        "-p" | "--controlplane")
             info "Role requested: controlplane"
             CATTLE_ROLE_CONTROLPLANE=true
             shift 1
             ;;
-        "--etcd")
+        "-e" | "--etcd")
             info "Role requested: etcd"
             CATTLE_ROLE_ETCD=true
             shift 1
                 ;;
-        "--worker")
+        "-w" | "--worker")
             info "Role requested: worker"
             CATTLE_ROLE_WORKER=true
 		        shift 1
@@ -89,7 +96,19 @@ parse_args() {
             CATTLE_ROLE_NONE=true
             shift 1
             ;;
-        "--label")
+        "-n" | "--node-name")
+            CATTLE_NODE_NAME="$2"
+		        shift 2
+            ;;
+        "-a" | "--address")
+            CATTLE_ADDRESS="$2"
+		        shift 2
+            ;;
+        "-i" | "--internal-address")
+            CATTLE_INTERNAL_ADDRESS="$2"
+		        shift 2
+            ;;
+        "-l" | "--label")
             info "Label: $2"
             if [ -n "${CATTLE_LABELS}" ]; then
                 CATTLE_LABELS="${CATTLE_LABELS},$2"
@@ -107,15 +126,15 @@ parse_args() {
             fi
 		        shift 2
             ;;
-        "--server")
+        "-s" | "--server")
             CATTLE_SERVER="$2"
 		        shift 2
             ;;
-        "--token")
+        "-t" | "--token")
             CATTLE_TOKEN="$2"
 		        shift 2
             ;;
-        "--ca-checksum")
+        "-c" | "--ca-checksum")
             CATTLE_CA_CHECKSUM="$2"
             shift 2
             ;;
@@ -217,6 +236,8 @@ setup_env() {
         info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
     fi
 
+    CATTLE_ADDRESS=$(get_address "${CATTLE_ADDRESS}")
+    CATTLE_INTERNAL_ADDRESS=$(get_address "${CATTLE_INTERNAL_ADDRESS}")
 }
 
 ensure_directories() {
@@ -252,6 +273,58 @@ setup_arch() {
         fatal "unsupported architecture ${ARCH}"
         ;;
     esac
+}
+
+get_address()
+{
+    local address=$1
+    # If nothing is given, return empty (it will be automatically determined later if empty)
+    if [ -z $address ]; then
+        echo ""
+    # If given address is a network interface on the system, retrieve configured IP on that interface (only the first configured IP is taken)
+    elif [ -n "$(find /sys/devices -name $address)" ]; then
+        echo $(ip addr show dev $address | grep -w inet | awk '{print $2}' | cut -f1 -d/ | head -1)
+    # Loop through cloud provider options to get IP from metadata, if not found return given value
+    else
+        case $address in
+            awslocal)
+                echo $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+                ;;
+            awspublic)
+                echo $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+                ;;
+            doprivate)
+                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
+                ;;
+            dopublic)
+                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+                ;;
+            azprivate)
+                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
+                ;;
+            azpublic)
+                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
+                ;;
+            gceinternal)
+                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+                ;;
+            gceexternal)
+                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+                ;;
+            packetlocal)
+                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
+                ;;
+            packetpublic)
+                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
+                ;;
+            ipify)
+                echo $(curl -s https://api.ipify.org)
+                ;;
+            *)
+                echo $address
+                ;;
+        esac
+    fi
 }
 
 # verify_downloader verifies existence of
@@ -411,7 +484,7 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
