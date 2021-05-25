@@ -69,17 +69,24 @@ fatal() {
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-        "--controlplane")
+        "-a" | "--all-roles")
+            info "All roles requested"
+            CATTLE_ROLE_CONTROLPLANE=true
+            CATTLE_ROLE_ETCD=true
+            CATTLE_ROLE_WORKER=true
+            shift 1
+            ;;
+        "-p" | "--controlplane")
             info "Role requested: controlplane"
             CATTLE_ROLE_CONTROLPLANE=true
             shift 1
             ;;
-        "--etcd")
+        "-e" | "--etcd")
             info "Role requested: etcd"
             CATTLE_ROLE_ETCD=true
             shift 1
                 ;;
-        "--worker")
+        "-w" | "--worker")
             info "Role requested: worker"
             CATTLE_ROLE_WORKER=true
 		        shift 1
@@ -89,7 +96,19 @@ parse_args() {
             CATTLE_ROLE_NONE=true
             shift 1
             ;;
-        "--label")
+        "-n" | "--node-name")
+            CATTLE_NODE_NAME="$2"
+		        shift 2
+            ;;
+        "-a" | "--address")
+            CATTLE_ADDRESS="$2"
+		        shift 2
+            ;;
+        "-i" | "--internal-address")
+            CATTLE_INTERNAL_ADDRESS="$2"
+		        shift 2
+            ;;
+        "-l" | "--label")
             info "Label: $2"
             if [ -n "${CATTLE_LABELS}" ]; then
                 CATTLE_LABELS="${CATTLE_LABELS},$2"
@@ -107,15 +126,15 @@ parse_args() {
             fi
 		        shift 2
             ;;
-        "--server")
+        "-s" | "--server")
             CATTLE_SERVER="$2"
 		        shift 2
             ;;
-        "--token")
+        "-t" | "--token")
             CATTLE_TOKEN="$2"
 		        shift 2
             ;;
-        "--ca-checksum")
+        "-c" | "--ca-checksum")
             CATTLE_CA_CHECKSUM="$2"
             shift 2
             ;;
@@ -411,7 +430,7 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
