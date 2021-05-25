@@ -236,6 +236,8 @@ setup_env() {
         info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
     fi
 
+    CATTLE_ADDRESS=$(get_address "${CATTLE_ADDRESS}")
+    CATTLE_INTERNAL_ADDRESS=$(get_address "${CATTLE_INTERNAL_ADDRESS}")
 }
 
 ensure_directories() {
@@ -271,6 +273,58 @@ setup_arch() {
         fatal "unsupported architecture ${ARCH}"
         ;;
     esac
+}
+
+get_address()
+{
+    local address=$1
+    # If nothing is given, return empty (it will be automatically determined later if empty)
+    if [ -z $address ]; then
+        echo ""
+    # If given address is a network interface on the system, retrieve configured IP on that interface (only the first configured IP is taken)
+    elif [ -n "$(find /sys/devices -name $address)" ]; then
+        echo $(ip addr show dev $address | grep -w inet | awk '{print $2}' | cut -f1 -d/ | head -1)
+    # Loop through cloud provider options to get IP from metadata, if not found return given value
+    else
+        case $address in
+            awslocal)
+                echo $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+                ;;
+            awspublic)
+                echo $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+                ;;
+            doprivate)
+                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
+                ;;
+            dopublic)
+                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+                ;;
+            azprivate)
+                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
+                ;;
+            azpublic)
+                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
+                ;;
+            gceinternal)
+                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+                ;;
+            gceexternal)
+                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+                ;;
+            packetlocal)
+                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
+                ;;
+            packetpublic)
+                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
+                ;;
+            ipify)
+                echo $(curl -s https://api.ipify.org)
+                ;;
+            *)
+                echo $address
+                ;;
+        esac
+    fi
 }
 
 # verify_downloader verifies existence of
