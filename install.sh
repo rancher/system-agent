@@ -525,7 +525,7 @@ generate_cattle_identifier() {
             return
         fi
 
-        CATTLE_ID=$(sha256sum /etc/machine-id | awk '{print $1}'); # awk may not be installed. need to think of a way around this.
+        CATTLE_ID=$(dd if=/dev/urandom count=1 bs=512 2>/dev/null | sha256sum | awk '{print $1}');
         echo "${CATTLE_ID}" > ${CATTLE_AGENT_CONFIG_DIR}/cattle-id
         return
     fi
