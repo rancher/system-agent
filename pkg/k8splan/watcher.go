@@ -16,8 +16,10 @@ import (
 	corecontrollers "github.com/rancher/wrangler/pkg/generated/controllers/core/v1"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 )
 
 const (
@@ -86,7 +88,7 @@ func (w *watcher) start(ctx context.Context) {
 		secret = secret.DeepCopy()
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		if w.lastAppliedResourceVersion == secret.ResourceVersion {
-			logrus.Errorf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
+			logrus.Debugf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
@@ -125,7 +127,7 @@ func (w *watcher) start(ctx context.Context) {
 				logrus.Debugf("[K8s] Calling Applyinator to apply the plan")
 				output, err = w.applyinator.Apply(ctx, cp)
 				if err != nil {
-					return nil, fmt.Errorf("error applying plan: %v", err)
+					return nil, fmt.Errorf("error applying plan: %w", err)
 				}
 			} else {
 				// retrieve output from the previous run if we aren't applying
@@ -175,14 +177,27 @@ func (w *watcher) start(ctx context.Context) {
 			secret.Data[appliedOutputKey] = output
 			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			secret, err := core.Secret().Update(secret)
-			if err != nil {
-				logrus.Errorf("error updating secret: %v", err)
-				return secret, err
+
+			var resultingSecret *v1.Secret
+
+			if err := retry.OnError(retry.DefaultBackoff,
+				func(err error) bool {
+					if apierrors.IsConflict(err) {
+						return false
+					}
+					return true
+				},
+				func() error {
+					var err error
+					resultingSecret, err = core.Secret().Update(secret)
+					return err
+				}); err != nil {
+				return resultingSecret, err
 			}
-			logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", secret.ResourceVersion)
-			w.lastAppliedResourceVersion = secret.ResourceVersion
-			return secret, nil
+
+			logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
+			w.lastAppliedResourceVersion = resultingSecret.ResourceVersion
+			return resultingSecret, nil
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
