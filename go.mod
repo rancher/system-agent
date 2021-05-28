@@ -38,6 +38,7 @@ require (
 	github.com/rancher/wharfie v0.3.2
 	github.com/rancher/wrangler v0.8.0
 	github.com/sirupsen/logrus v1.8.1
+	golang.org/x/sync v0.0.0-20201207232520-09787c993a3a
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.0
 	k8s.io/client-go v0.21.0
