@@ -180,7 +180,7 @@ func (w *watcher) start(ctx context.Context) {
 
 			var resultingSecret *v1.Secret
 
-			if err := retry.OnError(retry.DefaultRetry,
+			if err := retry.OnError(retry.DefaultBackoff,
 				func(err error) bool {
 					if apierrors.IsConflict(err) {
 						return false
