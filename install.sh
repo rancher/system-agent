@@ -199,11 +199,11 @@ setup_env() {
         fi
 
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
-            if [ $(curl -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
+            if [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
                 info "GitHub Rate Limit exceeded, falling back to known good version"
                 VERSION=$FALLBACK
             else
-                VERSION=$(curl -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+                VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
                 if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
                     info "Error contacting GitHub to retrieve the latest version"
                     VERSION=$FALLBACK
@@ -288,37 +288,37 @@ get_address()
     else
         case $address in
             awslocal)
-                echo $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/local-ipv4)
                 ;;
             awspublic)
-                echo $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/public-ipv4)
                 ;;
             doprivate)
-                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
+                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
                 ;;
             dopublic)
-                echo $(curl -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
                 ;;
             azprivate)
-                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
+                echo $(curl --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
                 ;;
             azpublic)
-                echo $(curl -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
+                echo $(curl --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
                 ;;
             gceinternal)
-                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+                echo $(curl --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
                 ;;
             gceexternal)
-                echo $(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+                echo $(curl --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
                 ;;
             packetlocal)
-                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
+                echo $(curl --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
                 ;;
             packetpublic)
-                echo $(curl -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
+                echo $(curl --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
                 ;;
             ipify)
-                echo $(curl -s https://api.ipify.org)
+                echo $(curl --connect-timeout 60 --max-time 60 -s https://api.ipify.org)
                 ;;
             *)
                 echo $address
@@ -380,7 +380,7 @@ download_rancher_agent() {
         fi
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
+            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded the rancher-system-agent binary."
@@ -415,7 +415,7 @@ validate_ca_checksum() {
         CACERT=$(mktemp)
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
+            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded CA certificate"
@@ -459,7 +459,7 @@ validate_rancher_connection() {
     if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "12" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
+            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
             case "${RESPONSE}" in
             200)
                 info "Successfully tested Rancher connection"
@@ -484,7 +484,7 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
