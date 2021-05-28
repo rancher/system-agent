@@ -19,6 +19,7 @@ import (
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/prober"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 type Applyinator struct {
@@ -210,24 +211,37 @@ func (a *Applyinator) execute(ctx context.Context, executionDir string, instruct
 
 	var outputBuffer bytes.Buffer
 
-	go streamLogs("[stdout]", &outputBuffer, stdout)
-	go streamLogs("[stderr]", &outputBuffer, stderr)
+	var (
+		eg        = errgroup.Group{}
+		writeLock sync.Mutex
+	)
+	eg.Go(func() error {
+		return streamLogs("[stdout]", &outputBuffer, stdout, &writeLock)
+	})
+	eg.Go(func() error {
+		return streamLogs("[stderr]", &outputBuffer, stderr, &writeLock)
+	})
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
 	if err := cmd.Wait(); err != nil {
+		_ = eg.Wait()
 		return outputBuffer.Bytes(), err
 	}
 
-	return outputBuffer.Bytes(), nil
+	err = eg.Wait()
+	return outputBuffer.Bytes(), err
 }
 
-func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader) {
+func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader, lock *sync.Mutex) error {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		logrus.Infof("%s: %s", prefix, scanner.Text())
+		lock.Lock()
 		outputBuffer.Write(append(scanner.Bytes(), []byte("\n")...))
+		lock.Unlock()
 	}
+	return scanner.Err()
 }
