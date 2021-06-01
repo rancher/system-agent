@@ -3,6 +3,7 @@ package prober
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -39,8 +40,12 @@ type ProbeStatus struct {
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	logrus.Tracef("Running probe %v", probe)
 	if initial {
-		logrus.Debugf("sleeping for %d seconds before running probe", probe.InitialDelaySeconds)
-		time.Sleep(time.Duration(probe.InitialDelaySeconds))
+		initialDelayDuration, err := time.ParseDuration(fmt.Sprintf("%ds", probe.InitialDelaySeconds))
+		if err != nil {
+			return fmt.Errorf("error parsing duration: %w", err)
+		}
+		logrus.Debugf("sleeping for %.0f seconds before running probe", initialDelayDuration.Seconds())
+		time.Sleep(initialDelayDuration)
 	}
 
 	var k8sProber k8shttp.Prober
@@ -83,7 +88,14 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		return err
 	}
 
-	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
+	probeDuration, err := time.ParseDuration(fmt.Sprintf("%ds", probe.TimeoutSeconds))
+	if err != nil {
+		logrus.Errorf("error parsing probe timeout duration: %v", err)
+		return err
+	}
+	logrus.Debugf("Probe timeout duration: %.0f seconds", probeDuration.Seconds())
+
+	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, probeDuration)
 
 	if err != nil {
 		logrus.Errorf("error while running probe: %v", err)
