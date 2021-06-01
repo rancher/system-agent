@@ -14,7 +14,7 @@ import (
 )
 
 type HTTPGetAction struct {
-	Path       string `json:"path,omitempty"`
+	URL        string `json:"url,omitempty"`
 	Insecure   bool   `json:"insecure,omitempty"`
 	ClientCert string `json:"clientCert,omitempty"`
 	ClientKey  string `json:"clientKey,omitempty"`
@@ -78,7 +78,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		k8sProber = k8shttp.NewWithTLSConfig(&tlsConfig, false)
 	}
 
-	probeURL, err := url.Parse(probe.HTTPGetAction.Path)
+	probeURL, err := url.Parse(probe.HTTPGetAction.URL)
 	if err != nil {
 		return err
 	}

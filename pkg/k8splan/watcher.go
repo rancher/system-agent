@@ -26,7 +26,7 @@ const (
 	appliedChecksumKey   = "applied-checksum"
 	appliedOutputKey     = "applied-output"
 	probeStatusesKey     = "probe-statuses"
-	probePeriodKey       = "probe-period"
+	probePeriodKey       = "probe-period-seconds"
 	planKey              = "plan"
 	enqueueAfterDuration = "5s"
 )
