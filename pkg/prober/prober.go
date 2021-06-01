@@ -39,8 +39,9 @@ type ProbeStatus struct {
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	logrus.Tracef("Running probe %v", probe)
 	if initial {
-		logrus.Debugf("sleeping for %d seconds before running probe", probe.InitialDelaySeconds)
-		time.Sleep(time.Duration(probe.InitialDelaySeconds))
+		initialDelayDuration := time.Duration(probe.InitialDelaySeconds) * time.Second
+		logrus.Debugf("sleeping for %.0f seconds before running probe", initialDelayDuration.Seconds())
+		time.Sleep(initialDelayDuration)
 	}
 
 	var k8sProber k8shttp.Prober
@@ -83,7 +84,10 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		return err
 	}
 
-	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, time.Duration(probe.TimeoutSeconds))
+	probeDuration := time.Duration(probe.TimeoutSeconds) * time.Second
+	logrus.Debugf("Probe timeout duration: %.0f seconds", probeDuration.Seconds())
+
+	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, probeDuration)
 
 	if err != nil {
 		logrus.Errorf("error while running probe: %v", err)
