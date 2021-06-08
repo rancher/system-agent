@@ -173,11 +173,18 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 }
 
 func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction Instruction) ([]byte, error) {
-	logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
-	err := a.imageUtil.Stage(executionDir, instruction.Image)
-	if err != nil {
-		logrus.Errorf("error while staging: %v", err)
-		return nil, err
+	if instruction.Image == "" {
+		logrus.Infof("No image provided, creating empty working directory %s", executionDir)
+		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
+			logrus.Errorf("error while creating empty working directory: %v", err)
+			return nil, err
+		}
+	} else {
+		logrus.Infof("Extracting image %s to directory %s", instruction.Image, executionDir)
+		if err := a.imageUtil.Stage(executionDir, instruction.Image); err != nil {
+			logrus.Errorf("error while staging: %v", err)
+			return nil, err
+		}
 	}
 
 	command := instruction.Command
