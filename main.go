@@ -60,7 +60,7 @@ func run() {
 		logrus.Fatalf("Unable to parse config file %v", err)
 	}
 
-	if !cf.LocalEnabled || !cf.RemoteEnabled {
+	if !cf.LocalEnabled && !cf.RemoteEnabled {
 		logrus.Fatalf("Local and remote were both not enabled. Exiting, as one must be enabled.")
 	}
 

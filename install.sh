@@ -248,11 +248,8 @@ setup_env() {
 }
 
 ensure_directories() {
-    UMASK=$(umask)
-    umask 0077
     mkdir -p ${CATTLE_AGENT_VAR_DIR}
     mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
-    umask "${UMASK}"
     chmod 700 ${CATTLE_AGENT_VAR_DIR}
     chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
     chown root:root ${CATTLE_AGENT_VAR_DIR}
