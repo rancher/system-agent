@@ -109,7 +109,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 	logrus.Tracef("Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
-		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0700); err != nil {
 			return nil, err
 		}
 		anpString, err := json.Marshal(cp)
