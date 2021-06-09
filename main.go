@@ -4,12 +4,13 @@ import (
 	"context"
 	"os"
 
+	"github.com/rancher/system-agent/pkg/localplan"
+
 	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/k8splan"
-	"github.com/rancher/system-agent/pkg/localplan"
 	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
@@ -23,6 +24,10 @@ const (
 
 func main() {
 	logrus.SetOutput(colorable.NewColorableStdout())
+
+	if os.Getuid() != 0 {
+		logrus.Fatalf("Must be run as root.")
+	}
 
 	rawLevel := os.Getenv(cattleLogLevelEnv)
 
@@ -55,10 +60,13 @@ func run() {
 		logrus.Fatalf("Unable to parse config file %v", err)
 	}
 
+	if !cf.LocalEnabled || !cf.RemoteEnabled {
+		logrus.Fatalf("Local and remote were both not enabled. Exiting, as one must be enabled.")
+	}
+
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
 
 	imageUtil := image.NewUtility(cf.ImagesDir, cf.ImageCredentialProviderConfig, cf.ImageCredentialProviderBinDir, cf.AgentRegistriesFile)
-
 	applyinator := applyinator.NewApplyinator(cf.WorkDir, cf.PreserveWorkDir, cf.AppliedPlanDir, imageUtil)
 
 	if cf.RemoteEnabled {
@@ -73,8 +81,10 @@ func run() {
 		k8splan.Watch(topContext, *applyinator, connInfo)
 	}
 
-	logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
-	localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
+	if cf.LocalEnabled {
+		logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
+		localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
+	}
 
 	<-topContext.Done()
 }

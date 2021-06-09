@@ -35,6 +35,7 @@ fi
 #   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
 #   - CATTLE_PRESERVE_WORKDIR (default: false)
 #   - CATTLE_REMOTE_ENABLED (default: true)
+#   - CATTLE_LOCAL_ENABLED (default: false)
 #   - CATTLE_ID (default: autogenerate)
 #   - CATTLE_AGENT_BINARY_LOCAL (default: false)
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
@@ -169,6 +170,12 @@ setup_env() {
         CATTLE_ROLE_WORKER=false
     fi
 
+    if [ -z "${CATTLE_LOCAL_ENABLED}" ]; then
+        CATTLE_LOCAL_ENABLED=false
+    else
+        CATTLE_LOCAL_ENABLED=$(echo "${CATTLE_LOCAL_ENABLED}" | tr '[:upper:]' '[:lower:]')
+    fi
+
     if [ -z "${CATTLE_REMOTE_ENABLED}" ]; then
         CATTLE_REMOTE_ENABLED=true
     else
@@ -241,8 +248,15 @@ setup_env() {
 }
 
 ensure_directories() {
+    UMASK=$(umask)
+    umask 0077
     mkdir -p ${CATTLE_AGENT_VAR_DIR}
     mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
+    umask "${UMASK}"
+    chmod 700 ${CATTLE_AGENT_VAR_DIR}
+    chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
+    chown root:root ${CATTLE_AGENT_VAR_DIR}
+    chown root:root ${CATTLE_AGENT_CONFIG_DIR}
 }
 
 # setup_arch set arch and suffix,
@@ -482,6 +496,8 @@ validate_rancher_connection() {
 
 retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
+        UMASK=$(umask)
+        umask 0177
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
@@ -498,19 +514,22 @@ retrieve_connection_info() {
                 ;;
             esac
         done
+        umask "${UMASK}"
     fi
 }
 
 generate_config() {
-
+    UMASK=$(umask)
+    umask 0177
 cat <<-EOF >"${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
 workDirectory: ${CATTLE_AGENT_VAR_DIR}/work
-localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
 appliedPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/applied
 remoteEnabled: ${CATTLE_REMOTE_ENABLED}
+localEnabled: ${CATTLE_LOCAL_ENABLED}
+localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
 preserveWorkDirectory: ${CATTLE_PRESERVE_WORKDIR}
 EOF
-
+    umask "${UMASK}"
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         echo connectionInfoFile: ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json >> "${CATTLE_AGENT_CONFIG_DIR}/config.yaml"
     fi
@@ -526,7 +545,10 @@ generate_cattle_identifier() {
         fi
 
         CATTLE_ID=$(dd if=/dev/urandom count=1 bs=512 2>/dev/null | sha256sum | awk '{print $1}' | head -c 63);
+        UMASK=$(umask)
+        umask 0177
         echo "${CATTLE_ID}" > ${CATTLE_AGENT_CONFIG_DIR}/cattle-id
+        umask "${UMASK}"
         return
     fi
     info "Not generating Cattle ID"
