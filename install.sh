@@ -182,6 +182,10 @@ setup_env() {
         CATTLE_REMOTE_ENABLED=$(echo "${CATTLE_REMOTE_ENABLED}" | tr '[:upper:]' '[:lower:]')
     fi
 
+    if [ "${CATTLE_LOCAL_ENABLED}" = "false" ] && [ "${CATTLE_REMOTE_ENABLED}" = "false" ]; then
+        fatal "Neither local or remote plan support was enabled"
+    fi
+
     if [ -z "${CATTLE_PRESERVE_WORKDIR}" ]; then
         CATTLE_PRESERVE_WORKDIR=false
     else
