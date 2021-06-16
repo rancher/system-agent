@@ -250,5 +250,5 @@ func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader, loc
 		outputBuffer.Write(append(scanner.Bytes(), []byte("\n")...))
 		lock.Unlock()
 	}
-	return scanner.Err()
+	return nil
 }

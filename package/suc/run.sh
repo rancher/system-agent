@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -x
+set -x -e
 
 TMPDIRBASE=/var/lib/rancher/agent/tmp
 
@@ -16,15 +16,25 @@ cp /opt/rancher-system-agent-suc/install.sh "/host${TMPDIR}"
 cp /opt/rancher-system-agent-suc/rancher-system-agent "/host${TMPDIR}"
 chmod +x "/host${TMPDIR}/install.sh"
 
-cp /opt/sucenv/environment "/host${TMPDIR}/env"
+if [ -n "$SYSTEM_UPGRADE_NODE_NAME" ]; then
+    NODE_FILE=/host${TMPDIR}/node.yaml
+    kubectl get node ${SYSTEM_UPGRADE_NODE_NAME} -o yaml > $NODE_FILE
+    if [ -z "$CATTLE_ROLE_ETCD" ] && grep -q 'node-role.kubernetes.io/etcd: "true"' $NODE_FILE; then
+        export CATTLE_ROLE_ETCD=true
+    fi
+    if [ -z "$CATTLE_ROLE_CONTROLPLANE" ] && grep -q 'node-role.kubernetes.io/controlplane: "true"' $NODE_FILE; then
+        export CATTLE_ROLE_CONTROLPLANE=true
+    fi
+    if [ -z "$CATTLE_ROLE_CONTROLPLANE" ] && grep -q 'node-role.kubernetes.io/control-plane: "true"' $NODE_FILE; then
+        export CATTLE_ROLE_CONTROLPLANE=true
+    fi
+    if [ -z "$CATTLE_ROLE_WORKER" ] && grep -q 'node-role.kubernetes.io/worker: "true"' $NODE_FILE; then
+        export CATTLE_ROLE_WORKER=true
+    fi
+fi
 
-cat << 'EOF' > "/host${TMPDIR}/run-install.sh"
-#!/bin/sh
-env $(cat ${TMPDIR}/env) ${TMPDIR}/install.sh
-EOF
-
-chmod +x "/host${TMPDIR}/run-install.sh"
-
-chroot /host /bin/sh -c "env TMPDIR=${TMPDIR} CATTLE_AGENT_BINARY_LOCAL=true CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent ${TMPDIR}/run-install.sh $*"
+export CATTLE_AGENT_BINARY_LOCAL=true
+export CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent
+chroot /host ${TMPDIR}/install.sh "$@"
 
 cleanup

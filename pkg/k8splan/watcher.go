@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/rancher/lasso/pkg/cache"
@@ -137,33 +136,7 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
-			var wg sync.WaitGroup
-			var mu sync.Mutex
-
-			for probeName, probe := range cp.Plan.Probes {
-				wg.Add(1)
-				go func(probeName string, probe prober.Probe, wg *sync.WaitGroup) {
-					defer wg.Done()
-					logrus.Debugf("[K8s] (%s) running probe", probeName)
-					mu.Lock()
-					logrus.Debugf("[K8s] (%s) retrieving existing probe status from map if existing", probeName)
-					probeStatus, ok := probeStatuses[probeName]
-					mu.Unlock()
-					if !ok {
-						logrus.Debugf("[K8s] (%s) probe status was not present in map, initializing", probeName)
-						probeStatus = prober.ProbeStatus{}
-					}
-					if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
-						logrus.Errorf("error running probe %s", probeName)
-					}
-					mu.Lock()
-					logrus.Debugf("[K8s] (%s) writing probe status to map", probeName)
-					probeStatuses[probeName] = probeStatus
-					mu.Unlock()
-				}(probeName, probe, &wg)
-			}
-			// wait for all probes to complete
-			wg.Wait()
+			prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)
 
 			marshalledProbeStatus, err := json.Marshal(probeStatuses)
 			if err != nil {
