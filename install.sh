@@ -378,14 +378,14 @@ Restart=always
 RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
-ExecStart=/usr/bin/rancher-system-agent
+ExecStart=/usr/local/bin/rancher-system-agent
 EOF
 }
 
 download_rancher_agent() {
     if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
         info "Using local rancher-system-agent binary from ${CATTLE_AGENT_BINARY_LOCAL_LOCATION}"
-        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/bin/rancher-system-agent
+        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/local/bin/rancher-system-agent
     else
         info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
         if [ "${BINARY_SOURCE}" != "upstream" ]; then
@@ -395,7 +395,7 @@ download_rancher_agent() {
         fi
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/bin/rancher-system-agent)
+            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/local/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded the rancher-system-agent binary."
@@ -409,7 +409,7 @@ download_rancher_agent() {
                 ;;
             esac
         done
-        chmod +x /usr/bin/rancher-system-agent
+        chmod +x /usr/local/bin/rancher-system-agent
     fi
 }
 
