@@ -56,6 +56,10 @@ func (w *watcher) start(ctx context.Context) {
 		panic(err)
 	}
 
+	if !clientFactory.IsHealthy(ctx) {
+		panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
+	}
+
 	cacheFactory := cache.NewSharedCachedFactory(clientFactory, &cache.SharedCacheFactoryOptions{
 		DefaultNamespace: w.connInfo.Namespace,
 		DefaultTweakList: func(options *metav1.ListOptions) {
