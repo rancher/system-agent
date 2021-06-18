@@ -90,10 +90,10 @@ func (w *watcher) start(ctx context.Context) {
 			}
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
+		needsApplied := true
 		if w.lastAppliedResourceVersion == secret.ResourceVersion {
 			logrus.Debugf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			return secret, nil
+			needsApplied = false
 		}
 		if planData, ok := secret.Data[planKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
@@ -116,7 +116,6 @@ func (w *watcher) start(ctx context.Context) {
 			}
 			logrus.Debugf("[K8s] Calculated checksum to be %s", cp.Checksum)
 
-			needsApplied := true
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
 				logrus.Debugf("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
