@@ -76,6 +76,12 @@ func (w *watcher) start(ctx context.Context) {
 	}
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
+		if secret == nil {
+			logrus.Debugf("[K8s] Secret was nil")
+			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+			return secret, nil
+		}
+		secret = secret.DeepCopy()
 		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
 			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
 				logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
@@ -83,12 +89,6 @@ func (w *watcher) start(ctx context.Context) {
 				probePeriod = parsedPeriod
 			}
 		}
-		if secret == nil {
-			logrus.Debugf("[K8s] Secret was nil")
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			return secret, nil
-		}
-		secret = secret.DeepCopy()
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		if w.lastAppliedResourceVersion == secret.ResourceVersion {
 			logrus.Debugf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
