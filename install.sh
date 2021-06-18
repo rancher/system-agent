@@ -473,7 +473,7 @@ validate_rancher_connection() {
     RANCHER_SUCCESS=false
     if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
-        while [ "${i}" -ne "12" ]; do
+        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
             case "${RESPONSE}" in
             200)
