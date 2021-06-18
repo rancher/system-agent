@@ -106,6 +106,8 @@ func (w *watcher) start(ctx context.Context) {
 					logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
 					probeStatuses = make(map[string]prober.ProbeStatus, 0)
 				}
+			} else {
+				probeStatuses = make(map[string]prober.ProbeStatus, 0)
 			}
 			// calculate the checksum of the plan from the provided data
 			cp, err := applyinator.CalculatePlan(planData)
