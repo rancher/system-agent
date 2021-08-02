@@ -17,6 +17,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 )
@@ -51,25 +52,21 @@ func (w *watcher) start(ctx context.Context) {
 		panic(err)
 	}
 
+	if err := validateKC(ctx, kc); err != nil {
+		if len(kc.CAData) != 0 {
+			logrus.Debugf("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
+			kc.CAData = nil // nullify the provided CA data
+			if err := validateKC(ctx, kc); err != nil {
+				panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
+			}
+		} else {
+			panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
+		}
+	}
+
 	clientFactory, err := client.NewSharedClientFactory(kc, nil)
 	if err != nil {
 		panic(err)
-	}
-
-	if !clientFactory.IsHealthy(ctx) {
-		if len(kc.CAData) != 0 {
-			logrus.Debugf("Initial connection to Kubernetes cluster failed, removing CA data and trying again")
-			kc.CAData = nil // nullify the provided CA data
-			clientFactory, err = client.NewSharedClientFactory(kc, nil)
-			if err != nil {
-				panic(err)
-			}
-			if !clientFactory.IsHealthy(ctx) {
-				panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
-			}
-		} else {
-			panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
-		}
 	}
 
 	cacheFactory := cache.NewSharedCachedFactory(clientFactory, &cache.SharedCacheFactoryOptions{
@@ -196,4 +193,17 @@ func (w *watcher) start(ctx context.Context) {
 	if err := controllerFactory.Start(ctx, 1); err != nil {
 		panic(err)
 	}
+}
+
+func validateKC(ctx context.Context, config *rest.Config) error {
+	config = rest.CopyConfig(config)
+	if config.UserAgent == "" {
+		config.UserAgent = rest.DefaultKubernetesUserAgent()
+	}
+	rest, err := rest.UnversionedRESTClientFor(config)
+	if err != nil {
+		return err
+	}
+	_, err = rest.Get().AbsPath("/version").Do(ctx).Raw()
+	return err
 }
