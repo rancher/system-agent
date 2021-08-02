@@ -6,6 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rancher/lasso/pkg/scheme"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+
 	"github.com/rancher/lasso/pkg/cache"
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
@@ -197,6 +203,9 @@ func (w *watcher) start(ctx context.Context) {
 
 func validateKC(ctx context.Context, config *rest.Config) error {
 	config = rest.CopyConfig(config)
+	config.NegotiatedSerializer = unstructuredNegotiator{
+		NegotiatedSerializer: serializer.NewCodecFactory(scheme.All).WithoutConversion(),
+	}
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}
@@ -206,4 +215,27 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 	}
 	_, err = rest.Get().AbsPath("/version").Do(ctx).Raw()
 	return err
+}
+
+type unstructuredNegotiator struct {
+	runtime.NegotiatedSerializer
+}
+
+func (u unstructuredNegotiator) DecoderToVersion(serializer runtime.Decoder, gv runtime.GroupVersioner) runtime.Decoder {
+	result := u.NegotiatedSerializer.DecoderToVersion(serializer, gv)
+	return unstructuredDecoder{
+		Decoder: result,
+	}
+}
+
+type unstructuredDecoder struct {
+	runtime.Decoder
+}
+
+func (u unstructuredDecoder) Decode(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
+	obj, gvk, err := u.Decoder.Decode(data, defaults, into)
+	if into == nil && runtime.IsNotRegisteredError(err) {
+		return u.Decode(data, defaults, &unstructured.Unstructured{})
+	}
+	return obj, gvk, err
 }
