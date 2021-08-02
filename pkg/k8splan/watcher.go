@@ -57,7 +57,19 @@ func (w *watcher) start(ctx context.Context) {
 	}
 
 	if !clientFactory.IsHealthy(ctx) {
-		panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
+		if len(kc.CAData) != 0 {
+			logrus.Debugf("Initial connection to Kubernetes cluster failed, removing CA data and trying again")
+			kc.CAData = nil // nullify the provided CA data
+			clientFactory, err = client.NewSharedClientFactory(kc, nil)
+			if err != nil {
+				panic(err)
+			}
+			if !clientFactory.IsHealthy(ctx) {
+				panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
+			}
+		} else {
+			panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
+		}
 	}
 
 	cacheFactory := cache.NewSharedCachedFactory(clientFactory, &cache.SharedCacheFactoryOptions{
