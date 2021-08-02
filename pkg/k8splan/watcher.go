@@ -8,15 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rancher/lasso/pkg/scheme"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-
 	"github.com/rancher/lasso/pkg/cache"
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
+	"github.com/rancher/lasso/pkg/scheme"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/prober"
@@ -25,6 +20,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
@@ -62,7 +61,7 @@ func (w *watcher) start(ctx context.Context) {
 
 	if err := validateKC(ctx, kc); err != nil {
 		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 {
-			logrus.Debugf("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
+			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
 			kc.CAData = nil // nullify the provided CA data
 			if err := validateKC(ctx, kc); err != nil {
 				panic(fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %v", err))
