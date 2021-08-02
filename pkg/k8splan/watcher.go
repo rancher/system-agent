@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -97,6 +98,7 @@ func (w *watcher) start(ctx context.Context) {
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
+		originalSecret := secret.DeepCopy()
 		secret = secret.DeepCopy()
 		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
 			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
@@ -169,8 +171,15 @@ func (w *watcher) start(ctx context.Context) {
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
 			secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
 			secret.Data[appliedOutputKey] = output
-			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
+
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+
+			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
+				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
+				return originalSecret, nil
+			}
+
+			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 
 			var resultingSecret *v1.Secret
 
