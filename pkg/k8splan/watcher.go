@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rancher/lasso/pkg/scheme"
@@ -59,11 +60,11 @@ func (w *watcher) start(ctx context.Context) {
 	}
 
 	if err := validateKC(ctx, kc); err != nil {
-		if len(kc.CAData) != 0 {
+		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 {
 			logrus.Debugf("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
 			kc.CAData = nil // nullify the provided CA data
 			if err := validateKC(ctx, kc); err != nil {
-				panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
+				panic(fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %v", err))
 			}
 		} else {
 			panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
