@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/rancher/lasso/pkg/cache"
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
+	"github.com/rancher/lasso/pkg/scheme"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/prober"
@@ -17,6 +20,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 )
@@ -51,13 +59,21 @@ func (w *watcher) start(ctx context.Context) {
 		panic(err)
 	}
 
+	if err := validateKC(ctx, kc); err != nil {
+		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 {
+			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
+			kc.CAData = nil // nullify the provided CA data
+			if err := validateKC(ctx, kc); err != nil {
+				panic(fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %v", err))
+			}
+		} else {
+			panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
+		}
+	}
+
 	clientFactory, err := client.NewSharedClientFactory(kc, nil)
 	if err != nil {
 		panic(err)
-	}
-
-	if !clientFactory.IsHealthy(ctx) {
-		panic(fmt.Errorf("error while connecting to Kubernetes cluster"))
 	}
 
 	cacheFactory := cache.NewSharedCachedFactory(clientFactory, &cache.SharedCacheFactoryOptions{
@@ -81,6 +97,7 @@ func (w *watcher) start(ctx context.Context) {
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
+		originalSecret := secret.DeepCopy()
 		secret = secret.DeepCopy()
 		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
 			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
@@ -153,8 +170,15 @@ func (w *watcher) start(ctx context.Context) {
 			// secret.Data should always have already been initialized because otherwise we would have failed out above.
 			secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
 			secret.Data[appliedOutputKey] = output
-			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
+
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+
+			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
+				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
+				return originalSecret, nil
+			}
+
+			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 
 			var resultingSecret *v1.Secret
 
@@ -184,4 +208,43 @@ func (w *watcher) start(ctx context.Context) {
 	if err := controllerFactory.Start(ctx, 1); err != nil {
 		panic(err)
 	}
+}
+
+func validateKC(ctx context.Context, config *rest.Config) error {
+	config = rest.CopyConfig(config)
+	config.NegotiatedSerializer = unstructuredNegotiator{
+		NegotiatedSerializer: serializer.NewCodecFactory(scheme.All).WithoutConversion(),
+	}
+	if config.UserAgent == "" {
+		config.UserAgent = rest.DefaultKubernetesUserAgent()
+	}
+	rest, err := rest.UnversionedRESTClientFor(config)
+	if err != nil {
+		return err
+	}
+	_, err = rest.Get().AbsPath("/version").Do(ctx).Raw()
+	return err
+}
+
+type unstructuredNegotiator struct {
+	runtime.NegotiatedSerializer
+}
+
+func (u unstructuredNegotiator) DecoderToVersion(serializer runtime.Decoder, gv runtime.GroupVersioner) runtime.Decoder {
+	result := u.NegotiatedSerializer.DecoderToVersion(serializer, gv)
+	return unstructuredDecoder{
+		Decoder: result,
+	}
+}
+
+type unstructuredDecoder struct {
+	runtime.Decoder
+}
+
+func (u unstructuredDecoder) Decode(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
+	obj, gvk, err := u.Decoder.Decode(data, defaults, into)
+	if into == nil && runtime.IsNotRegisteredError(err) {
+		return u.Decode(data, defaults, &unstructured.Unstructured{})
+	}
+	return obj, gvk, err
 }
