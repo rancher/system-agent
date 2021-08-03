@@ -233,13 +233,13 @@ func (a *Applyinator) execute(ctx context.Context, executionDir string, instruct
 		return nil, err
 	}
 
+	// Wait for I/O to complete before calling cmd.Wait() because cmd.Wait() will close the I/O pipes.
+	_ = eg.Wait()
 	if err := cmd.Wait(); err != nil {
-		_ = eg.Wait()
 		return outputBuffer.Bytes(), err
 	}
 
-	err = eg.Wait()
-	return outputBuffer.Bytes(), err
+	return outputBuffer.Bytes(), nil
 }
 
 func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader, lock *sync.Mutex) error {
