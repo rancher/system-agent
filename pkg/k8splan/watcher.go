@@ -108,6 +108,10 @@ func (w *watcher) start(ctx context.Context) {
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true
+		if w.lastAppliedResourceVersion > secret.ResourceVersion {
+			logrus.Debugf("received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+			return secret, nil
+		}
 		if w.lastAppliedResourceVersion == secret.ResourceVersion {
 			logrus.Debugf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
 			needsApplied = false
