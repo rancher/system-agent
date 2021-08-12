@@ -495,6 +495,45 @@ validate_rancher_connection() {
     fi
 }
 
+validate_ca_required() {
+    CA_REQUIRED=false
+    if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
+        i=1
+        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
+            VERIFY_RESULT=$(curl --connect-timeout 60 --max-time 60 --write-out "%{ssl_verify_result}\n" ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null 2>/dev/null)
+            CURL_EXIT="$?"
+            case "${CURL_EXIT}" in
+              0|60)
+                case "${VERIFY_RESULT}" in
+                  0)
+                    info "Determined CA is not necessary to connect to Rancher"
+                    CA_REQUIRED=false
+                    CATTLE_CA_CHECKSUM=""
+                    break
+                    ;;
+                  *)
+                    i=$((i + 1))
+                    if [ "${CURL_EXIT}" -eq "60" ]; then
+                      info "Determined CA is necessary to connect to Rancher"
+                      CA_REQUIRED=true
+                      break
+                    fi
+                    error "Error received while testing necessity of CA. Sleeping for 5 seconds and trying again"
+                    sleep 5
+                    continue
+                    ;;
+                esac
+                ;;
+              *)
+                error "Error while connecting to Rancher to verify CA necessity. Sleeping for 5 seconds and trying again."
+                sleep 5
+                continue
+                ;;
+            esac
+        done
+    fi
+}
+
 retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         UMASK=$(umask)
@@ -584,8 +623,9 @@ do_install() {
     verify_downloader curl || fatal "can not find curl for downloading files"
 
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
-        validate_ca_checksum
+        validate_ca_required
     fi
+    validate_ca_checksum
     validate_rancher_connection
 
     ensure_systemd_service_stopped
