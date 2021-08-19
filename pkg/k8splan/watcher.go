@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,12 @@ type watcher struct {
 	connInfo                   config.ConnectionInfo
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
+}
+
+func toInt(resourceVersion string) int {
+	// we assume this is always a valid number
+	n, _ := strconv.Atoi(resourceVersion)
+	return n
 }
 
 func (w *watcher) start(ctx context.Context) {
@@ -108,7 +115,7 @@ func (w *watcher) start(ctx context.Context) {
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true
-		if w.lastAppliedResourceVersion > secret.ResourceVersion {
+		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
 			logrus.Debugf("received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
 			return secret, nil
 		}
