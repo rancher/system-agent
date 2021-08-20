@@ -28,11 +28,17 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 )
 
 const (
 	appliedChecksumKey   = "applied-checksum"
 	appliedOutputKey     = "applied-output"
+	failedChecksumKey    = "failed-checksum"
+	failedOutputKey      = "failed-output"
+	failureCountKey      = "failure-count"
+	successCountKey      = "success-count"
+	maxFailuresKey       = "max-failures"
 	probeStatusesKey     = "probe-statuses"
 	probePeriodKey       = "probe-period-seconds"
 	planKey              = "plan"
@@ -58,6 +64,16 @@ func toInt(resourceVersion string) int {
 	// we assume this is always a valid number
 	n, _ := strconv.Atoi(resourceVersion)
 	return n
+}
+
+func incrementCount(count []byte) []byte {
+	if len(count) > 0 {
+		if failureCount, err := strconv.Atoi(string(count)); err != nil {
+			failureCount++
+			return []byte(strconv.Itoa(failureCount))
+		}
+	}
+	return []byte("1")
 }
 
 func (w *watcher) start(ctx context.Context) {
@@ -90,7 +106,10 @@ func (w *watcher) start(ctx context.Context) {
 		},
 	})
 
-	controllerFactory := controller.NewSharedControllerFactory(cacheFactory, nil)
+	controllerFactory := controller.NewSharedControllerFactory(cacheFactory, &controller.SharedControllerFactoryOptions{
+		DefaultRateLimiter: workqueue.NewItemExponentialFailureRateLimiter(1*time.Minute, 5*time.Minute),
+		DefaultWorkers:     1,
+	})
 	core := corecontrollers.New(controllerFactory)
 
 	probePeriod, err := time.ParseDuration(enqueueAfterDuration)
@@ -100,7 +119,9 @@ func (w *watcher) start(ctx context.Context) {
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
-			logrus.Debugf("[K8s] Secret was nil")
+			logrus.Errorf("[K8s] Received secret that was nil")
+			// In case we're dealing with a stale cache issue, enqueue the secret so that we attempt to see if our
+			// cache eventually becomes valid
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
@@ -116,11 +137,11 @@ func (w *watcher) start(ctx context.Context) {
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true
 		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
-			logrus.Debugf("received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+			logrus.Debugf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
 			return secret, nil
 		}
 		if w.lastAppliedResourceVersion == secret.ResourceVersion {
-			logrus.Debugf("last applied resource version (%s) did not change. skipping apply.", w.lastAppliedResourceVersion)
+			logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
 			needsApplied = false
 		}
 		if planData, ok := secret.Data[planKey]; ok {
@@ -153,64 +174,87 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
-			var output []byte
-
-			if needsApplied {
-				logrus.Debugf("[K8s] Calling Applyinator to apply the plan")
-				output, err = w.applyinator.Apply(ctx, cp)
+			// Check to see if we've exceeded our failure count threshold
+			var maxFailureThreshold int
+			if rawMaxFailureThreshold, ok := secret.Data[maxFailuresKey]; ok {
+				// max failure threshold is defined. parse and compare
+				maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
 				if err != nil {
-					return nil, fmt.Errorf("error applying plan: %w", err)
+					maxFailureThreshold = int(^uint(0) >> 1) // max int
+				}
+			} else {
+				maxFailureThreshold = int(^uint(0) >> 1) // max int
+			}
+
+			logrus.Debugf("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
+			wasFailedPlan := false
+			if rawFailureCount, ok := secret.Data[failureCountKey]; ok {
+				failureCount, err := strconv.Atoi(string(rawFailureCount))
+				if err == nil {
+					if failureCount != 0 {
+						wasFailedPlan = true
+					}
+					if failureCount >= maxFailureThreshold {
+						logrus.Errorf("maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", secretChecksum, failureCount, maxFailureThreshold)
+						needsApplied = false
+					}
+				} // if err was not nil, then it was probably empty, and thus, failureCount == 0
+			}
+
+			var output []byte
+			var errorWhileApplying error
+
+			if needsApplied { // checksum did not match the applied checksum, and our thresholds have not been exceeded
+				logrus.Debugf("[K8s] Calling Applyinator to apply the plan")
+				output, errorWhileApplying = w.applyinator.Apply(ctx, cp)
+				if err != nil {
+					logrus.Errorf("error encountered while applying plan: %v", errorWhileApplying)
 				}
 			} else {
 				// retrieve output from the previous run if we aren't applying
-				output, ok = secret.Data[appliedOutputKey]
-				if !ok {
-					output = []byte{}
+				if wasFailedPlan {
+					output, ok = secret.Data[failedOutputKey]
+					if !ok {
+						output = []byte{}
+					}
+				} else {
+					output, ok = secret.Data[appliedOutputKey]
+					if !ok {
+						output = []byte{}
+					}
 				}
 			}
 
-			prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)
-
-			marshalledProbeStatus, err := json.Marshal(probeStatuses)
-			if err != nil {
-				logrus.Errorf("error while marshalling probe statuses: %v", err)
+			if errorWhileApplying != nil {
+				// Update the corresponding counts/outputs
+				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
+				secret.Data[failureCountKey] = incrementCount(secret.Data[failureCountKey])
+				if needsApplied {
+					secret.Data[failedOutputKey] = output
+					secret.Data[successCountKey] = []byte("0")
+				}
 			} else {
-				secret.Data[probeStatusesKey] = marshalledProbeStatus
+				// secret.Data should always have already been initialized because otherwise we would have failed out above.
+				secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
+				secret.Data[appliedOutputKey] = output
+				secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
+				// On a successful application, we should blank out the corresponding failure keys.
+				secret.Data[failureCountKey] = []byte("0")
+				secret.Data[failedOutputKey] = []byte{}
+				secret.Data[failedChecksumKey] = []byte{}
 			}
-
-			// secret.Data should always have already been initialized because otherwise we would have failed out above.
-			secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
-			secret.Data[appliedOutputKey] = output
-
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-
 			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
 				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
 				return originalSecret, nil
 			}
 
 			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
-
-			var resultingSecret *v1.Secret
-
-			if err := retry.OnError(retry.DefaultBackoff,
-				func(err error) bool {
-					if apierrors.IsConflict(err) {
-						return false
-					}
-					return true
-				},
-				func() error {
-					var err error
-					resultingSecret, err = core.Secret().Update(secret)
-					return err
-				}); err != nil {
-				return resultingSecret, err
+			secret, err = w.updateSecret(core, secret)
+			if err != nil {
+				return secret, err
 			}
-
-			logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
-			w.lastAppliedResourceVersion = resultingSecret.ResourceVersion
-			return resultingSecret, nil
+			return secret, errorWhileApplying
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
@@ -219,6 +263,27 @@ func (w *watcher) start(ctx context.Context) {
 	if err := controllerFactory.Start(ctx, 1); err != nil {
 		panic(err)
 	}
+}
+
+func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret) (*v1.Secret, error) {
+	var resultingSecret *v1.Secret
+	err := retry.OnError(retry.DefaultBackoff,
+		func(err error) bool {
+			if apierrors.IsConflict(err) {
+				return false
+			}
+			return true
+		},
+		func() error {
+			var err error
+			resultingSecret, err = core.Secret().Update(secret)
+			return err
+		})
+	if err == nil {
+		logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
+		w.lastAppliedResourceVersion = resultingSecret.ResourceVersion
+	}
+	return resultingSecret, err
 }
 
 func validateKC(ctx context.Context, config *rest.Config) error {
