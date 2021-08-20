@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"sigs.k8s.io/yaml"
 )
@@ -46,8 +45,8 @@ func Parse(path string, result interface{}) error {
 		return fmt.Errorf("file %s had permission %#o which was not expected 0600", path, fi.Mode().Perm())
 	}
 
-	if fi.Sys().(*syscall.Stat_t).Uid != 0 || fi.Sys().(*syscall.Stat_t).Gid != 0 {
-		return fmt.Errorf("file %s had was not owned by root:root", path)
+	if err := pathOwnedByRoot(fi, path); err != nil {
+		return err
 	}
 
 	f, err := os.Open(path)
