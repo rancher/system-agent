@@ -173,7 +173,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 	return gzOutput.Bytes(), nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, prefix string, executionDir string, instruction Instruction) ([]byte, error) {
+func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction Instruction) ([]byte, error) {
 	if instruction.Image == "" {
 		logrus.Infof("No image provided, creating empty working directory %s", executionDir)
 		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
