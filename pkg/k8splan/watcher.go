@@ -225,7 +225,6 @@ func (w *watcher) start(ctx context.Context) {
 								}
 							} else {
 								logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))
-								failureCount = 0
 							}
 						}
 					}
