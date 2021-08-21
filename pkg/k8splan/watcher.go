@@ -32,17 +32,19 @@ import (
 )
 
 const (
-	appliedChecksumKey   = "applied-checksum"
-	appliedOutputKey     = "applied-output"
-	failedChecksumKey    = "failed-checksum"
-	failedOutputKey      = "failed-output"
-	failureCountKey      = "failure-count"
-	successCountKey      = "success-count"
-	maxFailuresKey       = "max-failures"
-	probeStatusesKey     = "probe-statuses"
-	probePeriodKey       = "probe-period-seconds"
-	planKey              = "plan"
-	enqueueAfterDuration = "5s"
+	appliedChecksumKey    = "applied-checksum"
+	appliedOutputKey      = "applied-output"
+	failedChecksumKey     = "failed-checksum"
+	failedOutputKey       = "failed-output"
+	failureCountKey       = "failure-count"
+	lastApplyTimeKey      = "last-apply-time"
+	successCountKey       = "success-count"
+	maxFailuresKey        = "max-failures"
+	probeStatusesKey      = "probe-statuses"
+	probePeriodKey        = "probe-period-seconds"
+	planKey               = "plan"
+	enqueueAfterDuration  = "5s"
+	cooldownTimerDuration = "30s"
 )
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) {
@@ -68,7 +70,7 @@ func toInt(resourceVersion string) int {
 
 func incrementCount(count []byte) []byte {
 	if len(count) > 0 {
-		if failureCount, err := strconv.Atoi(string(count)); err != nil {
+		if failureCount, err := strconv.Atoi(string(count)); err == nil {
 			failureCount++
 			return []byte(strconv.Itoa(failureCount))
 		}
@@ -117,6 +119,11 @@ func (w *watcher) start(ctx context.Context) {
 		panic(err)
 	}
 
+	cooldownPeriod, err := time.ParseDuration(cooldownTimerDuration)
+	if err != nil {
+		panic(err)
+	}
+
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
 			logrus.Errorf("[K8s] Received secret that was nil")
@@ -127,6 +134,21 @@ func (w *watcher) start(ctx context.Context) {
 		}
 		originalSecret := secret.DeepCopy()
 		secret = secret.DeepCopy()
+
+		var lastApplyTime, currentTime time.Time
+
+		currentTime = time.Now()
+
+		if rawLAT, ok := secret.Data[lastApplyTimeKey]; ok {
+			lastApplyTime, err = time.Parse(time.UnixDate, string(rawLAT))
+			if err != nil {
+				logrus.Errorf("[K8s] error parsing last apply time %s, using current time", string(rawLAT))
+				lastApplyTime = currentTime
+			}
+		} else {
+			lastApplyTime = currentTime
+		}
+
 		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
 			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
 				logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
@@ -138,11 +160,7 @@ func (w *watcher) start(ctx context.Context) {
 		needsApplied := true
 		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
 			logrus.Debugf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			return secret, nil
-		}
-		if w.lastAppliedResourceVersion == secret.ResourceVersion {
-			logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
-			needsApplied = false
+			return secret, fmt.Errorf("secret received was too old")
 		}
 		if planData, ok := secret.Data[planKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
@@ -192,25 +210,44 @@ func (w *watcher) start(ctx context.Context) {
 				failureCount, err := strconv.Atoi(string(rawFailureCount))
 				if err == nil {
 					if failureCount != 0 {
-						wasFailedPlan = true
-					}
-					if failureCount >= maxFailureThreshold {
-						logrus.Errorf("maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", secretChecksum, failureCount, maxFailureThreshold)
-						needsApplied = false
+						if rFC, ok := secret.Data[failedChecksumKey]; ok {
+							if string(rFC) == cp.Checksum {
+								logrus.Debugf("[K8s] Plan appears to have failed before, failure count was %d", failureCount)
+								wasFailedPlan = true
+								if failureCount >= maxFailureThreshold {
+									logrus.Errorf("[K8s] Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", cp.Checksum, failureCount, maxFailureThreshold)
+									needsApplied = false
+								} else {
+									if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
+										logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
+										needsApplied = false
+									}
+								}
+							} else {
+								logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))
+								failureCount = 0
+							}
+						}
 					}
 				} // if err was not nil, then it was probably empty, and thus, failureCount == 0
+			}
+
+			if w.lastAppliedResourceVersion == secret.ResourceVersion && !wasFailedPlan {
+				logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
+				needsApplied = false
 			}
 
 			var output []byte
 			var errorWhileApplying error
 
 			if needsApplied { // checksum did not match the applied checksum, and our thresholds have not been exceeded
-				logrus.Debugf("[K8s] Calling Applyinator to apply the plan")
+				logrus.Debugf("[K8s] Calling Applyinator to apply the plan.")
 				output, errorWhileApplying = w.applyinator.Apply(ctx, cp)
 				if err != nil {
 					logrus.Errorf("error encountered while applying plan: %v", errorWhileApplying)
 				}
 			} else {
+				logrus.Debugf("[K8s] needsApplied was false, not applying")
 				// retrieve output from the previous run if we aren't applying
 				if wasFailedPlan {
 					output, ok = secret.Data[failedOutputKey]
@@ -225,31 +262,37 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
-			if errorWhileApplying != nil {
+			if errorWhileApplying != nil || wasFailedPlan {
 				// Update the corresponding counts/outputs
 				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
-				secret.Data[failureCountKey] = incrementCount(secret.Data[failureCountKey])
 				if needsApplied {
+					secret.Data[failureCountKey] = incrementCount(secret.Data[failureCountKey])
 					secret.Data[failedOutputKey] = output
 					secret.Data[successCountKey] = []byte("0")
+					secret.Data[lastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
 				}
 			} else {
 				// secret.Data should always have already been initialized because otherwise we would have failed out above.
+				logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 				secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
 				secret.Data[appliedOutputKey] = output
-				secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
 				// On a successful application, we should blank out the corresponding failure keys.
 				secret.Data[failureCountKey] = []byte("0")
 				secret.Data[failedOutputKey] = []byte{}
 				secret.Data[failedChecksumKey] = []byte{}
+				if needsApplied {
+					secret.Data[lastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
+					secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
+				}
 			}
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+			if errorWhileApplying == nil {
+				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
+				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+			}
 			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
 				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
 				return originalSecret, nil
 			}
-
-			logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
 			secret, err = w.updateSecret(core, secret)
 			if err != nil {
 				return secret, err
