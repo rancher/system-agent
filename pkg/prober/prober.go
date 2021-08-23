@@ -59,7 +59,6 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		}
 
 		caCertPool, err := x509.SystemCertPool()
-
 		if err != nil {
 			caCertPool = x509.NewCertPool()
 			logrus.Errorf("error loading system cert pool: %v", err)

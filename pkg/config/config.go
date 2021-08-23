@@ -50,11 +50,9 @@ func Parse(path string, result interface{}) error {
 	}
 
 	f, err := os.Open(path)
-
 	if err != nil {
 		return err
 	}
-
 	defer f.Close()
 
 	file := filepath.Base(path)

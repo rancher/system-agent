@@ -67,7 +67,6 @@ func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProvide
 }
 
 func (u *Utility) Stage(destDir string, imgString string) error {
-
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
