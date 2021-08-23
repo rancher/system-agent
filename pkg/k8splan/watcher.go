@@ -199,37 +199,39 @@ func (w *watcher) start(ctx context.Context) {
 				// max failure threshold is defined. parse and compare
 				maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
 				if err != nil {
-					maxFailureThreshold = int(^uint(0) >> 1) // max int
+					maxFailureThreshold = -1
+				} else {
+					logrus.Debugf("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
 				}
 			} else {
-				maxFailureThreshold = int(^uint(0) >> 1) // max int
+				maxFailureThreshold = -1
 			}
-
-			logrus.Debugf("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
 			wasFailedPlan := false
 			if rawFailureCount, ok := secret.Data[failureCountKey]; ok {
 				failureCount, err := strconv.Atoi(string(rawFailureCount))
-				if err == nil {
-					if failureCount != 0 {
-						if rFC, ok := secret.Data[failedChecksumKey]; ok {
-							if string(rFC) == cp.Checksum {
-								logrus.Debugf("[K8s] Plan appears to have failed before, failure count was %d", failureCount)
-								wasFailedPlan = true
-								if failureCount >= maxFailureThreshold {
-									logrus.Errorf("[K8s] Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", cp.Checksum, failureCount, maxFailureThreshold)
-									needsApplied = false
-								} else {
-									if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
-										logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
-										needsApplied = false
-									}
-								}
+				if err != nil {
+					logrus.Errorf("[K8s] Error while parsing raw failure count: %v", err)
+					failureCount = 0
+				}
+				if failureCount != 0 {
+					if rFC, ok := secret.Data[failedChecksumKey]; ok {
+						if string(rFC) == cp.Checksum {
+							logrus.Debugf("[K8s] Plan appears to have failed before, failure count was %d", failureCount)
+							wasFailedPlan = true
+							if failureCount >= maxFailureThreshold && maxFailureThreshold != -1 {
+								logrus.Errorf("[K8s] Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", cp.Checksum, failureCount, maxFailureThreshold)
+								needsApplied = false
 							} else {
-								logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))
+								if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
+									logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
+									needsApplied = false
+								}
 							}
+						} else {
+							logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))
 						}
 					}
-				} // if err was not nil, then it was probably empty, and thus, failureCount == 0
+				}
 			}
 
 			if w.lastAppliedResourceVersion == secret.ResourceVersion && !wasFailedPlan {
@@ -238,13 +240,13 @@ func (w *watcher) start(ctx context.Context) {
 			}
 
 			var output []byte
-			var errorWhileApplying error
+			var errorFromApply error
 
 			if needsApplied { // checksum did not match the applied checksum, and our thresholds have not been exceeded
 				logrus.Debugf("[K8s] Calling Applyinator to apply the plan.")
-				output, errorWhileApplying = w.applyinator.Apply(ctx, cp)
+				output, errorFromApply = w.applyinator.Apply(ctx, cp)
 				if err != nil {
-					logrus.Errorf("error encountered while applying plan: %v", errorWhileApplying)
+					logrus.Errorf("error encountered while applying plan: %v", errorFromApply)
 				}
 			} else {
 				logrus.Debugf("[K8s] needsApplied was false, not applying")
@@ -262,7 +264,8 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
-			if errorWhileApplying != nil || wasFailedPlan {
+			if errorFromApply != nil || wasFailedPlan {
+				logrus.Debugf("[K8s] Plan with checksum (%s) failed during application", cp.Checksum)
 				// Update the corresponding counts/outputs
 				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
 				if needsApplied {
@@ -285,7 +288,7 @@ func (w *watcher) start(ctx context.Context) {
 					secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
 				}
 			}
-			if errorWhileApplying == nil {
+			if errorFromApply == nil {
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			}
@@ -297,7 +300,7 @@ func (w *watcher) start(ctx context.Context) {
 			if err != nil {
 				return secret, err
 			}
-			return secret, errorWhileApplying
+			return secret, errorFromApply
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
