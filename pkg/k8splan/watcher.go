@@ -128,8 +128,8 @@ func (w *watcher) start(ctx context.Context) {
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
 			logrus.Errorf("[K8s] Received secret that was nil")
-			// In case we're dealing with a stale cache issue, enqueue the secret so that we attempt to see if our
-			// cache eventually becomes valid
+			// In case we receive a secret that for some reason is nil, re-enqueue it after the default probe period
+			// so that if things correct themselves the probes will run more or less on time.
 			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			return secret, nil
 		}
