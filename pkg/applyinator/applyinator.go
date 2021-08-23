@@ -146,7 +146,8 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 	for index, instruction := range cp.Plan.Instructions {
 		logrus.Debugf("Executing instruction %d for plan %s", index, cp.Checksum)
 		executionInstructionDir := filepath.Join(executionDir, cp.Checksum+"_"+strconv.Itoa(index))
-		output, err := a.execute(ctx, executionInstructionDir, instruction)
+		prefix := cp.Checksum + "_" + strconv.Itoa(index)
+		output, err := a.execute(ctx, prefix, executionInstructionDir, instruction)
 		if err != nil {
 			return nil, fmt.Errorf("error executing instruction %d: %v", index, err)
 		}
@@ -172,7 +173,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan) ([]byte, err
 	return gzOutput.Bytes(), nil
 }
 
-func (a *Applyinator) execute(ctx context.Context, executionDir string, instruction Instruction) ([]byte, error) {
+func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction Instruction) ([]byte, error) {
 	if instruction.Image == "" {
 		logrus.Infof("No image provided, creating empty working directory %s", executionDir)
 		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
@@ -223,10 +224,10 @@ func (a *Applyinator) execute(ctx context.Context, executionDir string, instruct
 		writeLock sync.Mutex
 	)
 	eg.Go(func() error {
-		return streamLogs("[stdout]", &outputBuffer, stdout, &writeLock)
+		return streamLogs("["+prefix+":stdout]", &outputBuffer, stdout, &writeLock)
 	})
 	eg.Go(func() error {
-		return streamLogs("[stderr]", &outputBuffer, stderr, &writeLock)
+		return streamLogs("["+prefix+":stderr]", &outputBuffer, stderr, &writeLock)
 	})
 
 	if err := cmd.Start(); err != nil {
