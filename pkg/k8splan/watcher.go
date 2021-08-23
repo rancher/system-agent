@@ -3,6 +3,7 @@ package k8splan
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -160,7 +161,7 @@ func (w *watcher) start(ctx context.Context) {
 		needsApplied := true
 		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
 			logrus.Debugf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			return secret, fmt.Errorf("secret received was too old")
+			return secret, errors.New("secret received was too old")
 		}
 		if planData, ok := secret.Data[planKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
