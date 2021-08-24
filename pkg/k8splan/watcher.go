@@ -264,7 +264,7 @@ func (w *watcher) start(ctx context.Context) {
 				}
 			}
 
-			if errorFromApply != nil || wasFailedPlan {
+			if errorFromApply != nil || (wasFailedPlan && !needsApplied) {
 				logrus.Debugf("[K8s] Plan with checksum (%s) failed during application", cp.Checksum)
 				// Update the corresponding counts/outputs
 				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
