@@ -607,7 +607,7 @@ create_env_file() {
     info "Creating environment file ${FILE_SA_ENV}"
     UMASK=$(umask)
     umask 0377
-    env | grep -E -i '^(NO|HTTP|HTTPS)_PROXY' | tee -a ${FILE_SA_ENV} >/dev/null
+    env | grep -E -i '^(NO|HTTP|HTTPS)_PROXY' | tee ${FILE_SA_ENV} >/dev/null
     umask "${UMASK}"
 }
 
