@@ -18,6 +18,7 @@ fi
 #   - CATTLE_AGENT_LOGLEVEL (default: debug)
 #   - CATTLE_AGENT_CONFIG_DIR (default: /etc/rancher/agent)
 #   - CATTLE_AGENT_VAR_DIR (default: /var/lib/rancher/agent)
+#   - CATTLE_AGENT_BIN_PREFIX (default: /usr/local)
 #
 #   Rancher 2.6+ Variables
 #   - CATTLE_SERVER
@@ -65,6 +66,16 @@ fatal() {
     exit 1
 }
 
+# check_target_mountpoint return success if the target directory is on a dedicated mount point
+check_target_mountpoint() {
+    mountpoint -q "${CATTLE_AGENT_BIN_PREFIX}"
+}
+
+# check_target_ro returns success if the target directory is read-only
+check_target_ro() {
+    touch "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test && rm -rf "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test
+    test $? -ne 0
+}
 
 # parse_args will inspect the argv for --server, --token, --controlplane, --etcd, and --worker, --label x=y, and --taint dead=beef:NoSchedule
 parse_args() {
@@ -247,6 +258,16 @@ setup_env() {
         info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
     fi
 
+    # --- install to /usr/local by default, except if /usr/local is on a separate partition or is read-only
+    # --- in which case we go into /opt/rancher-system-agent.
+    if [ -z "${CATTLE_AGENT_BIN_PREFIX}" ]; then
+        CATTLE_AGENT_BIN_PREFIX="/usr/local"
+        if check_target_mountpoint || check_target_ro; then
+            CATTLE_AGENT_BIN_PREFIX="/opt/rancher-system-agent"
+            warn "/usr/local is read-only or a mount point; installing to ${CATTLE_AGENT_BIN_PREFIX}"
+        fi
+    fi
+
     CATTLE_ADDRESS=$(get_address "${CATTLE_ADDRESS}")
     CATTLE_INTERNAL_ADDRESS=$(get_address "${CATTLE_INTERNAL_ADDRESS}")
 }
@@ -378,14 +399,15 @@ Restart=always
 RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
-ExecStart=/usr/local/bin/rancher-system-agent
+ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
 EOF
 }
 
 download_rancher_agent() {
+    mkdir -p ${CATTLE_AGENT_BIN_PREFIX}
     if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
         info "Using local rancher-system-agent binary from ${CATTLE_AGENT_BINARY_LOCAL_LOCATION}"
-        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" /usr/local/bin/rancher-system-agent
+        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
     else
         info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
         if [ "${BINARY_SOURCE}" != "upstream" ]; then
@@ -395,7 +417,7 @@ download_rancher_agent() {
         fi
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o /usr/local/bin/rancher-system-agent)
+            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded the rancher-system-agent binary."
@@ -409,7 +431,7 @@ download_rancher_agent() {
                 ;;
             esac
         done
-        chmod +x /usr/local/bin/rancher-system-agent
+        chmod +x ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
     fi
 }
 
