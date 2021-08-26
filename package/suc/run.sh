@@ -35,6 +35,9 @@ fi
 
 export CATTLE_AGENT_BINARY_LOCAL=true
 export CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent
+if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
+  export $(grep -v '^#' /host/etc/systemd/system/rancher-system-agent.env | xargs)
+fi
 chroot /host ${TMPDIR}/install.sh "$@"
 
 cleanup
