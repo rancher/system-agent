@@ -404,7 +404,7 @@ EOF
 }
 
 download_rancher_agent() {
-    mkdir -p ${CATTLE_AGENT_BIN_PREFIX}
+    mkdir -p ${CATTLE_AGENT_BIN_PREFIX}/bin
     if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
         info "Using local rancher-system-agent binary from ${CATTLE_AGENT_BINARY_LOCAL_LOCATION}"
         cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
