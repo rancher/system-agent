@@ -36,7 +36,14 @@ fi
 export CATTLE_AGENT_BINARY_LOCAL=true
 export CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent
 if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
-  export $(grep -v '^#' /host/etc/systemd/system/rancher-system-agent.env | xargs)
+  for line in $(grep -v '^#' /host/etc/systemd/system/rancher-system-agent.env); do
+    var=${line%%=*}
+    val=${line##*=}
+    eval v=\"\$$var\"
+    if [ -z "$v" ]; then
+      export "$var=$val"
+    fi
+  done
 fi
 chroot /host ${TMPDIR}/install.sh "$@"
 

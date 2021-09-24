@@ -627,10 +627,15 @@ ensure_systemd_service_stopped() {
 create_env_file() {
     FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
     info "Creating environment file ${FILE_SA_ENV}"
-    UMASK=$(umask)
-    umask 0377
-    env | grep -E -i '^(NO|HTTP|HTTPS)_PROXY' | tee ${FILE_SA_ENV} >/dev/null
-    umask "${UMASK}"
+    install -m 0600 /dev/null "${FILE_SA_ENV}"
+    for i in "HTTP_PROXY" "HTTPS_PROXY" "NO_PROXY"; do
+      eval v=\"\$$i\"
+      if [ -z "${v}" ]; then
+        env | grep -E -i "^${i}" | tee -a ${FILE_SA_ENV} >/dev/null
+      else
+        echo "$i=$v" | tee -a ${FILE_SA_ENV} >/dev/null
+      fi
+    done
 }
 
 do_install() {
