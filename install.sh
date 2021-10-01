@@ -157,6 +157,107 @@ parse_args() {
     done
 }
 
+in_no_proxy() {
+    # Get just the host name/IP
+    ip_addr="${1#http://}"
+    ip_addr="${ip_addr#https://}"
+    ip_addr="${ip_addr%%/*}"
+    ip_addr="${ip_addr%%:*}"
+
+    # If this isn't an IP address, then there is nothing to check
+    if [ "$(valid_ip $ip_addr)" = "1" ]; then
+      echo 1
+      return
+    fi
+
+    i=1
+    proxy_ip=$(echo $NO_PROXY | cut -d',' -f$i)
+    while [ -n "$proxy_ip" ]; do
+      subnet_ip=$(echo "${proxy_ip}" | cut -d'/' -f1)
+      cidr_mask=$(echo "${proxy_ip}" | cut -d'/' -f2)
+
+      if [ "$(valid_ip $subnet_ip)" = "0" ]; then
+        # If these were the same, then proxy_ip is an IP address, not a CIDR. curl handles this correctly.
+        if [ "$cidr_mask" != "$subnet_ip" ]; then
+          cidr_mask=$(( 32 - cidr_mask ))
+          shift_multiply=1
+          while [ "$cidr_mask" -gt 0 ]; do
+            shift_multiply=$(( shift_multiply * 2 ))
+            cidr_mask=$(( cidr_mask - 1 ))
+          done
+
+          # Manual left-shift (<<) by original cidr_mask value
+          netmask=$(( 0xFFFFFFFF * shift_multiply ))
+
+          # Apply netmask to both the subnet IP and the given IP address
+          ip_addr_subnet=$(and $(ip_to_int $subnet_ip) $netmask)
+          subnet=$(and $(ip_to_int $ip_addr) $netmask)
+
+          # Subnet IPs will match if given IP address is in CIDR subnet
+          if [ "${ip_addr_subnet}" -eq "${subnet}" ]; then
+            echo 0
+            return
+          fi
+        fi
+      fi
+
+      i=$(( i + 1 ))
+      proxy_ip=$(echo "$NO_PROXY" | cut -d',' -f$i)
+    done
+
+    echo 1
+}
+
+# bitwise 'and' in /bin/sh is not supported, so we do it manually.
+and() {
+    ret=0
+    first=${1}
+    second=${2}
+    if [ "$first" -gt "$second" ]; then
+        tmp=$first
+        first=$second
+        second=$tmp
+    fi
+
+    while [ "$first" -gt 0 ]; do
+        ret=$(( ret * 2 ))
+        d1=$(( first % 2 ))
+        d2=$(( second % 2 ))
+        ans=$(( d1 * d2 ))
+        if [ "$ans" -eq 1 ]; then
+            ret=$(( ret + 1 ))
+        fi
+        second=$(( second / 2 ))
+        first=$(( first / 2 ))
+    done
+
+    echo $ret
+}
+
+ip_to_int() {
+    ip_addr="${1}"
+
+    ip_1=$(echo "${ip_addr}" | cut -d'.' -f1)
+    ip_2=$(echo "${ip_addr}" | cut -d'.' -f2)
+    ip_3=$(echo "${ip_addr}" | cut -d'.' -f3)
+    ip_4=$(echo "${ip_addr}" | cut -d'.' -f4)
+
+    echo $(( $ip_1 * 256*256*256 + $ip_2 * 256*256 + $ip_3 * 256 + $ip_4 ))
+}
+
+valid_ip() {
+    local IP="$1" IFS="." PART
+    set -- $IP
+    [ "$#" != 4 ] && echo 1
+    for PART; do
+        case "$PART" in
+            *[!0-9]*) echo 1
+        esac
+        [ "$PART" -gt 255 ] && echo 1
+    done
+    echo 0
+}
+
 setup_env() {
     if [ -z "${CATTLE_ROLE_CONTROLPLANE}" ]; then
         CATTLE_ROLE_CONTROLPLANE=false
@@ -322,39 +423,43 @@ get_address()
         echo $(ip addr show dev $address | grep -w inet | awk '{print $2}' | cut -f1 -d/ | head -1)
     # Loop through cloud provider options to get IP from metadata, if not found return given value
     else
+        noproxy=""
+        if [ "$(in_no_proxy "169.254.169.254")" -eq 0 ]; then
+          noproxy="--noproxy='*'"
+        fi
         case $address in
             awslocal)
-                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/local-ipv4)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/local-ipv4)
                 ;;
             awspublic)
-                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/public-ipv4)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s http://169.254.169.254/latest/meta-data/public-ipv4)
                 ;;
             doprivate)
-                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address)
                 ;;
             dopublic)
-                echo $(curl --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address)
                 ;;
             azprivate)
-                echo $(curl --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2017-08-01&format=text")
                 ;;
             azpublic)
-                echo $(curl --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s -H Metadata:true "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2017-08-01&format=text")
                 ;;
             gceinternal)
-                echo $(curl --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
                 ;;
             gceexternal)
-                echo $(curl --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
                 ;;
             packetlocal)
-                echo $(curl --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/local-ipv4)
                 ;;
             packetpublic)
-                echo $(curl --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s https://metadata.packet.net/2009-04-04/meta-data/public-ipv4)
                 ;;
             ipify)
-                echo $(curl --connect-timeout 60 --max-time 60 -s https://api.ipify.org)
+                echo $(curl $noproxy --connect-timeout 60 --max-time 60 -s https://api.ipify.org)
                 ;;
             *)
                 echo $address
@@ -417,7 +522,11 @@ download_rancher_agent() {
         fi
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent)
+            noproxy=""
+            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
+                noproxy="--noproxy='*'"
+            fi
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded the rancher-system-agent binary."
@@ -452,7 +561,11 @@ validate_ca_checksum() {
         CACERT=$(mktemp)
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
+            noproxy=""
+            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
+                noproxy="--noproxy='*'"
+            fi
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded CA certificate"
@@ -496,7 +609,11 @@ validate_rancher_connection() {
     if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
+            noproxy=""
+            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
+                noproxy="--noproxy='*'"
+            fi
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
             case "${RESPONSE}" in
             200)
                 info "Successfully tested Rancher connection"
@@ -522,7 +639,11 @@ validate_ca_required() {
     if [ -n "${CATTLE_SERVER}" ] && [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            VERIFY_RESULT=$(curl --connect-timeout 60 --max-time 60 --write-out "%{ssl_verify_result}\n" ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null 2>/dev/null)
+            noproxy=""
+            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
+                noproxy="--noproxy='*'"
+            fi
+            VERIFY_RESULT=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{ssl_verify_result}\n" ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null 2>/dev/null)
             CURL_EXIT="$?"
             case "${CURL_EXIT}" in
               0|60)
@@ -562,7 +683,11 @@ retrieve_connection_info() {
         umask 0177
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            RESPONSE=$(curl --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            noproxy=""
+            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
+                noproxy="--noproxy='*'"
+            fi
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
