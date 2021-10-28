@@ -165,18 +165,18 @@ in_no_proxy() {
     ip_addr="${ip_addr%%:*}"
 
     # If this isn't an IP address, then there is nothing to check
-    if [ "$(valid_ip $ip_addr)" = "1" ]; then
+    if [ "$(valid_ip "$ip_addr")" = "1" ]; then
       echo 1
       return
     fi
 
     i=1
-    proxy_ip=$(echo $NO_PROXY | cut -d',' -f$i)
+    proxy_ip=$(echo "$NO_PROXY" | cut -d',' -f$i)
     while [ -n "$proxy_ip" ]; do
       subnet_ip=$(echo "${proxy_ip}" | cut -d'/' -f1)
       cidr_mask=$(echo "${proxy_ip}" | cut -d'/' -f2)
 
-      if [ "$(valid_ip $subnet_ip)" = "0" ]; then
+      if [ "$(valid_ip "$subnet_ip")" = "0" ]; then
         # If these were the same, then proxy_ip is an IP address, not a CIDR. curl handles this correctly.
         if [ "$cidr_mask" != "$subnet_ip" ]; then
           cidr_mask=$(( 32 - cidr_mask ))
@@ -190,8 +190,8 @@ in_no_proxy() {
           netmask=$(( 0xFFFFFFFF * shift_multiply ))
 
           # Apply netmask to both the subnet IP and the given IP address
-          ip_addr_subnet=$(and $(ip_to_int $subnet_ip) $netmask)
-          subnet=$(and $(ip_to_int $ip_addr) $netmask)
+          ip_addr_subnet=$(and "$(ip_to_int "$subnet_ip")" $netmask)
+          subnet=$(and "$(ip_to_int "$ip_addr")" $netmask)
 
           # Subnet IPs will match if given IP address is in CIDR subnet
           if [ "${ip_addr_subnet}" -eq "${subnet}" ]; then
@@ -202,7 +202,7 @@ in_no_proxy() {
       fi
 
       i=$(( i + 1 ))
-      proxy_ip=$(echo "$NO_PROXY" | cut -d',' -f$i)
+      proxy_ip=$(echo "$NO_PROXY" | cut -d',' -s -f$i)
     done
 
     echo 1
@@ -248,12 +248,12 @@ ip_to_int() {
 valid_ip() {
     local IP="$1" IFS="." PART
     set -- $IP
-    [ "$#" != 4 ] && echo 1
+    [ "$#" != 4 ] && echo 1 && return
     for PART; do
         case "$PART" in
-            *[!0-9]*) echo 1
+            *[!0-9]*) echo 1 && return
         esac
-        [ "$PART" -gt 255 ] && echo 1
+        [ "$PART" -gt 255 ] && echo 1 && return
     done
     echo 0
 }
