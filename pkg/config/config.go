@@ -41,8 +41,8 @@ func Parse(path string, result interface{}) error {
 		return fmt.Errorf("error gathering file information for file %s: %w", path, err)
 	}
 
-	if fi.Mode().Perm() != 0600 {
-		return fmt.Errorf("file %s had permission %#o which was not expected 0600", path, fi.Mode().Perm())
+	if err := permissionsCheck(fi, path); err != nil {
+		return err
 	}
 
 	if err := pathOwnedByRoot(fi, path); err != nil {

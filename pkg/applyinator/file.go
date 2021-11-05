@@ -84,14 +84,3 @@ func parsePerm(perm string) (os.FileMode, error) {
 	}
 	return os.FileMode(parsedPerm), nil
 }
-
-func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {
-	logrus.Debugf("reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)
-	if err := os.Chmod(path, perm); err != nil {
-		return err
-	}
-	if err := os.Chown(path, uid, gid); err != nil {
-		return err
-	}
-	return nil
-}

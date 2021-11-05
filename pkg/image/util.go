@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/rancher/wharfie/pkg/credentialprovider/plugin"
-	"github.com/rancher/wharfie/pkg/extract"
 	"github.com/rancher/wharfie/pkg/registries"
 	"github.com/rancher/wharfie/pkg/tarfile"
 	"github.com/sirupsen/logrus"
@@ -110,13 +110,20 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 
 		multiKeychain := authn.NewMultiKeychain(kcs...)
 		logrus.Infof("Pulling image %s", image.Name())
-		img, err = remote.Image(registry.Rewrite(image), remote.WithAuthFromKeychain(multiKeychain), remote.WithTransport(registry))
+		img, err = remote.Image(registry.Rewrite(image),
+			remote.WithAuthFromKeychain(multiKeychain),
+			remote.WithTransport(registry),
+			remote.WithPlatform(v1.Platform{
+				Architecture: runtime.GOARCH,
+				OS:           runtime.GOOS,
+			}),
+		)
 		if err != nil {
 			return fmt.Errorf("%v: failed to get image %s", err, image.Name())
 		}
 	}
 
-	return extract.Extract(img, destDir)
+	return extractFiles(img, destDir)
 }
 
 func (u *Utility) findRegistriesYaml() string {
