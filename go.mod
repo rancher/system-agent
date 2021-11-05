@@ -35,7 +35,7 @@ require (
 	github.com/google/go-containerregistry v0.5.0
 	github.com/mattn/go-colorable v0.1.8
 	github.com/rancher/lasso v0.0.0-20210408231703-9ddd9378d08d
-	github.com/rancher/wharfie v0.3.2
+	github.com/rancher/wharfie v0.4.3
 	github.com/rancher/wrangler v0.8.0
 	github.com/sirupsen/logrus v1.8.1
 	golang.org/x/sync v0.0.0-20201207232520-09787c993a3a
