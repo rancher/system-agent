@@ -288,10 +288,24 @@ func (w *watcher) start(ctx context.Context) {
 					secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
 				}
 			}
+
+			prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)
+
+			marshalledProbeStatus, err := json.Marshal(probeStatuses)
+			if err != nil {
+				logrus.Errorf("error while marshalling probe statuses: %v", err)
+			} else {
+				secret.Data[probeStatusesKey] = marshalledProbeStatus
+			}
+
 			if errorFromApply == nil {
+				// If we did not receive an error while applying (or in the case where needsApplied=false which means
+				// errorFromApply will be nil), we should enqueue for the next probe period to ensure probes get run on
+				// a timely basis.
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			}
+
 			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
 				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
 				return originalSecret, nil
