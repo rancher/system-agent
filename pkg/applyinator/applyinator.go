@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +86,7 @@ const appliedPlanFileSuffix = "-applied.plan"
 const applyinatorDateCodeLayout = "20060102-150405"
 const defaultCommand = "/run.sh"
 const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
+const planRetentionPolicyCount = 64
 
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, imageUtil *image.Utility) *Applyinator {
 	return &Applyinator{
@@ -117,7 +120,7 @@ func checksum(input []byte) string {
 
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
 // entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of all of the existing outputs, and if specified, runs the one time instructions. Notably, oneTimeApplySucceeded will be false if runOneTimeInstructions is false
-func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeInstructions bool, existingOneTimeOutput, existingPeriodicOutput []byte) (oneTimeApplySucceeded bool, oneTimeApplyOutput []byte, periodicApplySucceeded bool, periodicApplyOutput []byte, err error) {
+func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeInstructions, reconcileFiles bool, existingOneTimeOutput, existingPeriodicOutput []byte) (oneTimeApplySucceeded bool, oneTimeApplyOutput []byte, periodicApplySucceeded bool, periodicApplyOutput []byte, err error) {
 	logrus.Infof("[Applyinator] Applying plan with checksum %s", cp.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
 	a.mu.Lock()
@@ -142,18 +145,23 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, appliedPlanFile), os.Getuid(), os.Getgid(), 0600, anpString); err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
+		if err := a.appliedPlanRetentionPolicy(planRetentionPolicyCount); err != nil {
+			logrus.Errorf("error while applying plan retention policy: %v", err)
+		}
 	}
 
-	for _, file := range cp.Plan.Files {
-		if file.Directory {
-			logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
-			if err := createDirectory(file); err != nil {
-				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
-			}
-		} else {
-			logrus.Debugf("[Applyinator] Writing file %s", file.Path)
-			if err := writeBase64ContentToFile(file); err != nil {
-				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+	if reconcileFiles {
+		for _, file := range cp.Plan.Files {
+			if file.Directory {
+				logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
+				if err := createDirectory(file); err != nil {
+					return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+				}
+			} else {
+				logrus.Debugf("[Applyinator] Writing file %s", file.Path)
+				if err := writeBase64ContentToFile(file); err != nil {
+					return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+				}
 			}
 		}
 	}
@@ -296,6 +304,37 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 	}
 	periodicApplyOutput = gzOutput.Bytes()
 	return
+}
+
+func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
+	var planFiles []os.FileInfo
+
+	if err := filepath.Walk(filepath.Dir(a.appliedPlanDir), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(info.Name(), appliedPlanFileSuffix) {
+			planFiles = append(planFiles, info)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if len(planFiles) <= retention {
+		return nil
+	}
+	sort.Slice(planFiles, func(i, j int) bool {
+		return planFiles[i].Name() < planFiles[j].Name()
+	})
+
+	delCount := len(planFiles) - retention
+	for _, df := range planFiles[:delCount] {
+		historicalPlanFile := filepath.Join(filepath.Dir(a.appliedPlanDir), df.Name())
+		logrus.Infof("[Applyinator] Removing historical applied plan (retention policy count: %d) %s", retention, historicalPlanFile)
+		if err := os.Remove(historicalPlanFile); err != nil {
+			return err
+		}
+	}
 }
 
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool) ([]byte, []byte, int, error) {

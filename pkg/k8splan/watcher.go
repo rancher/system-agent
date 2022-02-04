@@ -264,7 +264,7 @@ func (w *watcher) start(ctx context.Context) {
 
 			periodicOutput := secret.Data[appliedPeriodicOutputKey]
 
-			oneTimeApplySucceeded, output, _, periodicOutput, err := w.applyinator.Apply(ctx, cp, needsApplied, output, periodicOutput)
+			oneTimeApplySucceeded, output, _, periodicOutput, err := w.applyinator.Apply(ctx, cp, needsApplied, needsApplied, output, periodicOutput)
 			if err != nil {
 				return secret, fmt.Errorf("lol")
 			}

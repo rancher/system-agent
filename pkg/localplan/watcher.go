@@ -133,7 +133,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		output := planPosition.Output
 		periodicOutput := planPosition.PeriodicOutput
-		_, output, _, periodicOutput, err = w.applyinator.Apply(ctx, cp, needsApplied, output, periodicOutput)
+		_, output, _, periodicOutput, err = w.applyinator.Apply(ctx, cp, needsApplied, needsApplied, output, periodicOutput)
 		if err != nil {
 			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 			continue
