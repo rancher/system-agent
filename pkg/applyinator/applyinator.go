@@ -135,7 +135,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 	logrus.Tracef("[Applyinator] Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("[Applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
-		if err := os.MkdirAll(filepath.Dir(a.appliedPlanDir), 0700); err != nil {
+		if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
 		anpString, err := json.Marshal(cp)
@@ -307,29 +307,29 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 }
 
 func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
-	var planFiles []os.FileInfo
-
-	if err := filepath.Walk(filepath.Dir(a.appliedPlanDir), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if strings.HasSuffix(info.Name(), appliedPlanFileSuffix) {
-			planFiles = append(planFiles, info)
-		}
-		return nil
-	}); err != nil {
+	var planFiles []os.DirEntry
+	dirListedPlanFiles, err := os.ReadDir(a.appliedPlanDir)
+	if err != nil {
 		return err
 	}
+
+	for _, f := range dirListedPlanFiles {
+		if strings.HasSuffix(f.Name(), appliedPlanFileSuffix) && !f.IsDir() {
+			planFiles = append(planFiles, f)
+		}
+	}
+
 	if len(planFiles) <= retention {
 		return nil
 	}
+
 	sort.Slice(planFiles, func(i, j int) bool {
 		return planFiles[i].Name() < planFiles[j].Name()
 	})
 
 	delCount := len(planFiles) - retention
 	for _, df := range planFiles[:delCount] {
-		historicalPlanFile := filepath.Join(filepath.Dir(a.appliedPlanDir), df.Name())
+		historicalPlanFile := filepath.Join(a.appliedPlanDir, df.Name())
 		logrus.Infof("[Applyinator] Removing historical applied plan (retention policy count: %d) %s", retention, historicalPlanFile)
 		if err := os.Remove(historicalPlanFile); err != nil {
 			return err
