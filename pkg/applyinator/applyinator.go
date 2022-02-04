@@ -115,10 +115,8 @@ func checksum(input []byte) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// RunPeriodicInstructions accepts a context, calculated plan, and input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
-// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised version of the input byte slice json-marshalled data
-
-// Apply takes a bunch of paramters and returns
+// Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
+// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of all of the existing outputs, and if specified, runs the one time instructions. Notably, oneTimeApplySucceeded will be false if runOneTimeInstructions is false
 func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeInstructions bool, existingOneTimeOutput, existingPeriodicOutput []byte) (oneTimeApplySucceeded bool, oneTimeApplyOutput []byte, periodicApplySucceeded bool, periodicApplyOutput []byte, err error) {
 	logrus.Infof("[Applyinator] Applying plan with checksum %s", cp.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
