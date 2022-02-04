@@ -305,7 +305,7 @@ func (w *watcher) start(ctx context.Context) {
 				secret.Data[probeStatusesKey] = marshalledProbeStatus
 			}
 
-			if oneTimeApplySucceeded {
+			if oneTimeApplySucceeded || !needsApplied {
 				// If we did not receive an error while applying, we should enqueue for the next probe period to ensure probes get run on a timely basis.
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
