@@ -1,19 +1,18 @@
 package main
 
 import (
-	"context"
+	"github.com/rancher/system-agent/pkg/version"
 	"os"
-
-	"github.com/rancher/system-agent/pkg/localplan"
 
 	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/k8splan"
-	"github.com/rancher/system-agent/pkg/version"
+	"github.com/rancher/system-agent/pkg/localplan"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -39,11 +38,25 @@ func main() {
 		}
 	}
 
-	run()
+	app := &cli.App{
+		Name:    "rancher-system-agent",
+		Usage:   "Rancher System Agent runs a sentinel that reconciles desired plans with the node it is being run on",
+		Version: version.FriendlyVersion(),
+		Commands: []*cli.Command{
+			{
+				Name:   "sentinel",
+				Usage:  "run the rancher-system-agent sentinel to watch plans",
+				Action: run,
+			},
+		}}
+
+	if err := app.Run(os.Args); err != nil {
+		logrus.Fatalf("Fatal error running: %v", err)
+	}
 }
 
-func run() {
-	topContext := signals.SetupSignalHandler(context.Background())
+func run(c *cli.Context) error {
+	topContext := signals.SetupSignalHandler(c.Context)
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
@@ -87,4 +100,5 @@ func run() {
 	}
 
 	<-topContext.Done()
+	return nil
 }

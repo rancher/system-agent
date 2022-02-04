@@ -31,6 +31,7 @@ type NodePlanPosition struct {
 	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
 	Output          []byte                        `json:"output,omitempty"`
 	ProbeStatus     map[string]prober.ProbeStatus `json:"probeStatus,omitempty"`
+	PeriodicOutput  []byte                        `json:"periodicOutput,omitempty"`
 }
 
 type watcher struct {
@@ -130,15 +131,12 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
 
-		var output []byte
-		if needsApplied {
-			output, err = w.applyinator.Apply(ctx, cp)
-			if err != nil {
-				logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
-				continue
-			}
-		} else {
-			output = planPosition.Output
+		output := planPosition.Output
+		periodicOutput := planPosition.PeriodicOutput
+		_, output, _, periodicOutput, err = w.applyinator.Apply(ctx, cp, needsApplied, output, periodicOutput)
+		if err != nil {
+			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
+			continue
 		}
 
 		var wg sync.WaitGroup
@@ -173,6 +171,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 		npp.AppliedChecksum = cp.Checksum
 		npp.Output = output
 		npp.ProbeStatus = probeStatuses
+		npp.PeriodicOutput = periodicOutput
 
 		newPPData, err := json.Marshal(npp)
 		if err != nil {

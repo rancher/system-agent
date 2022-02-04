@@ -33,19 +33,20 @@ import (
 )
 
 const (
-	appliedChecksumKey    = "applied-checksum"
-	appliedOutputKey      = "applied-output"
-	failedChecksumKey     = "failed-checksum"
-	failedOutputKey       = "failed-output"
-	failureCountKey       = "failure-count"
-	lastApplyTimeKey      = "last-apply-time"
-	successCountKey       = "success-count"
-	maxFailuresKey        = "max-failures"
-	probeStatusesKey      = "probe-statuses"
-	probePeriodKey        = "probe-period-seconds"
-	planKey               = "plan"
-	enqueueAfterDuration  = "5s"
-	cooldownTimerDuration = "30s"
+	appliedChecksumKey       = "applied-checksum"
+	appliedOutputKey         = "applied-output"
+	appliedPeriodicOutputKey = "applied-periodic-output"
+	failedChecksumKey        = "failed-checksum"
+	failedOutputKey          = "failed-output"
+	failureCountKey          = "failure-count"
+	lastApplyTimeKey         = "last-apply-time"
+	successCountKey          = "success-count"
+	maxFailuresKey           = "max-failures"
+	probeStatusesKey         = "probe-statuses"
+	probePeriodKey           = "probe-period-seconds"
+	planKey                  = "plan"
+	enqueueAfterDuration     = "5s"
+	cooldownTimerDuration    = "30s"
 )
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) {
@@ -125,6 +126,8 @@ func (w *watcher) start(ctx context.Context) {
 		panic(err)
 	}
 
+	hasRunOnce := false
+
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
 			logrus.Errorf("[K8s] Received secret that was nil")
@@ -158,9 +161,9 @@ func (w *watcher) start(ctx context.Context) {
 			}
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
-		needsApplied := true
+		needsApplied := true // needsApplied indicates whether the one-time instructions should be run
 		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
-			logrus.Debugf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
 			return secret, errors.New("secret received was too old")
 		}
 		if planData, ok := secret.Data[planKey]; ok {
@@ -182,15 +185,21 @@ func (w *watcher) start(ctx context.Context) {
 			if err != nil {
 				return secret, err
 			}
-			logrus.Debugf("[K8s] Calculated checksum to be %s", cp.Checksum)
+			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
 
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
-				logrus.Debugf("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
+				logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
 				if secretChecksum == cp.Checksum {
 					logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
 					needsApplied = false
 				}
+			}
+
+			if !hasRunOnce {
+				logrus.Infof("Detected first start, force-applying one-time instruction set")
+				needsApplied = true
+				hasRunOnce = true
 			}
 
 			// Check to see if we've exceeded our failure count threshold
@@ -201,7 +210,7 @@ func (w *watcher) start(ctx context.Context) {
 				if err != nil {
 					maxFailureThreshold = -1
 				} else {
-					logrus.Debugf("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
+					logrus.Tracef("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
 				}
 			} else {
 				maxFailureThreshold = -1
@@ -240,32 +249,30 @@ func (w *watcher) start(ctx context.Context) {
 			}
 
 			var output []byte
-			var errorFromApply error
 
-			if needsApplied { // checksum did not match the applied checksum, and our thresholds have not been exceeded
-				logrus.Debugf("[K8s] Calling Applyinator to apply the plan.")
-				output, errorFromApply = w.applyinator.Apply(ctx, cp)
-				if err != nil {
-					logrus.Errorf("error encountered while applying plan: %v", errorFromApply)
+			if wasFailedPlan {
+				output, ok = secret.Data[failedOutputKey]
+				if !ok {
+					output = []byte{}
 				}
 			} else {
-				logrus.Debugf("[K8s] needsApplied was false, not applying")
-				// retrieve output from the previous run if we aren't applying
-				if wasFailedPlan {
-					output, ok = secret.Data[failedOutputKey]
-					if !ok {
-						output = []byte{}
-					}
-				} else {
-					output, ok = secret.Data[appliedOutputKey]
-					if !ok {
-						output = []byte{}
-					}
+				output, ok = secret.Data[appliedOutputKey]
+				if !ok {
+					output = []byte{}
 				}
 			}
 
-			if errorFromApply != nil || (wasFailedPlan && !needsApplied) {
-				logrus.Debugf("[K8s] Plan with checksum (%s) failed during application", cp.Checksum)
+			periodicOutput := secret.Data[appliedPeriodicOutputKey]
+
+			oneTimeApplySucceeded, output, _, periodicOutput, err := w.applyinator.Apply(ctx, cp, needsApplied, output, periodicOutput)
+			if err != nil {
+				return secret, fmt.Errorf("lol")
+			}
+
+			secret.Data[appliedPeriodicOutputKey] = periodicOutput
+
+			if (needsApplied && !oneTimeApplySucceeded) || (!needsApplied && wasFailedPlan) {
+				logrus.Debugf("[K8s] one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", cp.Checksum)
 				// Update the corresponding counts/outputs
 				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
 				if needsApplied {
@@ -298,10 +305,8 @@ func (w *watcher) start(ctx context.Context) {
 				secret.Data[probeStatusesKey] = marshalledProbeStatus
 			}
 
-			if errorFromApply == nil {
-				// If we did not receive an error while applying (or in the case where needsApplied=false which means
-				// errorFromApply will be nil), we should enqueue for the next probe period to ensure probes get run on
-				// a timely basis.
+			if oneTimeApplySucceeded {
+				// If we did not receive an error while applying, we should enqueue for the next probe period to ensure probes get run on a timely basis.
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			}
@@ -314,7 +319,7 @@ func (w *watcher) start(ctx context.Context) {
 			if err != nil {
 				return secret, err
 			}
-			return secret, errorFromApply
+			return secret, nil
 		}
 		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 		return secret, nil
