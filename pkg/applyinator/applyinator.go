@@ -335,6 +335,7 @@ func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
 			return err
 		}
 	}
+	return nil
 }
 
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool) ([]byte, []byte, int, error) {
