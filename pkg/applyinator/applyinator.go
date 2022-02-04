@@ -384,22 +384,26 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 
 	var (
 		eg              = errgroup.Group{}
-		stdoutWriteLock sync.Mutex
-		stderrWriteLock sync.Mutex
+		stdoutWriteLock *sync.Mutex
+		stderrWriteLock *sync.Mutex
 		stdoutBuffer    bytes.Buffer
 		stderrBuffer    bytes.Buffer
 	)
 
 	if combinedOutput {
 		stderrBuffer = stdoutBuffer
+		stdoutWriteLock = &sync.Mutex{}
 		stderrWriteLock = stdoutWriteLock
+	} else {
+		stdoutWriteLock = &sync.Mutex{}
+		stderrWriteLock = &sync.Mutex{}
 	}
 
 	eg.Go(func() error {
-		return streamLogs("["+prefix+":stdout]", &stdoutBuffer, stdout, &stdoutWriteLock)
+		return streamLogs("["+prefix+":stdout]", &stdoutBuffer, stdout, stdoutWriteLock)
 	})
 	eg.Go(func() error {
-		return streamLogs("["+prefix+":stderr]", &stderrBuffer, stderr, &stderrWriteLock)
+		return streamLogs("["+prefix+":stderr]", &stderrBuffer, stderr, stderrWriteLock)
 	})
 
 	if err := cmd.Start(); err != nil {
