@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/rancher/system-agent/pkg/version"
 	"os"
 
 	"github.com/mattn/go-colorable"
@@ -10,6 +9,7 @@ import (
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/pkg/localplan"
+	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
