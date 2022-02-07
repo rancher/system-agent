@@ -398,6 +398,10 @@ setup_arch() {
         ARCH=arm64
         SUFFIX=-${ARCH}
         ;;
+    s390x)
+        ARCH=s390x
+        SUFFIX=-${ARCH}
+        ;;
     aarch64)
         ARCH=arm64
         SUFFIX=-${ARCH}
