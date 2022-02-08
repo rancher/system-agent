@@ -258,6 +258,9 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			if err != nil {
 				logrus.Errorf("error encountered during parsing of last run time: %v", err)
 			} else {
+				if instruction.PeriodSeconds == 0 {
+					instruction.PeriodSeconds = 600 // set default period to 600 seconds
+				}
 				if now.Before(t.Add(time.Second * time.Duration(instruction.PeriodSeconds))) {
 					logrus.Debugf("[Applyinator] Not running periodic instruction %s as period duration has not elapsed since last run", instruction.Name)
 					continue
