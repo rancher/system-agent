@@ -1,19 +1,19 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"os"
-
-	"github.com/rancher/system-agent/pkg/localplan"
 
 	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/image"
 	"github.com/rancher/system-agent/pkg/k8splan"
+	"github.com/rancher/system-agent/pkg/localplan"
 	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -39,11 +39,25 @@ func main() {
 		}
 	}
 
-	run()
+	app := &cli.App{
+		Name:    "rancher-system-agent",
+		Usage:   "Rancher System Agent runs a sentinel that reconciles desired plans with the node it is being run on",
+		Version: version.FriendlyVersion(),
+		Commands: []*cli.Command{
+			{
+				Name:   "sentinel",
+				Usage:  "run the rancher-system-agent sentinel to watch plans",
+				Action: run,
+			},
+		}}
+
+	if err := app.Run(os.Args); err != nil {
+		logrus.Fatalf("Fatal error running: %v", err)
+	}
 }
 
-func run() {
-	topContext := signals.SetupSignalHandler(context.Background())
+func run(c *cli.Context) error {
+	topContext := signals.SetupSignalHandler(c.Context)
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
@@ -57,11 +71,11 @@ func run() {
 
 	err := config.Parse(configFile, &cf)
 	if err != nil {
-		logrus.Fatalf("Unable to parse config file %v", err)
+		return fmt.Errorf("unable to parse config file: %w", err)
 	}
 
 	if !cf.LocalEnabled && !cf.RemoteEnabled {
-		logrus.Fatalf("Local and remote were both not enabled. Exiting, as one must be enabled.")
+		return fmt.Errorf("local and/or remote watching must be enabled")
 	}
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
@@ -75,7 +89,7 @@ func run() {
 		var connInfo config.ConnectionInfo
 
 		if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
-			logrus.Fatalf("Unable to parse connection info file %v", err)
+			return fmt.Errorf("unable to parse connection info file: %w", err)
 		}
 
 		k8splan.Watch(topContext, *applyinator, connInfo)
@@ -87,4 +101,5 @@ func run() {
 	}
 
 	<-topContext.Done()
+	return nil
 }

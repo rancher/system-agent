@@ -37,10 +37,10 @@ type ProbeStatus struct {
 }
 
 func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
-	logrus.Tracef("Running probe %v", probe)
+	logrus.Tracef("Running probe %+v", probe)
 	if initial {
 		initialDelayDuration := time.Duration(probe.InitialDelaySeconds) * time.Second
-		logrus.Debugf("sleeping for %.0f seconds before running probe", initialDelayDuration.Seconds())
+		logrus.Debugf("[Probe: %s] Sleeping for %.0f seconds before running probe", probe.Name, initialDelayDuration.Seconds())
 		time.Sleep(initialDelayDuration)
 	}
 
@@ -53,7 +53,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		if probe.HTTPGetAction.ClientCert != "" && probe.HTTPGetAction.ClientKey != "" {
 			clientCert, err := tls.LoadX509KeyPair(probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey)
 			if err != nil {
-				logrus.Errorf("error loading x509 client cert/key (%s/%s): %v", probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
+				logrus.Errorf("error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
 			}
 			tlsConfig.Certificates = []tls.Certificate{clientCert}
 		}
@@ -61,16 +61,16 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		caCertPool, err := x509.SystemCertPool()
 		if err != nil {
 			caCertPool = x509.NewCertPool()
-			logrus.Errorf("error loading system cert pool: %v", err)
+			logrus.Errorf("error loading system cert pool for probe (%s): %v", probe.Name, err)
 		}
 
 		if probe.HTTPGetAction.CACert != "" {
 			caCert, err := ioutil.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
-				logrus.Errorf("error loading CA cert %s: %v", probe.HTTPGetAction.CACert, err)
+				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
 			}
 			if !caCertPool.AppendCertsFromPEM(caCert) {
-				logrus.Errorf("error while appending ca cert to pool")
+				logrus.Errorf("error while appending ca cert to pool for probe %s", probe.Name)
 			}
 		}
 
@@ -84,38 +84,38 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	}
 
 	probeDuration := time.Duration(probe.TimeoutSeconds) * time.Second
-	logrus.Debugf("Probe timeout duration: %.0f seconds", probeDuration.Seconds())
+	logrus.Tracef("[Probe: %s] timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
 
 	probeResult, output, err := k8sProber.Probe(probeURL, http.Header{}, probeDuration)
 
 	if err != nil {
-		logrus.Errorf("error while running probe: %v", err)
+		logrus.Errorf("error while running probe (%s): %v", probe.Name, err)
 		return err
 	}
 
-	logrus.Debugf("Probe output was %s", output)
+	logrus.Debugf("[Probe: %s] output was %s", probe.Name, output)
 
 	var successThreshold, failureThreshold int
 
 	if probe.SuccessThreshold == 0 {
-		logrus.Debugf("Setting success threshold to default")
+		logrus.Tracef("[Probe: %s] Setting success threshold to default", probe.Name)
 		successThreshold = 1
 	} else {
-		logrus.Debugf("Setting success threshold to %d", probe.SuccessThreshold)
+		logrus.Tracef("[Probe: %s] Setting success threshold to %d", probe.Name, probe.SuccessThreshold)
 		successThreshold = probe.SuccessThreshold
 	}
 
 	if probe.FailureThreshold == 0 {
-		logrus.Debugf("Setting failure threshold to default")
+		logrus.Tracef("[Probe: %s] Setting failure threshold to default", probe.Name)
 		failureThreshold = 3
 	} else {
-		logrus.Debugf("Setting failure threshold to %d", probe.FailureThreshold)
+		logrus.Tracef("Setting failure threshold to %d", probe.FailureThreshold)
 		failureThreshold = probe.FailureThreshold
 	}
 
 	switch probeResult {
 	case k8sprobe.Success:
-		logrus.Debug("Probe succeeded")
+		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
 		if probeStatus.SuccessCount < successThreshold {
 			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
 			if probeStatus.SuccessCount >= successThreshold {
@@ -124,7 +124,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 		}
 		probeStatus.FailureCount = 0
 	default:
-		logrus.Debug("Probe failed")
+		logrus.Debugf("[Probe: %s] failed", probe.Name)
 		if probeStatus.FailureCount < failureThreshold {
 			probeStatus.FailureCount = probeStatus.FailureCount + 1
 			if probeStatus.FailureCount >= failureThreshold {

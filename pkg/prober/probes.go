@@ -16,18 +16,19 @@ func DoProbes(probes map[string]Probe, probeStatuses map[string]ProbeStatus, ini
 			defer wg.Done()
 			logrus.Debugf("[Prober] (%s) running probe", probeName)
 			mu.Lock()
-			logrus.Debugf("[Prober] (%s) retrieving existing probe status from map if existing", probeName)
+			logrus.Tracef("[Prober] (%s) retrieving existing probe status from map if existing", probeName)
 			probeStatus, ok := probeStatuses[probeName]
 			mu.Unlock()
 			if !ok {
-				logrus.Debugf("[Prober] (%s) probe status was not present in map, initializing", probeName)
+				logrus.Tracef("[Prober] (%s) probe status was not present in map, initializing", probeName)
 				probeStatus = ProbeStatus{}
 			}
+			probe.Name = probeName
 			if err := DoProbe(probe, &probeStatus, initial); err != nil {
 				logrus.Errorf("error running probe %s", probeName)
 			}
 			mu.Lock()
-			logrus.Debugf("[Prober] (%s) writing probe status to map", probeName)
+			logrus.Tracef("[Prober] (%s) writing probe status to map", probeName)
 			probeStatuses[probeName] = probeStatus
 			mu.Unlock()
 		}(probeName, probe, &wg)

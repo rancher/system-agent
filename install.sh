@@ -508,7 +508,7 @@ Restart=always
 RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
-ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
+ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
 }
 

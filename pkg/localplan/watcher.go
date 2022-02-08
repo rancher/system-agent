@@ -31,6 +31,7 @@ type NodePlanPosition struct {
 	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
 	Output          []byte                        `json:"output,omitempty"`
 	ProbeStatus     map[string]prober.ProbeStatus `json:"probeStatus,omitempty"`
+	PeriodicOutput  []byte                        `json:"periodicOutput,omitempty"`
 }
 
 type watcher struct {
@@ -130,15 +131,18 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
 
-		var output []byte
-		if needsApplied {
-			output, err = w.applyinator.Apply(ctx, cp)
-			if err != nil {
-				logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
-				continue
-			}
-		} else {
-			output = planPosition.Output
+		input := applyinator.ApplyInput{
+			CalculatedPlan:         cp,
+			ReconcileFiles:         needsApplied,
+			ExistingOneTimeOutput:  planPosition.Output,
+			ExistingPeriodicOutput: planPosition.PeriodicOutput,
+			RunOneTimeInstructions: needsApplied,
+		}
+
+		applyOutput, err := w.applyinator.Apply(ctx, input)
+		if err != nil {
+			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
+			continue
 		}
 
 		var wg sync.WaitGroup
@@ -171,8 +175,9 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		var npp NodePlanPosition
 		npp.AppliedChecksum = cp.Checksum
-		npp.Output = output
+		npp.Output = applyOutput.OneTimeOutput
 		npp.ProbeStatus = probeStatuses
+		npp.PeriodicOutput = applyOutput.PeriodicOutput
 
 		newPPData, err := json.Marshal(npp)
 		if err != nil {

@@ -22,7 +22,7 @@ func writeBase64ContentToFile(file File) error {
 	}
 	var fileMode os.FileMode
 	if file.Permissions == "" {
-		logrus.Debugf("requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
+		logrus.Debugf("[Applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
 		fileMode = defaultFilePermissions
 	} else {
 		parsedPerm, err := parsePerm(file.Permissions)
@@ -41,7 +41,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 
 	existing, err := ioutil.ReadFile(path)
 	if err == nil && bytes.Equal(existing, content) {
-		logrus.Debugf("file %s does not need to be written", path)
+		logrus.Debugf("[Applyinator] File %s does not need to be written", path)
 	} else {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, defaultDirectoryPermissions); err != nil {
@@ -60,7 +60,7 @@ func createDirectory(file File) error {
 	}
 	var fileMode os.FileMode
 	if file.Permissions == "" {
-		logrus.Debugf("requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
+		logrus.Debugf("[Applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
 		fileMode = defaultDirectoryPermissions
 	} else {
 		parsedPerm, err := parsePerm(file.Permissions)
