@@ -176,18 +176,10 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 	if runOneTimeInstructions {
 		executionOutputs := map[string][]byte{}
 		if len(existingPeriodicOutput) > 0 {
-			buffer := bytes.NewBuffer(existingOneTimeOutput)
-			gzReader, err := gzip.NewReader(buffer)
+			objectBuffer, err := generateByteBufferFromBytes(existingOneTimeOutput)
 			if err != nil {
 				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 			}
-
-			var objectBuffer bytes.Buffer
-			_, err = io.Copy(&objectBuffer, gzReader)
-			if err != nil {
-				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
-			}
-
 			if err := json.Unmarshal(objectBuffer.Bytes(), &executionOutputs); err != nil {
 				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 			}
@@ -212,42 +204,28 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 				break
 			}
 		}
-		var gzOutput bytes.Buffer
-
-		gzWriter := gzip.NewWriter(&gzOutput)
 
 		marshalledExecutionOutputs, err := json.Marshal(executionOutputs)
 		if err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
-		gzWriter.Write(marshalledExecutionOutputs)
-		if err := gzWriter.Close(); err != nil {
+
+		oneTimeApplyOutput, err = gzipByteSlice(marshalledExecutionOutputs)
+		if err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
-		oneTimeApplyOutput = gzOutput.Bytes()
-
 	} else {
 		// For posterity, if a one-time apply was not requested, the one-time apply success is technically false.
 		oneTimeApplyOutput = existingOneTimeOutput
 		oneTimeApplySucceeded = false
 	}
 
-	// ok, let's run the periodic instructions
-
 	periodicOutputs := map[string]PeriodicInstructionOutput{}
 	if len(existingPeriodicOutput) > 0 {
-		buffer := bytes.NewBuffer(existingPeriodicOutput)
-		gzReader, err := gzip.NewReader(buffer)
+		objectBuffer, err := generateByteBufferFromBytes(existingPeriodicOutput)
 		if err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
-
-		var objectBuffer bytes.Buffer
-		_, err = io.Copy(&objectBuffer, gzReader)
-		if err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
-		}
-
 		if err := json.Unmarshal(objectBuffer.Bytes(), &periodicOutputs); err != nil {
 			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 		}
@@ -290,20 +268,43 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 		}
 	}
 
-	var gzOutput bytes.Buffer
-
-	gzWriter := gzip.NewWriter(&gzOutput)
-
 	marshalledExecutionOutputs, err := json.Marshal(periodicOutputs)
 	if err != nil {
 		return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 	}
-	gzWriter.Write(marshalledExecutionOutputs)
-	if err := gzWriter.Close(); err != nil {
+	periodicApplyOutput, err = gzipByteSlice(marshalledExecutionOutputs)
+	if err != nil {
 		return false, existingOneTimeOutput, false, existingPeriodicOutput, err
 	}
-	periodicApplyOutput = gzOutput.Bytes()
+
 	return
+}
+
+func gzipByteSlice(input []byte) ([]byte, error) {
+	var gzOutput bytes.Buffer
+
+	gzWriter := gzip.NewWriter(&gzOutput)
+
+	gzWriter.Write(input)
+	if err := gzWriter.Close(); err != nil {
+		return []byte{}, err
+	}
+	return gzOutput.Bytes(), nil
+}
+
+func generateByteBufferFromBytes(input []byte) (*bytes.Buffer, error) {
+	buffer := bytes.NewBuffer(input)
+	gzReader, err := gzip.NewReader(buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	var objectBuffer bytes.Buffer
+	_, err = io.Copy(&objectBuffer, gzReader)
+	if err != nil {
+		return nil, err
+	}
+	return &objectBuffer, nil
 }
 
 func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
