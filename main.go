@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/mattn/go-colorable"
@@ -70,11 +71,11 @@ func run(c *cli.Context) error {
 
 	err := config.Parse(configFile, &cf)
 	if err != nil {
-		logrus.Fatalf("Unable to parse config file %v", err)
+		return fmt.Errorf("unable to parse config file: %w", err)
 	}
 
 	if !cf.LocalEnabled && !cf.RemoteEnabled {
-		logrus.Fatalf("Local and remote were both not enabled. Exiting, as one must be enabled.")
+		return fmt.Errorf("local and/or remote watching must be enabled")
 	}
 
 	logrus.Infof("Using directory %s for work", cf.WorkDir)
@@ -88,7 +89,7 @@ func run(c *cli.Context) error {
 		var connInfo config.ConnectionInfo
 
 		if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
-			logrus.Fatalf("Unable to parse connection info file %v", err)
+			return fmt.Errorf("unable to parse connection info file: %w", err)
 		}
 
 		k8splan.Watch(topContext, *applyinator, connInfo)

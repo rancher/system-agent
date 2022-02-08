@@ -266,7 +266,7 @@ func (w *watcher) start(ctx context.Context) {
 
 			oneTimeApplySucceeded, output, _, periodicOutput, err := w.applyinator.Apply(ctx, cp, needsApplied, needsApplied, output, periodicOutput)
 			if err != nil {
-				return secret, fmt.Errorf("lol")
+				return secret, fmt.Errorf("error encountered when running apply: %w", err)
 			}
 
 			secret.Data[appliedPeriodicOutputKey] = periodicOutput
@@ -306,7 +306,7 @@ func (w *watcher) start(ctx context.Context) {
 			}
 
 			if oneTimeApplySucceeded == needsApplied {
-				// If we did not receive an error while applying, we should enqueue for the next probe period to ensure probes get run on a timely basis.
+				// If the one-time instructions were successfully applied, we should enqueue the secret for the period of a probe to attempt to guarantee timeliness on probe reactivity.
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
 			}
