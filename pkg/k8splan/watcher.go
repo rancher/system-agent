@@ -264,14 +264,25 @@ func (w *watcher) start(ctx context.Context) {
 
 			periodicOutput := secret.Data[appliedPeriodicOutputKey]
 
-			oneTimeApplySucceeded, output, _, periodicOutput, err := w.applyinator.Apply(ctx, cp, needsApplied, needsApplied, output, periodicOutput)
+			input := applyinator.ApplyInput{
+				CalculatedPlan:         cp,
+				ReconcileFiles:         needsApplied,
+				ExistingOneTimeOutput:  output,
+				ExistingPeriodicOutput: periodicOutput,
+				RunOneTimeInstructions: needsApplied,
+			}
+
+			applyOutput, err := w.applyinator.Apply(ctx, input)
 			if err != nil {
 				return secret, fmt.Errorf("error encountered when running apply: %w", err)
 			}
 
+			output = applyOutput.OneTimeOutput
+			periodicOutput = applyOutput.PeriodicOutput
+
 			secret.Data[appliedPeriodicOutputKey] = periodicOutput
 
-			if (needsApplied && !oneTimeApplySucceeded) || (!needsApplied && wasFailedPlan) {
+			if (needsApplied && !applyOutput.OneTimeApplySucceeded) || (!needsApplied && wasFailedPlan) {
 				logrus.Debugf("[K8s] one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", cp.Checksum)
 				// Update the corresponding counts/outputs
 				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
@@ -305,7 +316,7 @@ func (w *watcher) start(ctx context.Context) {
 				secret.Data[probeStatusesKey] = marshalledProbeStatus
 			}
 
-			if oneTimeApplySucceeded == needsApplied {
+			if applyOutput.OneTimeApplySucceeded == needsApplied {
 				// If the one-time instructions were successfully applied, we should enqueue the secret for the period of a probe to attempt to guarantee timeliness on probe reactivity.
 				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
 				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)

@@ -131,9 +131,15 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
 
-		output := planPosition.Output
-		periodicOutput := planPosition.PeriodicOutput
-		_, output, _, periodicOutput, err = w.applyinator.Apply(ctx, cp, needsApplied, needsApplied, output, periodicOutput)
+		input := applyinator.ApplyInput{
+			CalculatedPlan:         cp,
+			ReconcileFiles:         needsApplied,
+			ExistingOneTimeOutput:  planPosition.Output,
+			ExistingPeriodicOutput: planPosition.PeriodicOutput,
+			RunOneTimeInstructions: needsApplied,
+		}
+
+		applyOutput, err := w.applyinator.Apply(ctx, input)
 		if err != nil {
 			logrus.Errorf("[local] Error when applying node plan from file: %s: %v", path, err)
 			continue
@@ -169,9 +175,9 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 
 		var npp NodePlanPosition
 		npp.AppliedChecksum = cp.Checksum
-		npp.Output = output
+		npp.Output = applyOutput.OneTimeOutput
 		npp.ProbeStatus = probeStatuses
-		npp.PeriodicOutput = periodicOutput
+		npp.PeriodicOutput = applyOutput.PeriodicOutput
 
 		newPPData, err := json.Marshal(npp)
 		if err != nil {

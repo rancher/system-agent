@@ -118,11 +118,30 @@ func checksum(input []byte) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+type ApplyOutput struct {
+	OneTimeOutput          []byte
+	OneTimeApplySucceeded  bool
+	PeriodicOutput         []byte
+	PeriodicApplySucceeded bool
+}
+
+type ApplyInput struct {
+	CalculatedPlan         CalculatedPlan
+	RunOneTimeInstructions bool
+	ReconcileFiles         bool
+	ExistingOneTimeOutput  []byte
+	ExistingPeriodicOutput []byte
+}
+
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
-// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of all of the existing outputs, and if specified, runs the one time instructions. Notably, oneTimeApplySucceeded will be false if runOneTimeInstructions is false
-func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeInstructions, reconcileFiles bool, existingOneTimeOutput, existingPeriodicOutput []byte) (oneTimeApplySucceeded bool, oneTimeApplyOutput []byte, periodicApplySucceeded bool, periodicApplyOutput []byte, err error) {
-	logrus.Infof("[Applyinator] Applying plan with checksum %s", cp.Checksum)
+// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false
+func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
+	logrus.Infof("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
+	output := ApplyOutput{
+		OneTimeOutput:  input.ExistingOneTimeOutput,
+		PeriodicOutput: input.ExistingPeriodicOutput,
+	}
 	a.mu.Lock()
 	logrus.Tracef("[Applyinator] Applying plan - lock achieved")
 	defer a.mu.Unlock()
@@ -131,36 +150,36 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 	nowString := now.Format(applyinatorDateCodeLayout)
 	appliedPlanFile := nowString + appliedPlanFileSuffix
 	executionDir := filepath.Join(a.workDir, nowString)
-	logrus.Tracef("[Applyinator] Applying calculated node plan contents %v", cp)
+	logrus.Tracef("[Applyinator] Applying calculated node plan contents %v", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("[Applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
 		if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
-		anpString, err := json.Marshal(cp)
+		anpString, err := json.Marshal(input.CalculatedPlan)
 		if err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, appliedPlanFile), os.Getuid(), os.Getgid(), 0600, anpString); err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 		if err := a.appliedPlanRetentionPolicy(planRetentionPolicyCount); err != nil {
 			logrus.Errorf("error while applying plan retention policy: %v", err)
 		}
 	}
 
-	if reconcileFiles {
-		for _, file := range cp.Plan.Files {
+	if input.ReconcileFiles {
+		for _, file := range input.CalculatedPlan.Plan.Files {
 			if file.Directory {
 				logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
 				if err := createDirectory(file); err != nil {
-					return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+					return output, err
 				}
 			} else {
 				logrus.Debugf("[Applyinator] Writing file %s", file.Path)
 				if err := writeBase64ContentToFile(file); err != nil {
-					return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+					return output, err
 				}
 			}
 		}
@@ -169,27 +188,27 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 	if !a.preserveWorkDir {
 		logrus.Debugf("[Applyinator] Cleaning working directory before applying %s", a.workDir)
 		if err := os.RemoveAll(a.workDir); err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 	}
-	oneTimeApplySucceeded = true
-	if runOneTimeInstructions {
+	if input.RunOneTimeInstructions {
 		executionOutputs := map[string][]byte{}
-		if len(existingPeriodicOutput) > 0 {
-			objectBuffer, err := generateByteBufferFromBytes(existingOneTimeOutput)
+		if len(input.ExistingOneTimeOutput) > 0 {
+			objectBuffer, err := generateByteBufferFromBytes(input.ExistingOneTimeOutput)
 			if err != nil {
-				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+				return output, err
 			}
 			if err := json.Unmarshal(objectBuffer.Bytes(), &executionOutputs); err != nil {
-				return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+				return output, err
 			}
 		}
 
-		for index, instruction := range cp.Plan.OneTimeInstructions {
-			logrus.Debugf("[Applyinator] Executing instruction %d for plan %s", index, cp.Checksum)
-			executionInstructionDir := filepath.Join(executionDir, cp.Checksum+"_"+strconv.Itoa(index))
-			prefix := cp.Checksum + "_" + strconv.Itoa(index)
-			output, _, _, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true)
+		oneTimeApplySucceeded := true
+		for index, instruction := range input.CalculatedPlan.Plan.OneTimeInstructions {
+			logrus.Debugf("[Applyinator] Executing instruction %d for plan %s", index, input.CalculatedPlan.Checksum)
+			executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
+			prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
+			executeOutput, _, _, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true)
 			if err != nil {
 				logrus.Errorf("error executing instruction %d: %v", index, err)
 				oneTimeApplySucceeded = false
@@ -197,7 +216,7 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 			if instruction.Name == "" && instruction.SaveOutput {
 				logrus.Errorf("instruction does not have a name set, cannot save output data")
 			} else if instruction.SaveOutput {
-				executionOutputs[instruction.Name] = output
+				executionOutputs[instruction.Name] = executeOutput
 			}
 			// If we have failed to apply our one-time instructions, we need to break in order to stop subsequent instructions from executing.
 			if !oneTimeApplySucceeded {
@@ -205,34 +224,34 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 			}
 		}
 
+		output.OneTimeApplySucceeded = oneTimeApplySucceeded
+
 		marshalledExecutionOutputs, err := json.Marshal(executionOutputs)
 		if err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 
-		oneTimeApplyOutput, err = gzipByteSlice(marshalledExecutionOutputs)
+		oneTimeApplyOutput, err := gzipByteSlice(marshalledExecutionOutputs)
 		if err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
-	} else {
-		// For posterity, if a one-time apply was not requested, the one-time apply success is technically false.
-		oneTimeApplyOutput = existingOneTimeOutput
-		oneTimeApplySucceeded = false
+
+		output.OneTimeOutput = oneTimeApplyOutput
 	}
 
 	periodicOutputs := map[string]PeriodicInstructionOutput{}
-	if len(existingPeriodicOutput) > 0 {
-		objectBuffer, err := generateByteBufferFromBytes(existingPeriodicOutput)
+	if len(input.ExistingPeriodicOutput) > 0 {
+		objectBuffer, err := generateByteBufferFromBytes(input.ExistingPeriodicOutput)
 		if err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 		if err := json.Unmarshal(objectBuffer.Bytes(), &periodicOutputs); err != nil {
-			return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+			return output, err
 		}
 	}
 
-	periodicApplySucceeded = true
-	for index, instruction := range cp.Plan.PeriodicInstructions {
+	periodicApplySucceeded := true
+	for index, instruction := range input.CalculatedPlan.Plan.PeriodicInstructions {
 		if po, ok := periodicOutputs[instruction.Name]; ok {
 			logrus.Debugf("[Applyinator] Got periodic output and am now parsing last run time %s", po.LastRunTime)
 			t, err := time.Parse(time.UnixDate, po.LastRunTime)
@@ -245,9 +264,9 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 				}
 			}
 		}
-		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
-		executionInstructionDir := filepath.Join(executionDir, cp.Checksum+"_"+strconv.Itoa(index))
-		prefix := cp.Checksum + "_" + strconv.Itoa(index)
+		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, input.CalculatedPlan.Checksum)
+		executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
+		prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
 		stdout, stderr, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, false)
 		if err != nil {
 			periodicApplySucceeded = false
@@ -268,16 +287,19 @@ func (a *Applyinator) Apply(ctx context.Context, cp CalculatedPlan, runOneTimeIn
 		}
 	}
 
+	output.PeriodicApplySucceeded = periodicApplySucceeded
+
 	marshalledExecutionOutputs, err := json.Marshal(periodicOutputs)
 	if err != nil {
-		return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+		return output, err
 	}
-	periodicApplyOutput, err = gzipByteSlice(marshalledExecutionOutputs)
+	periodicApplyOutput, err := gzipByteSlice(marshalledExecutionOutputs)
 	if err != nil {
-		return false, existingOneTimeOutput, false, existingPeriodicOutput, err
+		return output, err
 	}
 
-	return
+	output.PeriodicOutput = periodicApplyOutput
+	return output, nil
 }
 
 func gzipByteSlice(input []byte) ([]byte, error) {
