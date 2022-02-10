@@ -429,7 +429,7 @@ get_address()
     else
         noproxy=""
         if [ "$(in_no_proxy "169.254.169.254")" -eq 0 ]; then
-          noproxy="--noproxy='*'"
+          noproxy="--noproxy '*'"
         fi
         case $address in
             awslocal)
@@ -528,7 +528,7 @@ download_rancher_agent() {
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy='*'"
+                noproxy="--noproxy '*'"
             fi
             RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent)
             case "${RESPONSE}" in
@@ -567,7 +567,7 @@ validate_ca_checksum() {
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy='*'"
+                noproxy="--noproxy '*'"
             fi
             RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" --insecure ${CURL_LOG} -fL "${CATTLE_SERVER}/${CACERTS_PATH}" -o ${CACERT})
             case "${RESPONSE}" in
@@ -615,7 +615,7 @@ validate_rancher_connection() {
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy='*'"
+                noproxy="--noproxy '*'"
             fi
             RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null)
             case "${RESPONSE}" in
@@ -645,7 +645,7 @@ validate_ca_required() {
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy='*'"
+                noproxy="--noproxy '*'"
             fi
             VERIFY_RESULT=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{ssl_verify_result}\n" ${CURL_LOG} -fL "${CATTLE_SERVER}/healthz" -o /dev/null 2>/dev/null)
             CURL_EXIT="$?"
@@ -689,7 +689,7 @@ retrieve_connection_info() {
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy='*'"
+                noproxy="--noproxy '*'"
             fi
             RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
             case "${RESPONSE}" in
