@@ -252,12 +252,14 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 	periodicApplySucceeded := true
 	for index, instruction := range input.CalculatedPlan.Plan.PeriodicInstructions {
+		var previousRunTime string
 		if po, ok := periodicOutputs[instruction.Name]; ok {
 			logrus.Debugf("[Applyinator] Got periodic output and am now parsing last run time %s", po.LastRunTime)
 			t, err := time.Parse(time.UnixDate, po.LastRunTime)
 			if err != nil {
 				logrus.Errorf("error encountered during parsing of last run time: %v", err)
 			} else {
+				previousRunTime = po.LastRunTime
 				if instruction.PeriodSeconds == 0 {
 					instruction.PeriodSeconds = 600 // set default period to 600 seconds
 				}
@@ -277,12 +279,16 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		if instruction.Name == "" {
 			logrus.Errorf("instruction does not have a name set, cannot save output data")
 		} else {
+			lrt := nowUnixTimeString
+			if exitCode != 0 {
+				lrt = previousRunTime
+			}
 			periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
 				Name:        instruction.Name,
 				Stdout:      stdout,
 				Stderr:      stderr,
 				ExitCode:    exitCode,
-				LastRunTime: nowUnixTimeString,
+				LastRunTime: lrt,
 			}
 		}
 		if !periodicApplySucceeded {
