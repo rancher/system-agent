@@ -55,15 +55,15 @@ type CommonInstruction struct {
 
 type PeriodicInstruction struct {
 	CommonInstruction
-	PeriodSeconds int `json:"periodSeconds,omitempty"` // default 600, i.e. 5 minutes
+	PeriodSeconds int `json:"periodSeconds,omitempty"` // default 600, i.e. 10 minutes
 }
 
 type PeriodicInstructionOutput struct {
-	Name        string `json:"name"`
-	Stdout      []byte `json:"stdout"`      // Stdout is a byte array of the gzip+base64 stdout output
-	Stderr      []byte `json:"stderr"`      // Stderr is a byte array of the gzip+base64 stderr output
-	ExitCode    int    `json:"exitCode"`    // ExitCode is an int representing the exit code of the last run instruction
-	LastRunTime string `json:"lastRunTime"` // LastRunTime is a time.UnixDate formatted string of the last time the instruction was run
+	Name                  string `json:"name"`
+	Stdout                []byte `json:"stdout"`                // Stdout is a byte array of the gzip+base64 stdout output
+	Stderr                []byte `json:"stderr"`                // Stderr is a byte array of the gzip+base64 stderr output
+	ExitCode              int    `json:"exitCode"`              // ExitCode is an int representing the exit code of the last run instruction
+	LastSuccessfulRunTime string `json:"lastSuccessfulRunTime"` // LastSuccessfulRunTime is a time.UnixDate formatted string of the last successful time (exit code 0) the instruction was run
 }
 
 type OneTimeInstruction struct {
@@ -254,12 +254,12 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	for index, instruction := range input.CalculatedPlan.Plan.PeriodicInstructions {
 		var previousRunTime string
 		if po, ok := periodicOutputs[instruction.Name]; ok {
-			logrus.Debugf("[Applyinator] Got periodic output and am now parsing last run time %s", po.LastRunTime)
-			t, err := time.Parse(time.UnixDate, po.LastRunTime)
+			logrus.Debugf("[Applyinator] Got periodic output and am now parsing last run time %s", po.LastSuccessfulRunTime)
+			t, err := time.Parse(time.UnixDate, po.LastSuccessfulRunTime)
 			if err != nil {
 				logrus.Errorf("error encountered during parsing of last run time: %v", err)
 			} else {
-				previousRunTime = po.LastRunTime
+				previousRunTime = po.LastSuccessfulRunTime
 				if instruction.PeriodSeconds == 0 {
 					instruction.PeriodSeconds = 600 // set default period to 600 seconds
 				}
@@ -284,11 +284,11 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 				lrt = previousRunTime
 			}
 			periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
-				Name:        instruction.Name,
-				Stdout:      stdout,
-				Stderr:      stderr,
-				ExitCode:    exitCode,
-				LastRunTime: lrt,
+				Name:                  instruction.Name,
+				Stdout:                stdout,
+				Stderr:                stderr,
+				ExitCode:              exitCode,
+				LastSuccessfulRunTime: lrt,
 			}
 		}
 		if !periodicApplySucceeded {
