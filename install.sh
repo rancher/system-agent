@@ -15,7 +15,7 @@ fi
 
 # Environment variables:
 #   System Agent Variables
-#   - CATTLE_AGENT_LOGLEVEL (default: debug)
+#   - CATTLE_AGENT_LOGLEVEL (default: info)
 #   - CATTLE_AGENT_CONFIG_DIR (default: /etc/rancher/agent)
 #   - CATTLE_AGENT_VAR_DIR (default: /var/lib/rancher/agent)
 #   - CATTLE_AGENT_BIN_PREFIX (default: /usr/local)
@@ -305,7 +305,7 @@ setup_env() {
     fi
 
     if [ -z "${CATTLE_AGENT_LOGLEVEL}" ]; then
-        CATTLE_AGENT_LOGLEVEL=debug
+        CATTLE_AGENT_LOGLEVEL=info
     else
         CATTLE_AGENT_LOGLEVEL=$(echo "${CATTLE_AGENT_LOGLEVEL}" | tr '[:upper:]' '[:lower:]')
     fi
