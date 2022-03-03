@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,21 +149,13 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	now := time.Now()
 	nowUnixTimeString := now.Format(time.UnixDate)
 	nowString := now.Format(applyinatorDateCodeLayout)
-	appliedPlanFile := nowString + appliedPlanFileSuffix
 	executionDir := filepath.Join(a.workDir, nowString)
 	logrus.Tracef("[Applyinator] Applying calculated node plan contents %v", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("[Applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
-		if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
-			return output, err
-		}
-		anpString, err := json.Marshal(input.CalculatedPlan)
-		if err != nil {
-			return output, err
-		}
-		if err := writeContentToFile(filepath.Join(a.appliedPlanDir, appliedPlanFile), os.Getuid(), os.Getgid(), 0600, anpString); err != nil {
-			return output, err
+		if err := a.writePlanToDisk(now, &input.CalculatedPlan); err != nil {
+			logrus.Errorf("error writing applied plan to disk: %v", err)
 		}
 		if err := a.appliedPlanRetentionPolicy(planRetentionPolicyCount); err != nil {
 			logrus.Errorf("error while applying plan retention policy: %v", err)
@@ -339,16 +332,9 @@ func generateByteBufferFromBytes(input []byte) (*bytes.Buffer, error) {
 }
 
 func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
-	var planFiles []os.DirEntry
-	dirListedPlanFiles, err := os.ReadDir(a.appliedPlanDir)
+	planFiles, err := a.getAppliedPlanFiles()
 	if err != nil {
 		return err
-	}
-
-	for _, f := range dirListedPlanFiles {
-		if strings.HasSuffix(f.Name(), appliedPlanFileSuffix) && !f.IsDir() {
-			planFiles = append(planFiles, f)
-		}
 	}
 
 	if len(planFiles) <= retention {
@@ -368,6 +354,53 @@ func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
 		}
 	}
 	return nil
+}
+
+func (a *Applyinator) getAppliedPlanFiles() ([]os.DirEntry, error) {
+	var planFiles []os.DirEntry
+	dirListedPlanFiles, err := os.ReadDir(a.appliedPlanDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, f := range dirListedPlanFiles {
+		if strings.HasSuffix(f.Name(), appliedPlanFileSuffix) && !f.IsDir() {
+			planFiles = append(planFiles, f)
+		}
+	}
+	return planFiles, nil
+}
+
+func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error {
+	planFiles, err := a.getAppliedPlanFiles()
+	if err != nil {
+		return err
+	}
+
+	file := now.Format(applyinatorDateCodeLayout) + appliedPlanFileSuffix
+	if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
+		return err
+	}
+	anpString, err := json.Marshal(plan)
+	if err != nil {
+		return err
+	}
+
+	if len(planFiles) != 0 {
+		sort.Slice(planFiles, func(i, j int) bool {
+			return planFiles[i].Name() > planFiles[j].Name()
+		})
+		existingFileContent, err := ioutil.ReadFile(filepath.Join(a.appliedPlanDir, planFiles[0].Name()))
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(existingFileContent, anpString) {
+			logrus.Debugf("[Applyinator] Not writing applied plan to file %s as the last file written (%s) had identical contents", file, planFiles[0].Name())
+			return nil
+		}
+	}
+
+	return writeContentToFile(filepath.Join(a.appliedPlanDir, file), os.Getuid(), os.Getgid(), 0600, anpString)
 }
 
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool) ([]byte, []byte, int, error) {
