@@ -205,8 +205,8 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			logrus.Debugf("[Applyinator] Executing instruction %d for plan %s", index, input.CalculatedPlan.Checksum)
 			executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
 			prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
-			executeOutput, _, _, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true)
-			if err != nil {
+			executeOutput, _, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true)
+			if err != nil || exitCode != 0 {
 				logrus.Errorf("error executing instruction %d: %v", index, err)
 				oneTimeApplySucceeded = false
 			}
@@ -270,7 +270,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
 		prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
 		stdout, stderr, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, false)
-		if err != nil {
+		if err != nil || exitCode != 0 {
 			periodicApplySucceeded = false
 		}
 		if instruction.Name == "" {
