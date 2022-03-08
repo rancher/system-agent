@@ -137,7 +137,7 @@ type ApplyInput struct {
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
 // entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
-	logrus.Infof("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
+	logrus.Debugf("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
 	output := ApplyOutput{
 		OneTimeOutput:  input.ExistingOneTimeOutput,
@@ -188,6 +188,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		}
 	}
 	if input.RunOneTimeInstructions {
+		logrus.Infof("[Applyinator] Applying one-time instructions for plan with checksum %s", input.CalculatedPlan.Checksum)
 		executionOutputs := map[string][]byte{}
 		if len(input.ExistingOneTimeOutput) > 0 {
 			objectBuffer, err := generateByteBufferFromBytes(input.ExistingOneTimeOutput)
@@ -421,7 +422,7 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	command := instruction.Command
 
 	if command == "" {
-		logrus.Infof("[Applyinator] Command was not specified, defaulting to %s%s", executionDir, defaultCommand)
+		logrus.Debugf("[Applyinator] Command was not specified, defaulting to %s%s", executionDir, defaultCommand)
 		command = executionDir + defaultCommand
 	}
 
