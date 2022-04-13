@@ -252,6 +252,10 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 	periodicApplySucceeded := true
 	for index, instruction := range input.CalculatedPlan.Plan.PeriodicInstructions {
+		if instruction.Name == "" {
+			logrus.Errorf("periodic instruction %d did not have name, unable to run", index)
+			continue
+		}
 		var previousRunTime, lastFailureTime string
 		var failures int
 		if po, ok := periodicOutputs[instruction.Name]; ok {
@@ -278,11 +282,12 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 					lastFailureTime = po.LastFailedRunTime
 					failures = po.Failures
 					failureCooldown := failures
-					if failures > 3 {
-						failureCooldown = 3
+					if failures > 6 {
+						failureCooldown = 6
 					} else if failures == 0 {
 						failureCooldown = 1
 					}
+					logrus.Debugf("[Applyinator] Instruction %s - Last failed run attempt was %s, failures: %d, failureCooldown: %d", instruction.Name, lastFailureTime, failures, failureCooldown)
 					if now.Before(t.Add(time.Second*time.Duration(30*failureCooldown))) && !input.RunOneTimeInstructions {
 						logrus.Debugf("[Applyinator] Not running periodic instruction %s as failure cooldown has not elapsed since last run", instruction.Name)
 						continue
@@ -297,31 +302,27 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		if err != nil || exitCode != 0 {
 			periodicApplySucceeded = false
 		}
-		if instruction.Name == "" {
-			logrus.Errorf("instruction does not have a name set, cannot save output data")
+		lsrt := nowUnixTimeString
+		if exitCode != 0 {
+			lsrt = previousRunTime
+			lastFailureTime = nowUnixTimeString
+			failures++
 		} else {
-			lsrt := nowUnixTimeString
-			if exitCode != 0 {
-				lsrt = previousRunTime
-				lastFailureTime = nowUnixTimeString
-				failures++
-			} else {
-				// reset failure start time and failures
-				lastFailureTime = ""
-				failures = 0
-			}
-			if !instruction.SaveStderrOutput {
-				stderr = []byte{}
-			}
-			periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
-				Name:                  instruction.Name,
-				Stdout:                stdout,
-				Stderr:                stderr,
-				ExitCode:              exitCode,
-				LastSuccessfulRunTime: lsrt,
-				LastFailedRunTime:     lastFailureTime,
-				Failures:              failures,
-			}
+			// reset last failure time and failure count
+			lastFailureTime = ""
+			failures = 0
+		}
+		if !instruction.SaveStderrOutput {
+			stderr = []byte{}
+		}
+		periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
+			Name:                  instruction.Name,
+			Stdout:                stdout,
+			Stderr:                stderr,
+			ExitCode:              exitCode,
+			LastSuccessfulRunTime: lsrt,
+			LastFailedRunTime:     lastFailureTime,
+			Failures:              failures,
 		}
 		if !periodicApplySucceeded {
 			break
