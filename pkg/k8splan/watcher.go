@@ -204,17 +204,19 @@ func (w *watcher) start(ctx context.Context) {
 
 			// Check to see if we've exceeded our failure count threshold
 			var maxFailureThreshold int
-			if rawMaxFailureThreshold, ok := secret.Data[maxFailuresKey]; ok {
+			if rawMaxFailureThreshold, ok := secret.Data[maxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
 				// max failure threshold is defined. parse and compare
 				maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
 				if err != nil {
+					logrus.Errorf("error parsing max-failures: %s: %v", string(rawMaxFailureThreshold), err)
 					maxFailureThreshold = -1
 				} else {
-					logrus.Tracef("[K8s] Parsed max failure threshold value of %d", maxFailureThreshold)
+					logrus.Tracef("[K8s] Parsed max failure value of %d and setting as maxFailureThreshold", maxFailureThreshold)
 				}
 			} else {
 				maxFailureThreshold = -1
 			}
+
 			wasFailedPlan := false
 			if rawFailureCount, ok := secret.Data[failureCountKey]; ok {
 				failureCount, err := strconv.Atoi(string(rawFailureCount))

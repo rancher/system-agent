@@ -56,7 +56,8 @@ type CommonInstruction struct {
 
 type PeriodicInstruction struct {
 	CommonInstruction
-	PeriodSeconds int `json:"periodSeconds,omitempty"` // default 600, i.e. 10 minutes
+	PeriodSeconds    int  `json:"periodSeconds,omitempty"` // default 600, i.e. 10 minutes
+	SaveStderrOutput bool `json:"saveStderrOutput,omitempty"`
 }
 
 type PeriodicInstructionOutput struct {
@@ -65,6 +66,8 @@ type PeriodicInstructionOutput struct {
 	Stderr                []byte `json:"stderr"`                // Stderr is a byte array of the gzip+base64 stderr output
 	ExitCode              int    `json:"exitCode"`              // ExitCode is an int representing the exit code of the last run instruction
 	LastSuccessfulRunTime string `json:"lastSuccessfulRunTime"` // LastSuccessfulRunTime is a time.UnixDate formatted string of the last successful time (exit code 0) the instruction was run
+	Failures              int    `json:"failures"`              // Failures is the number of time the periodic instruction has failed to run
+	LastFailedRunTime     string `json:"lastFailedRunTime"`     // LastFailedRunTime is a time.UnixDate formatted string of the time that the periodic instruction started failing
 }
 
 type OneTimeInstruction struct {
@@ -249,9 +252,10 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 	periodicApplySucceeded := true
 	for index, instruction := range input.CalculatedPlan.Plan.PeriodicInstructions {
-		var previousRunTime string
+		var previousRunTime, lastFailureTime string
+		var failures int
 		if po, ok := periodicOutputs[instruction.Name]; ok {
-			logrus.Debugf("[Applyinator] Got periodic output and am now parsing last run time %s", po.LastSuccessfulRunTime)
+			logrus.Debugf("[Applyinator] Got periodic output for instruction %s and am now parsing last successful run time %s", instruction.Name, po.LastSuccessfulRunTime)
 			t, err := time.Parse(time.UnixDate, po.LastSuccessfulRunTime)
 			if err != nil {
 				logrus.Errorf("error encountered during parsing of last run time: %v", err)
@@ -260,9 +264,29 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 				if instruction.PeriodSeconds == 0 {
 					instruction.PeriodSeconds = 600 // set default period to 600 seconds
 				}
-				if now.Before(t.Add(time.Second * time.Duration(instruction.PeriodSeconds))) {
+				if now.Before(t.Add(time.Second*time.Duration(instruction.PeriodSeconds))) && !input.RunOneTimeInstructions {
 					logrus.Debugf("[Applyinator] Not running periodic instruction %s as period duration has not elapsed since last run", instruction.Name)
 					continue
+				}
+			}
+			if po.LastFailedRunTime != "" {
+				logrus.Debugf("[Applyinator] Got periodic output for instruction %s and am now parsing last failed time %s", instruction.Name, po.LastFailedRunTime)
+				t, err := time.Parse(time.UnixDate, po.LastFailedRunTime)
+				if err != nil {
+					logrus.Errorf("error encountered during parsing of failure start time: %+v", err)
+				} else {
+					lastFailureTime = po.LastFailedRunTime
+					failures = po.Failures
+					failureCooldown := failures
+					if failures > 3 {
+						failureCooldown = 3
+					} else if failures == 0 {
+						failureCooldown = 1
+					}
+					if now.Before(t.Add(time.Second*time.Duration(30*failureCooldown))) && !input.RunOneTimeInstructions {
+						logrus.Debugf("[Applyinator] Not running periodic instruction %s as failure cooldown has not elapsed since last run", instruction.Name)
+						continue
+					}
 				}
 			}
 		}
@@ -276,16 +300,27 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		if instruction.Name == "" {
 			logrus.Errorf("instruction does not have a name set, cannot save output data")
 		} else {
-			lrt := nowUnixTimeString
+			lsrt := nowUnixTimeString
 			if exitCode != 0 {
-				lrt = previousRunTime
+				lsrt = previousRunTime
+				lastFailureTime = nowUnixTimeString
+				failures++
+			} else {
+				// reset failure start time and failures
+				lastFailureTime = ""
+				failures = 0
+			}
+			if !instruction.SaveStderrOutput {
+				stderr = []byte{}
 			}
 			periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
 				Name:                  instruction.Name,
 				Stdout:                stdout,
 				Stderr:                stderr,
 				ExitCode:              exitCode,
-				LastSuccessfulRunTime: lrt,
+				LastSuccessfulRunTime: lsrt,
+				LastFailedRunTime:     lastFailureTime,
+				Failures:              failures,
 			}
 		}
 		if !periodicApplySucceeded {
