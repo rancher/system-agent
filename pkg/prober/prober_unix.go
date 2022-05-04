@@ -10,7 +10,7 @@ import (
 )
 
 // GetSystemCertPool returns a x509.CertPool that contains the
-// system certificates if they were present at runtime
+// root CA certificates if they are present at runtime
 func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
