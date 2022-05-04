@@ -2,7 +2,6 @@ package prober
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -58,13 +57,13 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 			tlsConfig.Certificates = []tls.Certificate{clientCert}
 		}
 
-		caCertPool, err := x509.SystemCertPool()
+		caCertPool, err := GetSystemCertPool(probe.Name)
 		if err != nil {
-			caCertPool = x509.NewCertPool()
 			logrus.Errorf("error loading system cert pool for probe (%s): %v", probe.Name, err)
 		}
 
 		if probe.HTTPGetAction.CACert != "" {
+			logrus.Debugf("[DoProbe] adding CA certificate [%s] for probe (%s)", probe.HTTPGetAction.CACert, probe.Name)
 			caCert, err := ioutil.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
 				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
