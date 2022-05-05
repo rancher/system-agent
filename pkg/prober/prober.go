@@ -2,6 +2,7 @@ package prober
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -59,6 +60,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 
 		caCertPool, err := GetSystemCertPool(probe.Name)
 		if err != nil || caCertPool == nil {
+			caCertPool = x509.NewCertPool()
 			logrus.Errorf("error loading system cert pool for probe (%s): %v", probe.Name, err)
 		}
 
