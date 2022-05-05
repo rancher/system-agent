@@ -17,5 +17,8 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 		caCertPool = x509.NewCertPool()
 		logrus.Errorf("[GetSystemCertPoolUnix] error loading system cert pool for probe (%s): %v", probeName, err)
 	}
+	if caCertPool == nil {
+		return nil, fmt.Errorf("[GetSystemCertPoolWindows] x509 returned a nil certpool for probe (%s)", probeName)
+	}
 	return caCertPool, nil
 }
