@@ -14,6 +14,7 @@ import (
 
 const (
 	CRYPT_E_NOT_FOUND = 0x80092004
+	maxEncodedCertLen = 1 << 20
 )
 
 // GetSystemCertPool is a workaround to Windows not having x509.SystemCertPool implemented in < go1.18
@@ -77,7 +78,10 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 		// [1 << 20]byte -> (1*2)^20 = 1048576 bytes
 		// stating for reference but not related to this code
 		// the maximum size of a Windows certificate store is 16 kilobytes and is not related to number of certificates
-		buf := (*[1 << 20]byte)(unsafe.Pointer(certContext.EncodedCert))[:certContext.Length]
+		if certContext.Length > maxEncodedCertLen {
+			return nil, fmt.Errorf("invalid CertContext length %d", certContext.Length)
+		}
+		buf := (*[maxEncodedCertLen]byte)(unsafe.Pointer(certContext.EncodedCert))[:certContext.Length]
 
 		// validate the root CA certificate and return a x509.Certificate pointer
 		// that is appended into our array of x509 certificates
