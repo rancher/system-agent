@@ -47,17 +47,17 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	}(certContext.Store, 0)
 
 	for {
+		// the for loop + the syscall for `CertEnumCertificatesInStore` will iterate through
+		// all available certContexts in the specified certificate store and
+		// return a single certContext containing the next certificate in the store
 		certContext, err = syscall.CertEnumCertificatesInStore(storeHandle, certContext)
 		if err != nil {
 			if errno, ok := err.(syscall.Errno); ok {
 				if errno == CRYPT_E_NOT_FOUND {
-					// the for loop + the syscall for `CertEnumCertificatesInStore` will iterate through
-					// all available certContexts in the specified certificate store and
-					// returns a single certContext containing all certificates in the store
 					// if the error returned here is CRYPTO_E_NOT_FOUND, that indicates no certificates were found.
 					// This happens if the store is empty or if the function reached the end of the store's list.
 					// ref: https://docs.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certenumcertificatesinstore#return-value
-					logrus.Debugf("[GetSystemCertPoolWindows] no certificates were returned from the root CA store for probe (%s), expected a non-empty return value", probeName)
+					logrus.Debugf("[GetSystemCertPoolWindows] no certificates were returned from the root CA store for probe (%s)", probeName)
 					break
 				}
 			}
@@ -69,21 +69,17 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 		}
 
 		// buf is a ~1048 kilobyte array that serves as a buffer holding the encoded value
-		// for each CA certificate in the Windows root CA store
+		// for each CA certificate in the Windows root CA store equal to the length of the certContext pointer
+		// which contains a certificate from the Root CA store
 		// we use a binary shift to create a ~1048 Kb buffer (slightly larger than 1 megabyte)
 		// [1 << 20]byte -> (1*2)^20 = 1048576 bytes
 		// maximum size of a Windows certificate store is 16 kilobytes and is not related to number of certificates
 		// (1048576*8)/4096 = 2048 (amount of 4096-bit certificates that can be stored)
-		buf := (*[1 << 20]byte)(unsafe.Pointer(certContext.EncodedCert))[:]
-
-		// buf2 is an array of bytes equal to the length of the certContext pointer
-		// which contains a certificate from the Root CA store
-		buf2 := make([]byte, certContext.Length)
-		copy(buf2, buf)
+		buf := (*[1 << 20]byte)(unsafe.Pointer(certContext.EncodedCert))[:certContext.Length]
 
 		// validate the root CA certificate and return a x509.Certificate pointer
 		// that is appended into our array of x509 certificates
-		c, err := x509.ParseCertificate(buf2)
+		c, err := x509.ParseCertificate(buf)
 		if err != nil {
 			return nil, fmt.Errorf("[GetSystemCertPoolWindows] unable to parse x509 certificate for probe (%s): %v", probeName, err)
 		}
