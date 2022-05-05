@@ -5,6 +5,7 @@ package prober
 
 import (
 	"crypto/x509"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 )
