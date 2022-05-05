@@ -46,10 +46,10 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 		_ = syscall.CertCloseStore(store, flags)
 	}(certContext.Store, 0)
 
+	// this for loop will iterate through all available certificates in the specified certificate store
+	// and build an array of each x509.Certificate that is returned
 	for {
-		// the for loop + the syscall for `CertEnumCertificatesInStore` will iterate through
-		// all available certContexts in the specified certificate store and
-		// return a single certContext containing the next certificate in the store
+		// CertEnumCertificatesInStore returns a single certContext containing the initial/next certificate in the cert store
 		certContext, err = syscall.CertEnumCertificatesInStore(storeHandle, certContext)
 		if err != nil {
 			if errno, ok := err.(syscall.Errno); ok {
@@ -69,12 +69,14 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 		}
 
 		// buf is a ~1048 kilobyte array that serves as a buffer holding the encoded value
-		// for each CA certificate in the Windows root CA store equal to the length of the certContext pointer
-		// which contains a certificate from the Root CA store
-		// we use a binary shift to create a ~1048 Kb buffer (slightly larger than 1 megabyte)
+		// of a single CA certificate returned from the Windows root CA store
+		// equal to the length of the certContext pointer which contains a certificate from the Root CA store
+		//
+		// we are sizing for a single context (certificate) and not the whole store in buf
+		// using a binary shift to create a ~1048 Kb buffer (slightly larger than 1 megabyte)
 		// [1 << 20]byte -> (1*2)^20 = 1048576 bytes
-		// maximum size of a Windows certificate store is 16 kilobytes and is not related to number of certificates
-		// (1048576*8)/4096 = 2048 (amount of 4096-bit certificates that can be stored)
+		// stating for reference but not related to this code
+		// the maximum size of a Windows certificate store is 16 kilobytes and is not related to number of certificates
 		buf := (*[1 << 20]byte)(unsafe.Pointer(certContext.EncodedCert))[:certContext.Length]
 
 		// validate the root CA certificate and return a x509.Certificate pointer
