@@ -43,9 +43,11 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	var certContext *syscall.CertContext
 
 	// ref for why flags value is 0: https://docs.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certclosestore
-	defer func(store syscall.Handle, flags uint32) {
-		_ = syscall.CertCloseStore(store, flags)
-	}(certContext.Store, 0)
+	defer func() {
+		if certContext != nil {
+			_ = syscall.CertCloseStore(certContext.Store, 0)
+		}
+	}()
 
 	// this for loop will iterate through all available certificates in the specified certificate store
 	// and build an array of each x509.Certificate that is returned
