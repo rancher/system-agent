@@ -350,7 +350,7 @@ setup_env() {
         UNINSTALL_SOURCE=remote
 
         if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
-            CATTLE_AGENT_UNINSTALL_URL="${CATTLE_AGENT_BINARY_BASE_URL}/uninstall.sh"
+            CATTLE_AGENT_UNINSTALL_URL="${CATTLE_AGENT_BINARY_BASE_URL}/system-agent-uninstall.sh"
         fi
 
         if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ]; then
@@ -367,7 +367,7 @@ setup_env() {
                     VERSION=$FALLBACK
                 fi
             fi
-            CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/uninstall.sh"
+            CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/system-agent-uninstall.sh"
             UNINSTALL_SOURCE=upstream
         fi
     fi

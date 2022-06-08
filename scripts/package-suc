@@ -8,7 +8,7 @@ cd $(dirname $0)/..
 mkdir -p dist/artifacts
 cp bin/rancher-system-agent dist/artifacts/rancher-system-agent${SUFFIX}
 cp install.sh dist/artifacts/install.sh
-cp uninstall.sh dist/artifacts/uninstall.sh
+cp system-agent-uninstall.sh dist/artifacts/system-agent-uninstall.sh
 
 IMAGE=${REPO}/system-agent:${TAG}-suc
 DOCKERFILE=package/Dockerfile.suc
