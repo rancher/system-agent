@@ -34,12 +34,15 @@ fi
 #   Advanced Environment Variables
 #   - CATTLE_AGENT_BINARY_BASE_URL (default: latest GitHub release)
 #   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
+#   - CATTLE_AGENT_UNINSTALL_URL (default: latest GitHub release)
 #   - CATTLE_PRESERVE_WORKDIR (default: false)
 #   - CATTLE_REMOTE_ENABLED (default: true)
 #   - CATTLE_LOCAL_ENABLED (default: false)
 #   - CATTLE_ID (default: autogenerate)
 #   - CATTLE_AGENT_BINARY_LOCAL (default: false)
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
+#   - CATTLE_AGENT_UNINSTALL_LOCAL (default: false)
+#   - CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION (default: )
 
 FALLBACK=v0.0.1-alpha18
 CACERTS_PATH=cacerts
@@ -317,6 +320,7 @@ setup_env() {
         BINARY_SOURCE=local
     else
         BINARY_SOURCE=remote
+
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
             CATTLE_AGENT_BINARY_URL="${CATTLE_AGENT_BINARY_BASE_URL}/rancher-system-agent-${ARCH}"
         fi
@@ -334,6 +338,37 @@ setup_env() {
             fi
             CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-${ARCH}"
             BINARY_SOURCE=upstream
+        fi
+    fi
+
+    if [ "${CATTLE_AGENT_UNINSTALL_LOCAL}" = "true" ]; then
+        if [ -z "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" ]; then
+            fatal "No local uninstall location was specified"
+        fi
+        UNINSTALL_SOURCE=local
+    else
+        UNINSTALL_SOURCE=remote
+
+        if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ] && [ -n "${CATTLE_AGENT_BINARY_BASE_URL}" ]; then
+            CATTLE_AGENT_UNINSTALL_URL="${CATTLE_AGENT_BINARY_BASE_URL}/system-agent-uninstall.sh"
+        fi
+
+        if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ]; then
+            if [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
+                info "GitHub Rate Limit exceeded, falling back to known good version"
+                VERSION=$FALLBACK
+            else
+              # If VERSION is set by BINARY_URL, just use that
+                if [ -z "$VERSION" ]; then
+                    VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+                fi
+                if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
+                    info "Error contacting GitHub to retrieve the latest version"
+                    VERSION=$FALLBACK
+                fi
+            fi
+            CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/system-agent-uninstall.sh"
+            UNINSTALL_SOURCE=upstream
         fi
     fi
 
@@ -512,40 +547,53 @@ ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
 }
 
-download_rancher_agent() {
-    mkdir -p ${CATTLE_AGENT_BIN_PREFIX}/bin
-    if [ "${CATTLE_AGENT_BINARY_LOCAL}" = "true" ]; then
-        info "Using local rancher-system-agent binary from ${CATTLE_AGENT_BINARY_LOCAL_LOCATION}"
-        cp -f "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
-    else
-        info "Downloading rancher-system-agent from ${CATTLE_AGENT_BINARY_URL}"
-        if [ "${BINARY_SOURCE}" != "upstream" ]; then
-            CURL_BIN_CAFLAG="${CURL_CAFLAG}"
-        else
-            CURL_BIN_CAFLAG=""
-        fi
-        i=1
-        while [ "${i}" -ne "${RETRYCOUNT}" ]; do
-            noproxy=""
-            if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
-                noproxy="--noproxy '*'"
-            fi
-            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${CATTLE_AGENT_BINARY_URL}" -o ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent)
-            case "${RESPONSE}" in
-            200)
-                info "Successfully downloaded the rancher-system-agent binary."
-                break
-                ;;
-            *)
-                i=$((i + 1))
-                error "$RESPONSE received while downloading the rancher-system-agent binary. Sleeping for 5 seconds and trying again"
-                sleep 5
-                continue
-                ;;
-            esac
-        done
-        chmod +x ${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent
-    fi
+download_rancher_files() {
+  mkdir -p ${CATTLE_AGENT_BIN_PREFIX}/bin
+
+  download_rancher_file "rancher-system-agent" "binary" "${CATTLE_AGENT_BINARY_URL}" "${CATTLE_AGENT_BINARY_LOCAL}" "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" "${BINARY_SOURCE}"
+  download_rancher_file "rancher-system-agent-uninstall.sh" "script" "${CATTLE_AGENT_UNINSTALL_URL}" "${CATTLE_AGENT_UNINSTALL_LOCAL}" "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" "${UNINSTALL_SOURCE}"
+}
+
+download_rancher_file() {
+  name=$1
+  category=$2
+  url=$3
+  local=$4
+  local_location=$5
+  source=$6
+
+  if [ "${local}" = "true" ]; then
+      info "Using local ${name} ${category} from ${local_location}"
+      cp -f "${local_location}" "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
+  else
+      info "Downloading ${name} ${category} from ${url}"
+      if [ "${source}" != "upstream" ]; then
+          CURL_BIN_CAFLAG="${CURL_CAFLAG}"
+      else
+          CURL_BIN_CAFLAG=""
+      fi
+      i=1
+      while [ "${i}" -ne "${RETRYCOUNT}" ]; do
+          noproxy=""
+          if [ "$(in_no_proxy "${url}")" = "0" ]; then
+              noproxy="--noproxy '*'"
+          fi
+          RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_BIN_CAFLAG} ${CURL_LOG} -fL "${url}" -o "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}")
+          case "${RESPONSE}" in
+          200)
+              info "Successfully downloaded the ${name} ${category}."
+              break
+              ;;
+          *)
+              i=$((i + 1))
+              error "$RESPONSE received while downloading the ${name} ${category}. Sleeping for 5 seconds and trying again"
+              sleep 5
+              continue
+              ;;
+          esac
+      done
+      chmod +x "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
+  fi
 }
 
 check_x509_cert()
@@ -786,7 +834,7 @@ do_install() {
 
     ensure_systemd_service_stopped
 
-    download_rancher_agent
+    download_rancher_files
     generate_config
 
     if [ -n "${CATTLE_TOKEN}" ]; then
