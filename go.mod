@@ -3,6 +3,8 @@ module github.com/rancher/system-agent
 go 1.18
 
 replace (
+	github.com/google/go-containerregistry => github.com/google/go-containerregistry v0.5.0
+	github.com/rancher/wharfie => github.com/rancher/wharfie v0.4.3
 	k8s.io/api => k8s.io/api v0.24.2
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.0
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.2
@@ -32,10 +34,10 @@ replace (
 )
 
 require (
-	github.com/google/go-containerregistry v0.7.0
+	github.com/google/go-containerregistry v0.5.0
 	github.com/mattn/go-colorable v0.1.11
 	github.com/rancher/lasso v0.0.0-20220628160937-749b3397db38
-	github.com/rancher/wharfie v0.5.3
+	github.com/rancher/wharfie v0.4.3
 	github.com/rancher/wrangler v1.0.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/urfave/cli/v2 v2.3.0
@@ -93,8 +95,6 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/urfave/cli v1.22.9 // indirect
 	github.com/vbatts/tar-split v0.11.2 // indirect
-	go.uber.org/atomic v1.7.0 // indirect
-	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/net v0.0.0-20220624214902-1bab6f366d9e // indirect
 	golang.org/x/oauth2 v0.0.0-20220628200809-02e64fa58f26 // indirect
 	golang.org/x/sys v0.0.0-20220627191245-f75cf1eec38b // indirect
