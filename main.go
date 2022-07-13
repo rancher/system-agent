@@ -57,7 +57,7 @@ func main() {
 }
 
 func run(c *cli.Context) error {
-	topContext := signals.SetupSignalHandler(c.Context)
+	topContext := signals.SetupSignalContext()
 
 	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
 
