@@ -2,9 +2,12 @@ package k8splan
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -26,8 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/transport"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -365,7 +370,33 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret
 }
 
 func validateKC(ctx context.Context, config *rest.Config) error {
+	var (
+		conn *tls.Conn
+		err  error
+	)
+
 	config = rest.CopyConfig(config)
+	transportConfig, err := config.TransportConfig()
+	if err != nil {
+		return err
+	}
+	tlsConfig, err := transport.TLSConfigFor(transportConfig)
+	if err != nil {
+		return err
+	}
+
+	config.Transport = utilnet.SetTransportDefaults(&http.Transport{
+		DialTLS: func(network, addr string) (net.Conn, error) {
+			conn, err = tls.Dial(network, addr, tlsConfig)
+			return conn, err
+		},
+	})
+	config.WrapTransport = transportConfig.WrapTransport
+	config.Dial = transportConfig.Dial
+	// Overwrite TLS-related fields from config to avoid collision with
+	// Transport field.
+	config.TLSClientConfig = rest.TLSClientConfig{}
+
 	config.NegotiatedSerializer = unstructuredNegotiator{
 		NegotiatedSerializer: serializer.NewCodecFactory(scheme.All).WithoutConversion(),
 	}
