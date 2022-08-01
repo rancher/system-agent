@@ -44,7 +44,7 @@ fi
 #   - CATTLE_AGENT_UNINSTALL_LOCAL (default: false)
 #   - CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION (default: )
 
-FALLBACK=v0.0.1-alpha18
+FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 
@@ -354,14 +354,13 @@ setup_env() {
         fi
 
         if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ]; then
-            if [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
+            if [ -n "${VERSION}" ]; then
+                info "Version ${VERSION} used for downloading the rancher-system-agent binary, will reuse for uninstall script"
+            elif [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
                 info "GitHub Rate Limit exceeded, falling back to known good version"
                 VERSION=$FALLBACK
             else
-              # If VERSION is set by BINARY_URL, just use that
-                if [ -z "$VERSION" ]; then
-                    VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-                fi
+                VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
                 if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
                     info "Error contacting GitHub to retrieve the latest version"
                     VERSION=$FALLBACK
