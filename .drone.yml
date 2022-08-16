@@ -62,7 +62,7 @@ steps:
     password:
       from_secret: docker_password
     repo: "rancher/system-agent"
-    tag: "${DRONE_TAG}-suc"
+    tag: "${DRONE_TAG}-suc-amd64"
     username:
       from_secret: docker_username
   when:
@@ -267,6 +267,28 @@ steps:
     event:
     - tag
 
+- name: docker-publish-suc
+  image: rancher/drone-images:docker-s390x
+  volumes:
+    - name: docker
+      path: /var/run/docker.sock
+  settings:
+    dockerfile: package/Dockerfile.suc
+    password:
+      from_secret: docker_password
+    repo: "rancher/system-agent"
+    tag: "${DRONE_TAG}-suc-s390x"
+    username:
+      from_secret: docker_username
+  when:
+    instance:
+    - drone-publish.rancher.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+    event:
+    - tag
+
 volumes:
 - name: docker
   host:
@@ -308,4 +330,38 @@ depends_on:
 - amd64
 - arm64
 - arm
+- s390x
+
+---
+kind: pipeline
+name: manifest-suc
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+- name: manifest
+  image: plugins/manifest:1.0.2
+  settings:
+    username:
+      from_secret: docker_username
+    password:
+      from_secret: docker_password
+    platforms:
+      - linux/amd64
+      - linux/s390x
+    target: "rancher/system-agent:${DRONE_TAG}-suc"
+    template: "rancher/system-agent:${DRONE_TAG}-suc-ARCH"
+  when:
+    instance:
+    - drone-publish.rancher.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+    event:
+    - tag
+
+depends_on:
+- amd64
 - s390x
