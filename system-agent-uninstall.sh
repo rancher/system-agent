@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ ! $(id -u) -eq 0 ]; then
   fatal "This script must be run as root."
@@ -50,7 +50,12 @@ setup_env() {
 }
 
 uninstall_stop_services() {
-    if command -v systemctl >/dev/null 2>&1; then
+    
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" ]]; then
+            rc-service rancher-system-agent stop
+        fi
+    elif command -v systemctl >/dev/null 2>&1; then
         systemctl stop rancher-system-agent
     fi
 }
@@ -61,7 +66,10 @@ uninstall_remove_self() {
 
 uninstall_disable_services()
 {
-    if command -v systemctl >/dev/null 2>&1; then
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        rc-update delete rancher-system-agent
+
+    elif command -v systemctl >/dev/null 2>&1; then
         systemctl disable rancher-system-agent || true
         systemctl reset-failed rancher-system-agent || true
         systemctl daemon-reload
@@ -69,13 +77,27 @@ uninstall_disable_services()
 }
 
 uninstall_remove_files() {
-    rm -f /etc/systemd/system/rancher-system-agent.service
-    rm -f /etc/systemd/system/rancher-system-agent.env
+    
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        rm -f /etc/init.d/rancher-system-agent
+        rm -rf $ALPINE_LOG_DIR
+        rm -f /opt/rancher/rancher-system-agent.env
+    elif
+        rm -f /etc/systemd/system/rancher-system-agent.service
+        rm -f /etc/systemd/system/rancher-system-agent.env
+    fi
     rm -rf ${CATTLE_AGENT_VAR_DIR}
     rm -rf ${CATTLE_AGENT_CONFIG_DIR}
     rm -f "${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent"
 }
 
+detect_os() {
+    LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | awk '{print substr($0, 2, length($0) - 2)}')
+    #Alternate Function
+    #LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | tr -d '"')
+}
+
+detect_os
 setup_env
 uninstall_stop_services
 trap uninstall_remove_self EXIT
