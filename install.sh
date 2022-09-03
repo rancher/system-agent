@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ "${DEBUG}" = 1 ]; then
     set -x
@@ -47,6 +47,9 @@ fi
 FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
+
+# ^@ Sentinel LOG Directory for Alpine
+ALPINE_LOG_DIR=/var/log/rancher
 
 # info logs the given argument at info log level.
 info() {
@@ -152,6 +155,11 @@ parse_args() {
         "-c" | "--ca-checksum")
             CATTLE_CA_CHECKSUM="$2"
             shift 2
+            ;;
+        "--alpine")
+            info "Installing Scripts for Alpine Linux (Cmd Args)"
+            LINUX_VER="Alpine Linux"
+            shift 1
             ;;
         *)
             fatal "Unknown argument passed in ($1)"
@@ -407,6 +415,7 @@ setup_env() {
     CATTLE_INTERNAL_ADDRESS=$(get_address "${CATTLE_INTERNAL_ADDRESS}")
 }
 
+# ^@ Made cahanges to create log directory for Alpine
 ensure_directories() {
     mkdir -p ${CATTLE_AGENT_VAR_DIR}
     mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
@@ -414,6 +423,12 @@ ensure_directories() {
     chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
     chown root:root ${CATTLE_AGENT_VAR_DIR}
     chown root:root ${CATTLE_AGENT_CONFIG_DIR}
+    if [[ "$LINUX_VER" == "Alpine Linux" ]]; then
+        info "Creating Log Directories for Alpine Linux at ${ALPINE_LOG_DIR}"
+        mkdir -p ${ALPINE_LOG_DIR}
+        chmod 600 ${ALPINE_LOG_DIR}
+        chown root:root ${ALPINE_LOG_DIR}
+    fi    
 }
 
 # setup_arch set arch and suffix,
@@ -450,8 +465,7 @@ setup_arch() {
     esac
 }
 
-get_address()
-{
+get_address() {
     local address=$1
     # If nothing is given, return empty (it will be automatically determined later if empty)
     if [ -z $address ]; then
@@ -522,8 +536,59 @@ verify_downloader() {
     return 0
 }
 
+# ^@ Changes Made to Fn for Alpine Compatibility
 # --- write systemd service file ---
 create_systemd_service_file() {
+
+if [ "$LINUX_VER"=="Alpine Linux" ]; then
+
+info "Open-RC: Creating service file"
+    cat <<-EOF > "/etc/init.d/rancher-system-agent"
+#!/sbin/openrc-run
+
+description="Rancher System Agent"
+
+pidfile="/run/\${RC_SVCNAME}.pid"
+command_background=true
+#command_args="-p \${pidfile}"
+#command_user="root:root"
+
+output_log="$ALPINE_LOG_DIR/rancher_svc_op_\$(date +%Y-%m-%d).log"
+error_log="$ALPINE_LOG_DIR/rancher_svc_err_\$(date +%Y-%m-%d).log"
+
+start_pre()
+    {
+    if [[ -f /etc/default/rancher-system-agent ]]; then
+    export \$(grep -v '^#' /etc/default/rancher-system-agent)
+    fi
+
+    if [[ -f /etc/sysconfig/rancher-system-agent ]]; then
+    export \$(grep -v '^#' /etc/sysconfig/rancher-system-agent)
+    fi
+
+    if [[ -f /opt/rancher/rancher-system-agent.env ]] && [[ \$(du -b /opt/rancher/rancher-system-agent.env | awk '{print \$1}') -gt 0 ]]; then
+    export \$(grep -v '^#' /opt/rancher/rancher-system-agent.env)
+    fi
+
+    export CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
+    export CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
+    # This may be used for Uninstall script
+    export LINUX_VER="$LINUX_VER"
+    export ALPINE_LOG_DIR=$ALPINE_LOG_DIR
+    }
+
+command=".${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel"
+
+depend()
+    {
+        want net
+        after net
+    }
+EOF
+    chmod +x /etc/init.d/rancher-system-agent
+
+else
+
     info "systemd: Creating service file"
     cat <<-EOF >"/etc/systemd/system/rancher-system-agent.service"
 [Unit]
@@ -544,6 +609,7 @@ Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
+fi
 }
 
 download_rancher_files() {
@@ -595,8 +661,7 @@ download_rancher_file() {
   fi
 }
 
-check_x509_cert()
-{
+check_x509_cert() {
     cert=$1
     err=$(openssl x509 -in "${cert}" -noout 2>&1)
     if [ $? -eq 0 ]
@@ -792,18 +857,33 @@ generate_cattle_identifier() {
     info "Not generating Cattle ID"
 }
 
-
+# ^@ Changes Made to Fn for Alpine Compatibility
 ensure_systemd_service_stopped() {
-    if systemctl is-active --quiet rancher-system-agent.service; then
-        info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
-        systemctl stop rancher-system-agent
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" ]]; then
+            info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
+            rc-service rancher-system-agent stop
+        fi
+    else
+        if systemctl is-active --quiet rancher-system-agent.service; then
+            info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
+            systemctl stop rancher-system-agent
+        fi
     fi
 }
 
+# ^@ Changes Made to Fn for Alpine Compatibility
 create_env_file() {
-    FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        FILE_SA_ENV="/opt/rancher/rancher-system-agent.env"
+        mkdir -p /opt/rancher
+        touch ${FILE_SA_ENV}
+        chmod 0600 ${FILE_SA_ENV}
+    else    
+        FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
+        install -m 0600 /dev/null "${FILE_SA_ENV}"
+    fi    
     info "Creating environment file ${FILE_SA_ENV}"
-    install -m 0600 /dev/null "${FILE_SA_ENV}"
     for i in "HTTP_PROXY" "HTTPS_PROXY" "NO_PROXY"; do
       eval v=\"\$$i\"
       if [ -z "${v}" ]; then
@@ -812,12 +892,26 @@ create_env_file() {
         echo "$i=$v" | tee -a ${FILE_SA_ENV} >/dev/null
       fi
     done
+    # Remove Blank file
+    if [[ $(du -b /opt/rancher/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
+        info "Removing blank ENV file detected at ${FILE_SA_ENV}"
+        rm ${FILE_SA_ENV}
+    fi
+}
+
+detect_os() {
+    LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | awk '{print substr($0, 2, length($0) - 2)}')
+    #Alternate Function
+    #LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | tr -d '"')
+    info "Detected OS Name - $LINUX_VER"
 }
 
 do_install() {
     if [ $(id -u) != 0 ]; then
       fatal "This script must be run as root."
     fi
+
+    detect_os
 
     parse_args "$@"
     setup_arch
@@ -840,14 +934,28 @@ do_install() {
         generate_cattle_identifier
         retrieve_connection_info # Only retrieve connection information from Rancher if a token was passed in.
     fi
+    
     create_systemd_service_file
+    
     create_env_file
-    systemctl daemon-reload >/dev/null
-    info "Enabling rancher-system-agent.service"
-    systemctl enable rancher-system-agent
-    info "Starting/restarting rancher-system-agent.service"
-    systemctl restart rancher-system-agent
-}
+    
+    # ^@ Changes Made to Fn for Alpine Compatibility
+    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+        info "Enabling rancher-system-agent service for Open-RC"
+        # rc-update add rancher-system-agent
+        info "Starting/restarting rancher-system-agent.service"
+        # rc-service rancher-system-agent restart
+        # For changes in Uninstall Script
+        export LINUX_VER="$LINUX_VER"
+        export ALPINE_LOG_DIR=$ALPINE_LOG_DIR
+    else
+        systemctl daemon-reload >/dev/null
+        info "Enabling rancher-system-agent.service for systemd"
+        systemctl enable rancher-system-agent
+        info "Starting/restarting rancher-system-agent.service"
+        systemctl restart rancher-system-agent
+    fi
+}   
 
 do_install "$@"
 exit 0
