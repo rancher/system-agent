@@ -942,9 +942,9 @@ do_install() {
     # ^@ Changes Made to Fn for Alpine Compatibility
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
         info "Enabling rancher-system-agent service for Open-RC"
-        # rc-update add rancher-system-agent
+        rc-update add rancher-system-agent
         info "Starting/restarting rancher-system-agent.service"
-        # rc-service rancher-system-agent restart
+        rc-service rancher-system-agent restart
         # For changes in Uninstall Script
         export LINUX_VER="$LINUX_VER"
         export ALPINE_LOG_DIR=$ALPINE_LOG_DIR
