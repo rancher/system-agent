@@ -11,6 +11,9 @@ fi
 #   - CATTLE_AGENT_BIN_PREFIX (default: /usr/local)
 #
 
+#Providing default ALPINE_LOG_DIR
+ALPINE_LOG_DIR=/var/log/rancher
+
 # warn logs the given argument at warn log level.
 warn() {
     echo "[WARN] " "$@" >&2
@@ -95,6 +98,12 @@ detect_os() {
     LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | awk '{print substr($0, 2, length($0) - 2)}')
     #Alternate Function
     #LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | tr -d '"')
+    
+    #Overriding Detection in case Env File is present
+    if [[ -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env ]]; then 
+    LINUX_VER=$(awk "NR==1" ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env | cut -d '=' -f2)
+    ALPINE_LOG_DIR=$(awk "NR==2" ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env | cut -d '=' -f2)
+    fi
 }
 
 detect_os
