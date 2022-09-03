@@ -428,6 +428,13 @@ ensure_directories() {
         mkdir -p ${ALPINE_LOG_DIR}
         chmod 600 ${ALPINE_LOG_DIR}
         chown root:root ${ALPINE_LOG_DIR}
+        info "Creating Env file for Uninstall Script at ${CATTLE_AGENT_CONFIG_DIR}"
+        rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
+        touch ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
+        chmod 600 ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
+        chown root:root ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
+        echo "LINUX_VER=$LINUX_VER" >> ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
+        echo "ALPINE_LOG_DIR=$ALPINE_LOG_DIR" >> ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
     fi    
 }
 
@@ -572,9 +579,6 @@ start_pre()
 
     export CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
     export CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
-    # This may be used for Uninstall script
-    export LINUX_VER="$LINUX_VER"
-    export ALPINE_LOG_DIR=$ALPINE_LOG_DIR
     }
 
 command=".${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel"
@@ -945,9 +949,6 @@ do_install() {
         rc-update add rancher-system-agent
         info "Starting/restarting rancher-system-agent.service"
         rc-service rancher-system-agent restart
-        # For changes in Uninstall Script
-        export LINUX_VER="$LINUX_VER"
-        export ALPINE_LOG_DIR=$ALPINE_LOG_DIR
     else
         systemctl daemon-reload >/dev/null
         info "Enabling rancher-system-agent.service for systemd"
