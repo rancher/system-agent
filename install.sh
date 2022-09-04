@@ -146,6 +146,7 @@ parse_args() {
             ;;
         "-s" | "--server")
             CATTLE_SERVER="$2"
+	    CATTLE_AGENT_BINARY_BASE_URL="$CATTLE_SERVER/assets"
 		        shift 2
             ;;
         "-t" | "--token")
