@@ -573,8 +573,8 @@ start_pre()
     export \$(grep -v '^#' /etc/sysconfig/rancher-system-agent)
     fi
 
-    if [[ -f /opt/rancher/rancher-system-agent.env ]] && [[ \$(du -b /opt/rancher/rancher-system-agent.env | awk '{print \$1}') -gt 0 ]]; then
-    export \$(grep -v '^#' /opt/rancher/rancher-system-agent.env)
+    if [[ -f  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env ]] && [[ \$(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print \$1}') -gt 0 ]]; then
+    export \$(grep -v '^#'  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env)
     fi
 
     export CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
@@ -879,8 +879,7 @@ ensure_systemd_service_stopped() {
 # ^@ Changes Made to Fn for Alpine Compatibility
 create_env_file() {
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
-        FILE_SA_ENV="/opt/rancher/rancher-system-agent.env"
-        mkdir -p /opt/rancher
+        FILE_SA_ENV=" ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env"
         touch ${FILE_SA_ENV}
         chmod 0600 ${FILE_SA_ENV}
     else    
@@ -897,7 +896,7 @@ create_env_file() {
       fi
     done
     # Remove Blank file
-    if [[ $(du -b /opt/rancher/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
+    if [[ $(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
         info "Removing blank ENV file detected at ${FILE_SA_ENV}"
         rm ${FILE_SA_ENV}
     fi
