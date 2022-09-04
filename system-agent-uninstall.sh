@@ -12,7 +12,7 @@ fi
 #
 
 #Providing default ALPINE_LOG_DIR
-ALPINE_LOG_DIR=/var/log/rancher
+ALPINE_LOG_DIR=/var/log
 
 # warn logs the given argument at warn log level.
 warn() {
