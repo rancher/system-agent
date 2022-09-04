@@ -52,6 +52,7 @@ setup_env() {
 
 }
 
+# ^@ Made Changes for Alpine Linux
 uninstall_stop_services() {
     
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
@@ -67,6 +68,7 @@ uninstall_remove_self() {
     rm -f "${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent-uninstall.sh"
 }
 
+# ^@ Made Changes for Alpine Linux
 uninstall_disable_services()
 {
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
@@ -79,12 +81,13 @@ uninstall_disable_services()
     fi
 }
 
+# ^@ Made Changes for Alpine Linux
 uninstall_remove_files() {
     
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
         rm -f /etc/init.d/rancher-system-agent
         rm -rf $ALPINE_LOG_DIR
-        rm -f /opt/rancher/rancher-system-agent.env
+        rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher/rancher-system-agent.env
     elif
         rm -f /etc/systemd/system/rancher-system-agent.service
         rm -f /etc/systemd/system/rancher-system-agent.env
@@ -94,6 +97,7 @@ uninstall_remove_files() {
     rm -f "${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent"
 }
 
+# ^@ Added OS Detection for Alpine Linux
 detect_os() {
     LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | awk '{print substr($0, 2, length($0) - 2)}')
     #Alternate Function
