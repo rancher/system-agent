@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 if [ "${DEBUG}" = 1 ]; then
     set -x
@@ -49,7 +49,7 @@ CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 
 # ^@ Sentinel LOG Directory for Alpine
-ALPINE_LOG_DIR=/var/log/rancher
+ALPINE_LOG_DIR=/var/log
 
 # info logs the given argument at info log level.
 info() {
@@ -146,7 +146,7 @@ parse_args() {
             ;;
         "-s" | "--server")
             CATTLE_SERVER="$2"
-	    CATTLE_AGENT_BINARY_BASE_URL="$CATTLE_SERVER/assets"
+	        CATTLE_AGENT_BINARY_BASE_URL="$CATTLE_SERVER/assets"
 		        shift 2
             ;;
         "-t" | "--token")
@@ -161,6 +161,11 @@ parse_args() {
             info "Installing Scripts for Alpine Linux (Cmd Args)"
             LINUX_VER="Alpine Linux"
             shift 1
+            ;;
+        "--log-dir")
+            info "Setting Log Directory for Alpine"
+            ALPINE_LOG_DIR="$2"
+            shift 2
             ;;
         *)
             fatal "Unknown argument passed in ($1)"
@@ -561,23 +566,20 @@ command_background=true
 #command_args="-p \${pidfile}"
 #command_user="root:root"
 
-output_log="$ALPINE_LOG_DIR/rancher_svc_op_\$(date +%Y-%m-%d).log"
-error_log="$ALPINE_LOG_DIR/rancher_svc_err_\$(date +%Y-%m-%d).log"
+output_log="$ALPINE_LOG_DIR/rancher_svc_op.log"
+error_log="$ALPINE_LOG_DIR/rancher_svc_err.log"
 
 start_pre()
     {
     if [[ -f /etc/default/rancher-system-agent ]]; then
     export \$(grep -v '^#' /etc/default/rancher-system-agent)
     fi
-
     if [[ -f /etc/sysconfig/rancher-system-agent ]]; then
     export \$(grep -v '^#' /etc/sysconfig/rancher-system-agent)
     fi
-
     if [[ -f  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env ]] && [[ \$(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print \$1}') -gt 0 ]]; then
     export \$(grep -v '^#'  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env)
     fi
-
     export CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
     export CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
     }
@@ -865,7 +867,7 @@ generate_cattle_identifier() {
 # ^@ Changes Made to Fn for Alpine Compatibility
 ensure_systemd_service_stopped() {
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
-        if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" ]]; then
+        if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" || "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: starting" ]]; then
             info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
             rc-service rancher-system-agent stop
         fi
@@ -899,7 +901,7 @@ create_env_file() {
     # Remove Blank file
     if [[ $(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
         info "Removing blank ENV file detected at ${FILE_SA_ENV}"
-        rm ${FILE_SA_ENV}
+        rm -f ${FILE_SA_ENV}
     fi
 }
 
