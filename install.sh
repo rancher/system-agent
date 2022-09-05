@@ -146,7 +146,7 @@ parse_args() {
             ;;
         "-s" | "--server")
             CATTLE_SERVER="$2"
-	        CATTLE_AGENT_BINARY_BASE_URL="$CATTLE_SERVER/assets"
+            CATTLE_AGENT_BINARY_BASE_URL="$CATTLE_SERVER/assets"
 		        shift 2
             ;;
         "-t" | "--token")
@@ -431,9 +431,9 @@ ensure_directories() {
     chown root:root ${CATTLE_AGENT_CONFIG_DIR}
     if [[ "$LINUX_VER" == "Alpine Linux" ]]; then
         info "Creating Log Directories for Alpine Linux at ${ALPINE_LOG_DIR}"
+        if [ -d ${ALPINE_LOG_DIR} ];then
         mkdir -p ${ALPINE_LOG_DIR}
-        chmod 600 ${ALPINE_LOG_DIR}
-        chown root:root ${ALPINE_LOG_DIR}
+        fi
         info "Creating Env file for Uninstall Script at ${CATTLE_AGENT_CONFIG_DIR}"
         rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
         touch ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
