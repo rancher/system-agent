@@ -431,9 +431,7 @@ ensure_directories() {
     chown root:root ${CATTLE_AGENT_CONFIG_DIR}
     if [[ "$LINUX_VER" == "Alpine Linux" ]]; then
         info "Creating Log Directories for Alpine Linux at ${ALPINE_LOG_DIR}"
-        if [ -d ${ALPINE_LOG_DIR} ];then
-        mkdir -p ${ALPINE_LOG_DIR}
-        fi
+        [ ! -d "${ALPINE_LOG_DIR}" ] && mkdir -p "${ALPINE_LOG_DIR}"
         info "Creating Env file for Uninstall Script at ${CATTLE_AGENT_CONFIG_DIR}"
         rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
         touch ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env
@@ -883,13 +881,12 @@ ensure_systemd_service_stopped() {
 create_env_file() {
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
         FILE_SA_ENV=" ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env"
-        touch ${FILE_SA_ENV}
-        chmod 0600 ${FILE_SA_ENV}
     else    
         FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
-        install -m 0600 /dev/null "${FILE_SA_ENV}"
-    fi    
+    fi
+    
     info "Creating environment file ${FILE_SA_ENV}"
+    install -m 0600 /dev/null "${FILE_SA_ENV}"
     for i in "HTTP_PROXY" "HTTPS_PROXY" "NO_PROXY"; do
       eval v=\"\$$i\"
       if [ -z "${v}" ]; then
@@ -898,6 +895,7 @@ create_env_file() {
         echo "$i=$v" | tee -a ${FILE_SA_ENV} >/dev/null
       fi
     done
+    
     # Remove Blank file
     if [[ $(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
         info "Removing blank ENV file detected at ${FILE_SA_ENV}"
