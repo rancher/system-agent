@@ -86,7 +86,8 @@ uninstall_remove_files() {
     
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
         rm -f /etc/init.d/rancher-system-agent
-        rm -rf $ALPINE_LOG_DIR
+        rm -f ${ALPINE_LOG_DIR}/rancher_svc_op.log
+        rm -f ${ALPINE_LOG_DIR}/rancher_svc_err.log
         rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher/rancher-system-agent.env
     elif
         rm -f /etc/systemd/system/rancher-system-agent.service
