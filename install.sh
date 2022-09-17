@@ -162,7 +162,7 @@ parse_args() {
             LINUX_VER="Alpine Linux"
             shift 1
             ;;
-        "--log-dir")
+        "-ald | "--alpine-log-dir")
             info "Setting Log Directory for Alpine"
             ALPINE_LOG_DIR="$2"
             shift 2
