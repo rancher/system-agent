@@ -386,7 +386,8 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 	}
 
 	config.Transport = utilnet.SetTransportDefaults(&http.Transport{
-		DialTLS: func(network, addr string) (net.Conn, error) {
+		Proxy: http.ProxyFromEnvironment,
+		DialTLSContext: func(_ context.Context, network, addr string) (net.Conn, error) {
 			conn, err = tls.Dial(network, addr, tlsConfig)
 			return conn, err
 		},
@@ -403,6 +404,7 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()
 	}
+
 	rest, err := rest.UnversionedRESTClientFor(config)
 	if err != nil {
 		return err
