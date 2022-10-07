@@ -386,7 +386,8 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 	}
 
 	config.Transport = utilnet.SetTransportDefaults(&http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: tlsConfig,
 		DialTLSContext: func(_ context.Context, network, addr string) (net.Conn, error) {
 			conn, err = tls.Dial(network, addr, tlsConfig)
 			return conn, err
