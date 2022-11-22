@@ -12,6 +12,9 @@ cleanup() {
     rm -rf "/host${TMPDIR}"
 }
 
+trap cleanup EXIT
+trap exit INT HUP TERM
+
 cp /opt/rancher-system-agent-suc/install.sh "/host${TMPDIR}"
 cp /opt/rancher-system-agent-suc/rancher-system-agent "/host${TMPDIR}"
 cp /opt/rancher-system-agent-suc/system-agent-uninstall.sh "/host${TMPDIR}/rancher-system-agent-uninstall.sh"
@@ -50,5 +53,3 @@ if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
   done
 fi
 chroot /host ${TMPDIR}/install.sh "$@"
-
-cleanup
