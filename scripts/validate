@@ -15,5 +15,6 @@ golangci-lint run
 
 echo Running: go fmt
 for package in $(go list ./...); do
-test -z "$(go fmt "${package}" | tee /dev/stderr)"
+    echo Running go fmt "${package}"
+    test -z "$(go fmt "${package}" | tee /dev/stderr)"
 done
