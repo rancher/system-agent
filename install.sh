@@ -880,7 +880,7 @@ ensure_systemd_service_stopped() {
 # ^@ Changes Made to Fn for Alpine Compatibility
 create_env_file() {
     if [ "$LINUX_VER"=="Alpine Linux" ]; then
-        FILE_SA_ENV=" ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env"
+        FILE_SA_ENV="${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env"
     else    
         FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
     fi
