@@ -137,10 +137,7 @@ steps:
     - tag
 
 - name: docker-publish-suc
-  image: rancher/drone-images:docker-arm64
-  volumes:
-    - name: docker
-      path: /var/run/docker.sock
+  image: plugins/docker
   settings:
     dockerfile: package/Dockerfile.suc
     password:
