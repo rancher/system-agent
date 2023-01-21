@@ -80,6 +80,12 @@ check_target_ro() {
     test $? -ne 0
 }
 
+# check_rootfs_rw returns success if the root filesystem is read-write so we can check for transactional-update system
+check_rootfs_rw() {
+    touch /.rootfs-rw-test && rm -rf /.rootfs-rw-test
+    test $? -eq 0
+}
+
 # parse_args will inspect the argv for --server, --token, --controlplane, --etcd, and --worker, --label x=y, and --taint dead=beef:NoSchedule
 parse_args() {
     while [ $# -gt 0 ]; do
@@ -388,18 +394,30 @@ setup_env() {
         info "Using default agent configuration directory ${CATTLE_AGENT_CONFIG_DIR}"
     fi
 
+    # --- install to /var/lib/rancher/agent by default, except if we are running within transactional-update
+    # --- in which case we install into /etc/rancher/agent/var as /var is not mounted to the snapshot.
     if [ -z "${CATTLE_AGENT_VAR_DIR}" ]; then
-        CATTLE_AGENT_VAR_DIR=/var/lib/rancher/agent
-        info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
+        if [ -x /usr/sbin/transactional-update ] && check_rootfs_rw; then
+            CATTLE_AGENT_VAR_DIR=/etc/rancher/agent/var
+            info "Detected a transactional-update server, using ${CATTLE_AGENT_VAR_DIR} for agent var directory"
+        else
+            CATTLE_AGENT_VAR_DIR=/var/lib/rancher/agent
+            info "Using default agent var directory ${CATTLE_AGENT_VAR_DIR}"
+        fi
     fi
 
     # --- install to /usr/local by default, except if /usr/local is on a separate partition or is read-only
-    # --- in which case we go into /opt/rancher-system-agent.
+    # --- in which case we go into /opt/rancher-system-agent. If we are running within transactional-update
+    # --- we install to /usr as /usr/local and /opt are not mounted to the snapshot.
     if [ -z "${CATTLE_AGENT_BIN_PREFIX}" ]; then
         CATTLE_AGENT_BIN_PREFIX="/usr/local"
         if check_target_mountpoint || check_target_ro; then
             CATTLE_AGENT_BIN_PREFIX="/opt/rancher-system-agent"
             warn "/usr/local is read-only or a mount point; installing to ${CATTLE_AGENT_BIN_PREFIX}"
+        fi
+        if [ -x /usr/sbin/transactional-update ] && check_rootfs_rw; then
+            CATTLE_AGENT_BIN_PREFIX=/usr
+            warn "Detected transactional-update in progress; installing to ${CATTLE_AGENT_BIN_PREFIX}"
         fi
     fi
 
