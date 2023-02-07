@@ -3,7 +3,7 @@ FROM ${ALPINE} as kubectl
 RUN apk add -U curl
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi && \
-    curl -L -o /usr/bin/kubectl https://dl.k8s.io/release/v1.24.0/bin/linux/${ARCH}/kubectl && \
+    curl -L -f -o /usr/bin/kubectl https://dl.k8s.io/release/v1.24.0/bin/linux/${ARCH}/kubectl && \
     chmod +x /usr/bin/kubectl
 RUN /usr/bin/kubectl version
 
