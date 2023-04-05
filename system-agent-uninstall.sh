@@ -55,7 +55,7 @@ setup_env() {
 # ^@ Made Changes for Alpine Linux
 uninstall_stop_services() {
     
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" ]]; then
             rc-service rancher-system-agent stop
         fi
@@ -71,7 +71,7 @@ uninstall_remove_self() {
 # ^@ Made Changes for Alpine Linux
 uninstall_disable_services()
 {
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         rc-update delete rancher-system-agent
 
     elif command -v systemctl >/dev/null 2>&1; then
@@ -84,7 +84,7 @@ uninstall_disable_services()
 # ^@ Made Changes for Alpine Linux
 uninstall_remove_files() {
     
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         rm -f /etc/init.d/rancher-system-agent
         rm -f ${ALPINE_LOG_DIR}/rancher_svc_op.log
         rm -f ${ALPINE_LOG_DIR}/rancher_svc_err.log
@@ -105,7 +105,7 @@ detect_os() {
     #LINUX_VER=$(head -1 /etc/os-release | cut -d'=' -f2 | tr -d '"')
     
     #Overriding Detection in case Env File is present
-    if [[ -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env ]]; then 
+    if [ -f ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env ]; then 
     LINUX_VER=$(awk "NR==1" ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env | cut -d '=' -f2)
     ALPINE_LOG_DIR=$(awk "NR==2" ${CATTLE_AGENT_CONFIG_DIR}/rancher-service-uninstall.env | cut -d '=' -f2)
     fi
