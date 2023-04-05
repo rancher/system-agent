@@ -429,7 +429,7 @@ ensure_directories() {
     chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
     chown root:root ${CATTLE_AGENT_VAR_DIR}
     chown root:root ${CATTLE_AGENT_CONFIG_DIR}
-    if [[ "$LINUX_VER" == "Alpine Linux" ]]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         info "Creating Log Directories for Alpine Linux at ${ALPINE_LOG_DIR}"
         [ ! -d "${ALPINE_LOG_DIR}" ] && mkdir -p "${ALPINE_LOG_DIR}"
         info "Creating Env file for Uninstall Script at ${CATTLE_AGENT_CONFIG_DIR}"
@@ -551,7 +551,7 @@ verify_downloader() {
 # --- write systemd service file ---
 create_systemd_service_file() {
 
-if [ "$LINUX_VER"=="Alpine Linux" ]; then
+if [ "$LINUX_VER" = "Alpine Linux" ]; then
 
 info "Open-RC: Creating service file"
     cat <<-EOF > "/etc/init.d/rancher-system-agent"
@@ -864,7 +864,7 @@ generate_cattle_identifier() {
 
 # ^@ Changes Made to Fn for Alpine Compatibility
 ensure_systemd_service_stopped() {
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" || "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: starting" ]]; then
             info "Rancher System Agent was detected on this host. Ensuring the rancher-system-agent is stopped."
             rc-service rancher-system-agent stop
@@ -879,7 +879,7 @@ ensure_systemd_service_stopped() {
 
 # ^@ Changes Made to Fn for Alpine Compatibility
 create_env_file() {
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         FILE_SA_ENV="${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env"
     else    
         FILE_SA_ENV="/etc/systemd/system/rancher-system-agent.env"
@@ -897,7 +897,7 @@ create_env_file() {
     done
     
     # Remove Blank file
-    if [[ $(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print $1}') -eq 0 ]]; then
+    if [ $(du -b  ${CATTLE_AGENT_CONFIG_DIR}/rancher-system-agent.env | awk '{print $1}') -eq 0 ]; then
         info "Removing blank ENV file detected at ${FILE_SA_ENV}"
         rm -f ${FILE_SA_ENV}
     fi
@@ -944,7 +944,7 @@ do_install() {
     create_env_file
     
     # ^@ Changes Made to Fn for Alpine Compatibility
-    if [ "$LINUX_VER"=="Alpine Linux" ]; then
+    if [ "$LINUX_VER" = "Alpine Linux" ]; then
         info "Enabling rancher-system-agent service for Open-RC"
         rc-update add rancher-system-agent
         info "Starting/restarting rancher-system-agent.service"
