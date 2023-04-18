@@ -67,6 +67,7 @@ type watcher struct {
 	connInfo                   config.ConnectionInfo
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
+	secretUID                  string
 }
 
 func toInt(resourceVersion string) int {
@@ -96,16 +97,19 @@ func (w *watcher) start(ctx context.Context) {
 			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
 			kc.CAData = nil // nullify the provided CA data
 			if err := validateKC(ctx, kc); err != nil {
-				panic(fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %v", err))
+				logrus.Fatalf("error while connecting to Kubernetes cluster with nullified CA data: %v", err)
+				return
 			}
 		} else {
-			panic(fmt.Errorf("error while connecting to Kubernetes cluster: %v", err))
+			logrus.Fatalf("error while connecting to Kubernetes cluster: %v", err)
+			return
 		}
 	}
 
 	clientFactory, err := client.NewSharedClientFactory(kc, nil)
 	if err != nil {
-		panic(err)
+		logrus.Fatalf("error while instantiating new shared client factory: %v", err)
+		return
 	}
 
 	cacheFactory := cache.NewSharedCachedFactory(clientFactory, &cache.SharedCacheFactoryOptions{
@@ -120,7 +124,6 @@ func (w *watcher) start(ctx context.Context) {
 		DefaultWorkers:     1,
 	})
 	core := corecontrollers.New(controllerFactory)
-
 	probePeriod, err := time.ParseDuration(enqueueAfterDuration)
 	if err != nil {
 		panic(err)
@@ -135,11 +138,8 @@ func (w *watcher) start(ctx context.Context) {
 
 	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
-			logrus.Errorf("[K8s] Received secret that was nil")
-			// In case we receive a secret that for some reason is nil, re-enqueue it after the default probe period
-			// so that if things correct themselves the probes will run more or less on time.
-			core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			return secret, nil
+			logrus.Fatalf("[K8s] received nil secret that was nil, stopping")
+			return nil, nil
 		}
 		originalSecret := secret.DeepCopy()
 		secret = secret.DeepCopy()
@@ -167,8 +167,14 @@ func (w *watcher) start(ctx context.Context) {
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true // needsApplied indicates whether the one-time instructions should be run
-		if toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion) {
-			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+		if rvMismatch, uidMismatch := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion), w.secretUID != "" && w.secretUID != string(secret.UID); rvMismatch || uidMismatch {
+			if rvMismatch {
+				logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+			}
+			if uidMismatch {
+				logrus.Fatalf("[K8s] received secret UID that differed from existing secret UID. (%s vs %s)", secret.UID, w.secretUID)
+				return nil, nil
+			}
 			return secret, errors.New("secret received was too old")
 		}
 		if planData, ok := secret.Data[planKey]; ok {
@@ -335,7 +341,8 @@ func (w *watcher) start(ctx context.Context) {
 			}
 			secret, err = w.updateSecret(core, secret)
 			if err != nil {
-				return secret, err
+				logrus.Fatalf("[K8s] encountered an error while attempting to update the secret: %v", err)
+				return nil, nil
 			}
 			return secret, nil
 		}
@@ -348,6 +355,7 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
+// updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict it will discontinue.
 func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret) (*v1.Secret, error) {
 	var resultingSecret *v1.Secret
 	err := retry.OnError(retry.DefaultBackoff,
@@ -363,7 +371,11 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret
 			return err
 		})
 	if err == nil {
+		logrus.Infof("[K8s] updated plan secret %s/%s with feedback", secret.Namespace, secret.Name)
 		logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
+		if w.secretUID == "" {
+			w.secretUID = string(resultingSecret.UID)
+		}
 		w.lastAppliedResourceVersion = resultingSecret.ResourceVersion
 	}
 	return resultingSecret, err
