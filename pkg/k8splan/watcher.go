@@ -355,12 +355,43 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
-// updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict it will discontinue.
+// updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict and the new plan doesn't match the plan being applied in the current iteration, it will discontinue.
 func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret) (*v1.Secret, error) {
 	var resultingSecret *v1.Secret
+	var latestSecretUpdateAttempted bool
 	err := retry.OnError(retry.DefaultBackoff,
 		func(err error) bool {
 			if apierrors.IsConflict(err) {
+				if latestSecretUpdateAttempted {
+					return false
+				}
+				// If we get a conflict, we can retrieve the latest secret and compare plan data to see if the plan changed.
+				latestSecret, getErr := core.Secret().Get(secret.Namespace, secret.Name, metav1.GetOptions{})
+				if getErr == nil {
+					// if the get error is nil, then we can go ahead and compare secrets and try again.
+					if pd, ok := latestSecret.Data[planKey]; ok {
+						ck, calculateErr := applyinator.CalculatePlan(pd)
+						if calculateErr != nil {
+							return false
+						}
+						if ck.Checksum == string(secret.Data[appliedChecksumKey]) {
+							logrus.Debugf("[K8s] secret %s/%s resource version changed from %s to %s but plan checksum still matches, updating latest secret", secret.Namespace, secret.Name, secret.ResourceVersion, latestSecret.ResourceVersion)
+							// we can go ahead copy the relevant data out of the "old" secret and return true to let it update the secret.
+							latestSecret.Data[probeStatusesKey] = secret.Data[probeStatusesKey]
+							latestSecret.Data[appliedPeriodicOutputKey] = secret.Data[appliedPeriodicOutputKey]
+							latestSecret.Data[failedChecksumKey] = secret.Data[failedChecksumKey]
+							latestSecret.Data[failureCountKey] = secret.Data[failureCountKey]
+							latestSecret.Data[failedOutputKey] = secret.Data[failedOutputKey]
+							latestSecret.Data[successCountKey] = secret.Data[successCountKey]
+							latestSecret.Data[lastApplyTimeKey] = secret.Data[lastApplyTimeKey]
+							latestSecret.Data[appliedChecksumKey] = secret.Data[appliedChecksumKey]
+							latestSecret.Data[appliedOutputKey] = secret.Data[appliedOutputKey]
+							secret = latestSecret
+							latestSecretUpdateAttempted = true
+							return true
+						}
+					}
+				}
 				return false
 			}
 			return true
