@@ -229,8 +229,9 @@ func (w *watcher) start(ctx context.Context) {
 			}
 
 			wasFailedPlan := false
+			var failureCount int
 			if rawFailureCount, ok := secret.Data[failureCountKey]; ok {
-				failureCount, err := strconv.Atoi(string(rawFailureCount))
+				failureCount, err = strconv.Atoi(string(rawFailureCount))
 				if err != nil {
 					logrus.Errorf("[K8s] Error while parsing raw failure count: %v", err)
 					failureCount = 0
@@ -278,11 +279,12 @@ func (w *watcher) start(ctx context.Context) {
 			periodicOutput := secret.Data[appliedPeriodicOutputKey]
 
 			input := applyinator.ApplyInput{
-				CalculatedPlan:         cp,
-				ReconcileFiles:         needsApplied,
-				ExistingOneTimeOutput:  output,
-				ExistingPeriodicOutput: periodicOutput,
-				RunOneTimeInstructions: needsApplied,
+				CalculatedPlan:             cp,
+				ReconcileFiles:             needsApplied,
+				ExistingOneTimeOutput:      output,
+				ExistingPeriodicOutput:     periodicOutput,
+				RunOneTimeInstructions:     needsApplied,
+				OneTimeInstructionAttempts: failureCount + 1,
 			}
 
 			applyOutput, err := w.applyinator.Apply(ctx, input)
