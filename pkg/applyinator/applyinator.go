@@ -90,6 +90,7 @@ const appliedPlanFileSuffix = "-applied.plan"
 const applyinatorDateCodeLayout = "20060102-150405"
 const defaultCommand = "/run.sh"
 const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
+const cattleAgentAttemptKey = "CATTLE_AGENT_ATTEMPT_NUMBER"
 const planRetentionPolicyCount = 64
 
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, imageUtil *image.Utility) *Applyinator {
@@ -130,11 +131,12 @@ type ApplyOutput struct {
 }
 
 type ApplyInput struct {
-	CalculatedPlan         CalculatedPlan
-	RunOneTimeInstructions bool
-	ReconcileFiles         bool
-	ExistingOneTimeOutput  []byte
-	ExistingPeriodicOutput []byte
+	CalculatedPlan             CalculatedPlan
+	RunOneTimeInstructions     bool
+	OneTimeInstructionAttempts int
+	ReconcileFiles             bool
+	ExistingOneTimeOutput      []byte
+	ExistingPeriodicOutput     []byte
 }
 
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
@@ -205,10 +207,10 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 		oneTimeApplySucceeded := true
 		for index, instruction := range input.CalculatedPlan.Plan.OneTimeInstructions {
-			logrus.Debugf("[Applyinator] Executing instruction %d for plan %s", index, input.CalculatedPlan.Checksum)
+			logrus.Debugf("[Applyinator] Executing instruction %d attempt %d for plan %s", index, input.OneTimeInstructionAttempts, input.CalculatedPlan.Checksum)
 			executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
 			prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
-			executeOutput, _, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true)
+			executeOutput, _, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, true, input.OneTimeInstructionAttempts)
 			if err != nil || exitCode != 0 {
 				logrus.Errorf("error executing instruction %d: %v", index, err)
 				oneTimeApplySucceeded = false
@@ -298,7 +300,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, input.CalculatedPlan.Checksum)
 		executionInstructionDir := filepath.Join(executionDir, input.CalculatedPlan.Checksum+"_"+strconv.Itoa(index))
 		prefix := input.CalculatedPlan.Checksum + "_" + strconv.Itoa(index)
-		stdout, stderr, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, false)
+		stdout, stderr, exitCode, err := a.execute(ctx, prefix, executionInstructionDir, instruction.CommonInstruction, false, failures+1)
 		if err != nil || exitCode != 0 {
 			periodicApplySucceeded = false
 		}
@@ -440,7 +442,7 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 	return writeContentToFile(filepath.Join(a.appliedPlanDir, file), os.Getuid(), os.Getgid(), 0600, anpString)
 }
 
-func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool) ([]byte, []byte, int, error) {
+func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
 		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)
 		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
@@ -467,6 +469,7 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", cattleAgentExecutionPwdEnvKey, executionDir))
+	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%d", cattleAgentAttemptKey, attempt))
 	cmd.Env = append(cmd.Env, "PATH="+os.Getenv("PATH")+":"+executionDir)
 	cmd.Dir = executionDir
 
