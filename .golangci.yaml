@@ -13,6 +13,7 @@ linters:
     - dogsled
     - dupword
     - durationcheck
+    - errcheck
     - errchkjson
     - exportloopref
     - gci

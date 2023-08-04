@@ -353,7 +353,9 @@ func gzipByteSlice(input []byte) ([]byte, error) {
 
 	gzWriter := gzip.NewWriter(&gzOutput)
 
-	gzWriter.Write(input)
+	if _, err := gzWriter.Write(input); err != nil {
+		return []byte{}, err
+	}
 	if err := gzWriter.Close(); err != nil {
 		return []byte{}, err
 	}
