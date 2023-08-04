@@ -118,13 +118,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 			logrus.Errorf("error parsing position data: %v", err)
 		}
 
-		needsApplied, probeStatuses, err := w.needsApplication(planPosition, cp)
-
-		if err != nil {
-			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
-			continue
-		}
-
+		needsApplied, probeStatuses := w.needsApplication(planPosition, cp)
 		if probeStatuses == nil {
 			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
@@ -244,16 +238,16 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 
 // Returns true if the plan needs to be applied, false if not
 // needsApplication, probeStatus, error.
-func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, error) {
+func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan checksum (%s) matched", computedChecksum)
-		return false, planPosition.ProbeStatus, nil
+		return false, planPosition.ProbeStatus
 	}
 	logrus.Infof("[local] Plan checksums differed (%s:%s)", computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
-	return true, planPosition.ProbeStatus, nil
+	return true, planPosition.ProbeStatus
 
 }
 
