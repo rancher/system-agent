@@ -23,6 +23,7 @@ linters:
     - gofmt
     - goimports
     - goprintffuncname
+    - gosimple
     - govet
     - importas
     - ineffassign
