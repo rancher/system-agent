@@ -26,7 +26,7 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 	go w.start(ctx)
 }
 
-// stdout and stderr are both base64, gzipped
+// stdout and stderr are both base64, gzipped.
 type NodePlanPosition struct {
 	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
 	Output          []byte                        `json:"output,omitempty"`
@@ -245,7 +245,7 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 }
 
 // Returns true if the plan needs to be applied, false if not
-// needsApplication, probeStatus, error
+// needsApplication, probeStatus, error.
 func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, error) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {

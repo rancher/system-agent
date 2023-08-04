@@ -33,7 +33,7 @@ type Applyinator struct {
 	imageUtil       *image.Utility
 }
 
-// CalculatedPlan is passed into Applyinator and is a Plan with checksum calculated
+// CalculatedPlan is passed into Applyinator and is a Plan with checksum calculated.
 type CalculatedPlan struct {
 	Plan     Plan
 	Checksum string
@@ -75,8 +75,9 @@ type OneTimeInstruction struct {
 	SaveOutput bool `json:"saveOutput,omitempty"`
 }
 
+// File represents a file as it would appear on disk
 // Path would be `/etc/kubernetes/ssl/ca.pem`, Content is base64 encoded.
-// If Directory is true, then we are creating a directory, not a file
+// If Directory is true, then we are creating a directory, not a file.
 type File struct {
 	Content     string `json:"content,omitempty"`
 	Directory   bool   `json:"directory,omitempty"`
@@ -140,7 +141,7 @@ type ApplyInput struct {
 }
 
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
-// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false
+// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false.
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
 	logrus.Debugf("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")

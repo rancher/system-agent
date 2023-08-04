@@ -20,6 +20,7 @@ linters:
     - ginkgolinter
     - goconst
     - gocritic
+    - godot
     - gofmt
     - goimports
     - goprintffuncname

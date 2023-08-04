@@ -140,7 +140,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 }
 
 // GetSystemCertPool returns a x509.CertPool that contains the
-// root CA certificates if they are present at runtime
+// root CA certificates if they are present at runtime.
 func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
