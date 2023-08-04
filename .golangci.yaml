@@ -5,9 +5,9 @@ run:
 linters:
   disable-all: true
   enable:
-    - govet
-    - golint
-    - goimports
-    - misspell
-    - ineffassign
     - gofmt
+    - goimports
+    - golint
+    - govet
+    - ineffassign
+    - misspell
