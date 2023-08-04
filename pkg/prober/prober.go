@@ -119,7 +119,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	case k8sprobe.Success:
 		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
 		if probeStatus.SuccessCount < successThreshold {
-			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
+			probeStatus.SuccessCount++
 			if probeStatus.SuccessCount >= successThreshold {
 				probeStatus.Healthy = true
 			}
@@ -128,7 +128,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	default:
 		logrus.Debugf("[Probe: %s] failed", probe.Name)
 		if probeStatus.FailureCount < failureThreshold {
-			probeStatus.FailureCount = probeStatus.FailureCount + 1
+			probeStatus.FailureCount++
 			if probeStatus.FailureCount >= failureThreshold {
 				probeStatus.Healthy = false
 			}

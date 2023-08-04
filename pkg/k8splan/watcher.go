@@ -244,11 +244,9 @@ func (w *watcher) start(ctx context.Context) {
 							if failureCount >= maxFailureThreshold && maxFailureThreshold != -1 {
 								logrus.Errorf("[K8s] Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", cp.Checksum, failureCount, maxFailureThreshold)
 								needsApplied = false
-							} else {
-								if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
-									logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
-									needsApplied = false
-								}
+							} else if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
+								logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
+								needsApplied = false
 							}
 						} else {
 							logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))

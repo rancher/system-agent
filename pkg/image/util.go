@@ -101,13 +101,11 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 				return err
 			}
 			registry.DefaultKeychain = plugins
-		} else {
+		} else if os.Getenv("HOME") != "" {
 			// The kubelet image credential provider plugin also falls back to checking legacy Docker credentials, so only
 			// explicitly set up the go-containerregistry DefaultKeychain if plugins are not configured.
 			// DefaultKeychain tries to read config from the home dir, and will error if HOME isn't set, so also gate on that.
-			if os.Getenv("HOME") != "" {
-				registry.DefaultKeychain = authn.DefaultKeychain
-			}
+			registry.DefaultKeychain = authn.DefaultKeychain
 		}
 
 		logrus.Infof("Pulling image %s", image.Name())

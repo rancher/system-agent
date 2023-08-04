@@ -19,6 +19,7 @@ linters:
     - gci
     - ginkgolinter
     - goconst
+    - gocritic
     - gofmt
     - goimports
     - goprintffuncname
