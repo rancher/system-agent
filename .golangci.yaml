@@ -24,6 +24,7 @@ linters:
     - gofmt
     - goimports
     - goprintffuncname
+    - gosec
     - gosimple
     - govet
     - importas
@@ -47,3 +48,9 @@ linters:
     - unused
     - usestdlibvars
     - whitespace
+linters-settings:
+  gosec:
+    excludes:
+      - G101 # Potential hardcoded credentials
+      - G110 # Potential DoS vulnerability via decompression bomb
+      - G402 # TLS MinVersion too low.
