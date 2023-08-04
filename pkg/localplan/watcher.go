@@ -248,7 +248,6 @@ func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator
 
 	// Default to needing application.
 	return true, planPosition.ProbeStatus
-
 }
 
 func skipFile(fileName string, skips map[string]bool) bool {
