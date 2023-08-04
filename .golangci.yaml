@@ -36,6 +36,7 @@ linters:
     - nosprintfhostport
     - prealloc
     - predeclared
+    - revive
     - rowserrcheck
     - stylecheck
     - thelper

@@ -45,11 +45,8 @@ const (
 )
 
 func (w *watcher) start(ctx context.Context) {
-	force := true
 	for {
-		if err := w.listFiles(ctx, force); err == nil {
-			force = false
-		} else {
+		if err := w.listFiles(ctx); err != nil {
 			logrus.Errorf("Failed to process config: %v", err)
 		}
 		select {
@@ -60,17 +57,17 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
-func (w *watcher) listFiles(ctx context.Context, force bool) error {
+func (w *watcher) listFiles(ctx context.Context) error {
 	var errs []error
 	for _, base := range w.bases {
-		if err := w.listFilesIn(ctx, base, force); err != nil {
+		if err := w.listFilesIn(ctx, base); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return nil
 }
 
-func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) error {
+func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
