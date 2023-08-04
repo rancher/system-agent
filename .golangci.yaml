@@ -5,9 +5,37 @@ run:
 linters:
   disable-all: true
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - dogsled
+    - dupword
+    - durationcheck
+    - errchkjson
+    - exportloopref
+    - gci
+    - ginkgolinter
+    - goconst
     - gofmt
     - goimports
-    - golint
+    - goprintffuncname
     - govet
+    - importas
     - ineffassign
     - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - rowserrcheck
+    - stylecheck
+    - thelper
+    - typecheck
+    - unconvert
+    - unused
+    - usestdlibvars
