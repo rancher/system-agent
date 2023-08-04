@@ -8,7 +8,7 @@ RUN go install golang.org/x/lint/golint@latest && \
     go install golang.org/x/tools/cmd/goimports@latest && \
     rm -rf /go/src /go/pkg
 RUN if [ "${ARCH}" == "amd64" ]; then \
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.50.1; \
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.53.3; \
     fi
 
 ENV DAPPER_ENV REPO TAG DRONE_TAG CROSS
