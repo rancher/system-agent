@@ -4,9 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -67,7 +67,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 
 		if probe.HTTPGetAction.CACert != "" {
 			logrus.Debugf("[DoProbe] adding CA certificate [%s] for probe (%s)", probe.HTTPGetAction.CACert, probe.Name)
-			caCert, err := ioutil.ReadFile(probe.HTTPGetAction.CACert)
+			caCert, err := os.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
 				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
 			}

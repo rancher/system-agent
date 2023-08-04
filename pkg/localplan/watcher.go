@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -64,7 +65,7 @@ func (w *watcher) listFiles(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (w *watcher) listFilesIn(ctx context.Context, base string) error {
@@ -199,7 +200,7 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	}
 	defer f.Close()
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return applyinator.CalculatedPlan{}, err
 	}

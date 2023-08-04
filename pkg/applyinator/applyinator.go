@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -434,7 +433,7 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 		sort.Slice(planFiles, func(i, j int) bool {
 			return planFiles[i].Name() > planFiles[j].Name()
 		})
-		existingFileContent, err := ioutil.ReadFile(filepath.Join(a.appliedPlanDir, planFiles[0].Name()))
+		existingFileContent, err := os.ReadFile(filepath.Join(a.appliedPlanDir, planFiles[0].Name()))
 		if err != nil {
 			return err
 		}

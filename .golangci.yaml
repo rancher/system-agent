@@ -38,6 +38,7 @@ linters:
     - predeclared
     - revive
     - rowserrcheck
+    - staticcheck
     - stylecheck
     - thelper
     - typecheck

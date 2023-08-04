@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,7 +38,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 		return fmt.Errorf("path was empty")
 	}
 
-	existing, err := ioutil.ReadFile(path)
+	existing, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(existing, content) {
 		logrus.Debugf("[Applyinator] File %s does not need to be written", path)
 	} else {
@@ -47,7 +46,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 		if err := os.MkdirAll(dir, defaultDirectoryPermissions); err != nil {
 			return err
 		}
-		if err := ioutil.WriteFile(path, content, perm); err != nil {
+		if err := os.WriteFile(path, content, perm); err != nil {
 			return err
 		}
 	}
