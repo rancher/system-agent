@@ -59,7 +59,8 @@ uninstall_stop_services() {
         if [[ "$(rc-service rancher-system-agent status &> /dev/null)" == "* status: started" ]]; then
             rc-service rancher-system-agent stop
         fi
-    elif command -v systemctl >/dev/null 2>&1; then
+    #elif command -v systemctl >/dev/null 2>&1; then
+    else
         systemctl stop rancher-system-agent
     fi
 }
@@ -74,7 +75,8 @@ uninstall_disable_services()
     if [ "$LINUX_VER" = "Alpine Linux" ]; then
         rc-update delete rancher-system-agent
 
-    elif command -v systemctl >/dev/null 2>&1; then
+    #elif command -v systemctl >/dev/null 2>&1; then
+    else
         systemctl disable rancher-system-agent || true
         systemctl reset-failed rancher-system-agent || true
         systemctl daemon-reload
@@ -89,7 +91,8 @@ uninstall_remove_files() {
         rm -f ${ALPINE_LOG_DIR}/rancher_svc_op.log
         rm -f ${ALPINE_LOG_DIR}/rancher_svc_err.log
         rm -f ${CATTLE_AGENT_CONFIG_DIR}/rancher/rancher-system-agent.env
-    elif
+    #elif
+    else
         rm -f /etc/systemd/system/rancher-system-agent.service
         rm -f /etc/systemd/system/rancher-system-agent.env
     fi
