@@ -82,7 +82,7 @@ check_target_ro() {
 
 # check_rootfs_rw returns success if the root filesystem is read-write so we can check for transactional-update system
 check_rootfs_rw() {
-    touch /.rootfs-rw-test && rm -rf /.rootfs-rw-test
+    grep " / " /etc/mtab | grep -q "ro"
     test $? -eq 0
 }
 
