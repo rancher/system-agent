@@ -261,25 +261,27 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		var previousRunTime, lastFailureTime string
 		var failures int
 		if po, ok := periodicOutputs[instruction.Name]; ok {
-			logrus.Debugf("[Applyinator] Got periodic output for instruction %s and am now parsing last successful run time %s", instruction.Name, po.LastSuccessfulRunTime)
-			t, err := time.Parse(time.UnixDate, po.LastSuccessfulRunTime)
-			if err != nil {
-				logrus.Errorf("error encountered during parsing of last run time: %v", err)
-			} else {
-				previousRunTime = po.LastSuccessfulRunTime
-				if instruction.PeriodSeconds == 0 {
-					instruction.PeriodSeconds = 600 // set default period to 600 seconds
-				}
-				if now.Before(t.Add(time.Second*time.Duration(instruction.PeriodSeconds))) && !input.RunOneTimeInstructions {
-					logrus.Debugf("[Applyinator] Not running periodic instruction %s as period duration has not elapsed since last run", instruction.Name)
-					continue
+			if po.LastSuccessfulRunTime != "" {
+				logrus.Debugf("[Applyinator] Got periodic output for instruction %s and am now parsing last successful run time %s", instruction.Name, po.LastSuccessfulRunTime)
+				t, err := time.Parse(time.UnixDate, po.LastSuccessfulRunTime)
+				if err != nil {
+					logrus.Errorf("error encountered during parsing of last successful run time: %v", err)
+				} else {
+					previousRunTime = po.LastSuccessfulRunTime
+					if instruction.PeriodSeconds == 0 {
+						instruction.PeriodSeconds = 600 // set default period to 600 seconds
+					}
+					if now.Before(t.Add(time.Second*time.Duration(instruction.PeriodSeconds))) && !input.RunOneTimeInstructions {
+						logrus.Debugf("[Applyinator] Not running periodic instruction %s as period duration has not elapsed since last successful run", instruction.Name)
+						continue
+					}
 				}
 			}
 			if po.LastFailedRunTime != "" {
 				logrus.Debugf("[Applyinator] Got periodic output for instruction %s and am now parsing last failed time %s", instruction.Name, po.LastFailedRunTime)
 				t, err := time.Parse(time.UnixDate, po.LastFailedRunTime)
 				if err != nil {
-					logrus.Errorf("error encountered during parsing of failure start time: %+v", err)
+					logrus.Errorf("error encountered during parsing of last failed run time: %+v", err)
 				} else {
 					lastFailureTime = po.LastFailedRunTime
 					failures = po.Failures
@@ -291,7 +293,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 					}
 					logrus.Debugf("[Applyinator] Instruction %s - Last failed run attempt was %s, failures: %d, failureCooldown: %d", instruction.Name, lastFailureTime, failures, failureCooldown)
 					if now.Before(t.Add(time.Second*time.Duration(30*failureCooldown))) && !input.RunOneTimeInstructions {
-						logrus.Debugf("[Applyinator] Not running periodic instruction %s as failure cooldown has not elapsed since last run", instruction.Name)
+						logrus.Debugf("[Applyinator] Not running periodic instruction %s as failure cooldown has not elapsed since last failed run", instruction.Name)
 						continue
 					}
 				}
