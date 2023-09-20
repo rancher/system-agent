@@ -237,7 +237,7 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 }
 
 // Returns true if the plan needs to be applied, false if not
-// needsApplication, probeStatus, error.
+// needsApplication, probeStatus.
 func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
