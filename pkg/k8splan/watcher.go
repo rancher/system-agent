@@ -198,6 +198,12 @@ func (w *watcher) start(ctx context.Context) {
 			}
 			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
 
+			if !hasRunOnce {
+				logrus.Infof("Detected first start, force-applying one-time instruction set")
+				needsApplied = true
+				hasRunOnce = true
+			}
+
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
 				logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
@@ -205,12 +211,6 @@ func (w *watcher) start(ctx context.Context) {
 					logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
 					needsApplied = false
 				}
-			}
-
-			if !hasRunOnce {
-				logrus.Infof("Detected first start, force-applying one-time instruction set")
-				needsApplied = true
-				hasRunOnce = true
 			}
 
 			// Check to see if we've exceeded our failure count threshold
