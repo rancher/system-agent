@@ -17,6 +17,7 @@ type AgentConfig struct {
 	LocalPlanDir                  string `json:"localPlanDirectory,omitempty"`
 	AppliedPlanDir                string `json:"appliedPlanDirectory,omitempty"`
 	RemoteEnabled                 bool   `json:"remoteEnabled,omitempty"`
+	RemoteSkipAlreadyApplied      bool   `json:"remoteSkipAlreadyApplied,omitempty"`
 	ConnectionInfoFile            string `json:"connectionInfoFile,omitempty"`
 	PreserveWorkDir               bool   `json:"preserveWorkDirectory,omitempty"`
 	ImagesDir                     string `json:"imagesDirectory,omitempty"`

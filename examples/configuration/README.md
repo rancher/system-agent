@@ -8,6 +8,7 @@ Create a file called `config.yaml` in `/etc/rancher/agent` with the contents lik
 workDirectory: /var/lib/rancher/agent/work
 localPlanDirectory: /var/lib/rancher/agent/plans
 remoteEnabled: true
+remoteSkipAlreadyApplied: false
 connectionInfoFile: /etc/rancher/agent/conninfo.yaml
 preserveWorkDirectory: true
 ```
