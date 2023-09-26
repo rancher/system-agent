@@ -1,3 +1,3 @@
-FROM alpine:3.16.0
+FROM alpine:3.18.3
 COPY bin/rancher-system-agent /usr/bin/
 CMD ["rancher-system-agent"]
