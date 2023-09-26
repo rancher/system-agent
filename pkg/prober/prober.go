@@ -4,9 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -67,7 +67,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 
 		if probe.HTTPGetAction.CACert != "" {
 			logrus.Debugf("[DoProbe] adding CA certificate [%s] for probe (%s)", probe.HTTPGetAction.CACert, probe.Name)
-			caCert, err := ioutil.ReadFile(probe.HTTPGetAction.CACert)
+			caCert, err := os.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
 				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
 			}
@@ -119,7 +119,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	case k8sprobe.Success:
 		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
 		if probeStatus.SuccessCount < successThreshold {
-			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
+			probeStatus.SuccessCount++
 			if probeStatus.SuccessCount >= successThreshold {
 				probeStatus.Healthy = true
 			}
@@ -128,7 +128,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 	default:
 		logrus.Debugf("[Probe: %s] failed", probe.Name)
 		if probeStatus.FailureCount < failureThreshold {
-			probeStatus.FailureCount = probeStatus.FailureCount + 1
+			probeStatus.FailureCount++
 			if probeStatus.FailureCount >= failureThreshold {
 				probeStatus.Healthy = false
 			}
@@ -140,7 +140,7 @@ func DoProbe(probe Probe, probeStatus *ProbeStatus, initial bool) error {
 }
 
 // GetSystemCertPool returns a x509.CertPool that contains the
-// root CA certificates if they are present at runtime
+// root CA certificates if they are present at runtime.
 func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {

@@ -1,0 +1,56 @@
+run:
+  skip-files:
+    - "/zz_generated_"
+  deadline: 5m
+linters:
+  disable-all: true
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - dogsled
+    - dupword
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - exportloopref
+    - gci
+    - ginkgolinter
+    - goconst
+    - gocritic
+    - godot
+    - gofmt
+    - goimports
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - importas
+    - ineffassign
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - staticcheck
+    - stylecheck
+    - thelper
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - whitespace
+linters-settings:
+  gosec:
+    excludes:
+      - G101 # Potential hardcoded credentials
+      - G110 # Potential DoS vulnerability via decompression bomb
+      - G402 # TLS MinVersion too low.

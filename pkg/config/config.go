@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +60,7 @@ func Parse(path string, result interface{}) error {
 	case strings.Contains(file, ".json"):
 		return json.NewDecoder(f).Decode(result)
 	case strings.Contains(file, ".yaml"):
-		b, err := ioutil.ReadAll(f)
+		b, err := io.ReadAll(f)
 		if err != nil {
 			return err
 		}

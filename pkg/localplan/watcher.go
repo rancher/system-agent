@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,7 +27,7 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 	go w.start(ctx)
 }
 
-// stdout and stderr are both base64, gzipped
+// stdout and stderr are both base64, gzipped.
 type NodePlanPosition struct {
 	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
 	Output          []byte                        `json:"output,omitempty"`
@@ -45,11 +46,8 @@ const (
 )
 
 func (w *watcher) start(ctx context.Context) {
-	force := true
 	for {
-		if err := w.listFiles(ctx, force); err == nil {
-			force = false
-		} else {
+		if err := w.listFiles(ctx); err != nil {
 			logrus.Errorf("Failed to process config: %v", err)
 		}
 		select {
@@ -60,17 +58,17 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
-func (w *watcher) listFiles(ctx context.Context, force bool) error {
+func (w *watcher) listFiles(ctx context.Context) error {
 	var errs []error
 	for _, base := range w.bases {
-		if err := w.listFilesIn(ctx, base, force); err != nil {
+		if err := w.listFilesIn(ctx, base); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) error {
+func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -120,13 +118,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			logrus.Errorf("error parsing position data: %v", err)
 		}
 
-		needsApplied, probeStatuses, err := w.needsApplication(planPosition, cp)
-
-		if err != nil {
-			logrus.Errorf("[local] Error while determining if node plan needed application: %v", err)
-			continue
-		}
-
+		needsApplied, probeStatuses := w.needsApplication(planPosition, cp)
 		if probeStatuses == nil {
 			probeStatuses = make(map[string]prober.ProbeStatus)
 		}
@@ -184,7 +176,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) erro
 			logrus.Errorf("error marshalling new plan position data: %v", err)
 		}
 
-		if bytes.Compare(newPPData, posData) != 0 {
+		if !bytes.Equal(newPPData, posData) {
 			logrus.Debugf("[local] Writing position data")
 			if err := os.WriteFile(posFile, newPPData, 0600); err != nil {
 				logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
@@ -202,7 +194,7 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	}
 	defer f.Close()
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return applyinator.CalculatedPlan{}, err
 	}
@@ -245,18 +237,17 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 }
 
 // Returns true if the plan needs to be applied, false if not
-// needsApplication, probeStatus, error
-func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, error) {
+// needsApplication, probeStatus.
+func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan checksum (%s) matched", computedChecksum)
-		return false, planPosition.ProbeStatus, nil
+		return false, planPosition.ProbeStatus
 	}
 	logrus.Infof("[local] Plan checksums differed (%s:%s)", computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
-	return true, planPosition.ProbeStatus, nil
-
+	return true, planPosition.ProbeStatus
 }
 
 func skipFile(fileName string, skips map[string]bool) bool {
