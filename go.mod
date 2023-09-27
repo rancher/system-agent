@@ -38,7 +38,7 @@ require (
 	github.com/rancher/wharfie v0.5.3
 	github.com/rancher/wrangler v1.1.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/urfave/cli/v2 v2.3.0
+	github.com/urfave/cli/v2 v2.25.7
 	golang.org/x/sync v0.3.0
 	k8s.io/api v0.25.4
 	k8s.io/apimachinery v0.25.4
@@ -93,6 +93,7 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/urfave/cli v1.22.9 // indirect
 	github.com/vbatts/tar-split v0.11.2 // indirect
+	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/net v0.1.1-0.20221104162952-702349b0e862 // indirect
