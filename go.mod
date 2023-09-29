@@ -23,7 +23,7 @@ replace (
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.0
 	k8s.io/kubectl => k8s.io/kubectl v0.24.2
 	k8s.io/kubelet => k8s.io/kubelet v0.24.2
-	k8s.io/kubernetes => k8s.io/kubernetes v1.24.2
+	k8s.io/kubernetes => k8s.io/kubernetes v1.24.15
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.0
 	k8s.io/metrics => k8s.io/metrics v0.24.0
 	k8s.io/mount-utils => k8s.io/mount-utils v0.24.0
@@ -43,7 +43,7 @@ require (
 	k8s.io/api v0.25.4
 	k8s.io/apimachinery v0.25.4
 	k8s.io/client-go v0.25.4
-	k8s.io/kubernetes v1.24.2
+	k8s.io/kubernetes v1.24.15
 	sigs.k8s.io/yaml v1.3.0
 )
 
