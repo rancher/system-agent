@@ -30,6 +30,7 @@ type Applyinator struct {
 	workDir         string
 	preserveWorkDir bool
 	appliedPlanDir  string
+	interlockDir    string
 	imageUtil       *image.Utility
 }
 
@@ -92,13 +93,17 @@ const defaultCommand = "/run.sh"
 const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
 const cattleAgentAttemptKey = "CATTLE_AGENT_ATTEMPT_NUMBER"
 const planRetentionPolicyCount = 64
+const restartPendingTimeout = "5m"
+const restartPendingInterlockFile = "restart-pending"
+const applyinatorActiveInterlockFile = "applyinator-active"
 
-func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir string, imageUtil *image.Utility) *Applyinator {
+func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir, interlockDir string, imageUtil *image.Utility) *Applyinator {
 	return &Applyinator{
 		mu:              &sync.Mutex{},
 		workDir:         workDir,
 		preserveWorkDir: preserveWorkDir,
 		appliedPlanDir:  appliedPlanDir,
+		interlockDir:    interlockDir,
 		imageUtil:       imageUtil,
 	}
 }
@@ -154,6 +159,66 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	now := time.Now()
 	nowUnixTimeString := now.Format(time.UnixDate)
 	nowString := now.Format(applyinatorDateCodeLayout)
+
+	// Check to see if we are safe to apply.
+	if a.interlockDir != "" {
+		restartPendingInterlockFilePath := filepath.Join(a.interlockDir, restartPendingInterlockFile)
+		applyinatorActiveInterlockFilePath := filepath.Join(a.interlockDir, applyinatorActiveInterlockFile)
+		// First off, remove check and remove the active interlock as the applyinator is not actually active
+		if _, err := os.Stat(applyinatorActiveInterlockFile); err == nil {
+			err = os.Remove(applyinatorActiveInterlockFile)
+			if err != nil {
+				if err != nil {
+					logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+				}
+			}
+		}
+
+		if _, err := os.Stat(restartPendingInterlockFilePath); err == nil {
+			// check the restart pending interlock file to see if we've passed our threshold for blocking
+			fileContents, err := os.ReadFile(restartPendingInterlockFilePath)
+			if err != nil {
+				return output, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+			} else {
+				if len(fileContents) == 0 {
+					// Write "now" as the first observed time of the file.
+					if err := os.WriteFile(restartPendingInterlockFile, []byte(nowUnixTimeString), 0600); err != nil {
+						return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+					}
+					return output, fmt.Errorf("restart is pending for system-agent")
+				} else {
+					// Parse the time out of the file and determine if we have passed our time threshold
+					t, err := time.Parse(time.UnixDate, string(fileContents))
+					if err != nil {
+						return output, fmt.Errorf("unable to parse first-observed time in restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+					}
+					maxRestartPendingWait, err := time.ParseDuration(restartPendingTimeout)
+					if now.Before(t.Add(maxRestartPendingWait)) {
+						return output, fmt.Errorf("restart is pending for system-agent")
+					}
+					// remove the restart pending file
+					err = os.Remove(restartPendingInterlockFile)
+					if err != nil {
+						logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+					}
+				}
+			}
+		}
+
+		// At this point, there is no restart-pending and we can continue with applyinator reconciliation, so create the applyinator-active file
+		err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(nowUnixTimeString), 0600)
+		if err != nil {
+			logrus.Errorf("unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+		}
+		defer func() {
+			// Remove the Applyinator Active Interlock File
+			err = os.Remove(applyinatorActiveInterlockFilePath)
+			if err != nil {
+				logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+			}
+		}()
+	}
+
 	executionDir := filepath.Join(a.workDir, nowString)
 	logrus.Tracef("[Applyinator] Applying calculated node plan contents %v", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Using %s as execution directory", executionDir)
