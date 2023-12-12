@@ -428,6 +428,7 @@ setup_env() {
 
 ensure_directories() {
     mkdir -p ${CATTLE_AGENT_VAR_DIR}/interlock
+    mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
     chmod 700 ${CATTLE_AGENT_VAR_DIR}
     chmod 700 ${CATTLE_AGENT_VAR_DIR}/interlock
     chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
@@ -799,6 +800,9 @@ generate_cattle_identifier() {
         info "Generating Cattle ID"
         if [ -f "${CATTLE_AGENT_CONFIG_DIR}/cattle-id" ]; then
             CATTLE_ID=$(cat ${CATTLE_AGENT_CONFIG_DIR}/cattle-id);
+            if [ -z "${CATTLE_ID}" ]; then
+              fatal "Cattle ID was empty, aborting installation"
+            fi
             info "Cattle ID was already detected as ${CATTLE_ID}. Not generating a new one."
             return
         fi
@@ -808,6 +812,9 @@ generate_cattle_identifier() {
         umask 0177
         echo "${CATTLE_ID}" > ${CATTLE_AGENT_CONFIG_DIR}/cattle-id
         umask "${UMASK}"
+        if [ ! -s ${CATTLE_AGENT_CONFIG_DIR}/cattle-id ]; then
+          fatal "Cattle ID could not be persisted. Aborting installation"
+        fi
         return
     fi
     info "Not generating Cattle ID"
