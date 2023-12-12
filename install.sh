@@ -47,6 +47,7 @@ fi
 FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
+APPLYINATOR_ACTIVE_WAIT_COUNT=60 # If the system-agent is unhealthy but had created an interlock file to indicate it was actively applying a plan, after 5 minutes, ignore the interlock.
 
 # info logs the given argument at info log level.
 info() {
@@ -426,11 +427,13 @@ setup_env() {
 }
 
 ensure_directories() {
-    mkdir -p ${CATTLE_AGENT_VAR_DIR}
+    mkdir -p ${CATTLE_AGENT_VAR_DIR}/interlock
     mkdir -p ${CATTLE_AGENT_CONFIG_DIR}
     chmod 700 ${CATTLE_AGENT_VAR_DIR}
+    chmod 700 ${CATTLE_AGENT_VAR_DIR}/interlock
     chmod 700 ${CATTLE_AGENT_CONFIG_DIR}
     chown root:root ${CATTLE_AGENT_VAR_DIR}
+    chown root:root ${CATTLE_AGENT_VAR_DIR}/interlock
     chown root:root ${CATTLE_AGENT_CONFIG_DIR}
 }
 
@@ -783,6 +786,7 @@ appliedPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/applied
 remoteEnabled: ${CATTLE_REMOTE_ENABLED}
 localEnabled: ${CATTLE_LOCAL_ENABLED}
 localPlanDirectory: ${CATTLE_AGENT_VAR_DIR}/plans
+interlockDirectory: ${CATTLE_AGENT_VAR_DIR}/interlock
 preserveWorkDirectory: ${CATTLE_PRESERVE_WORKDIR}
 EOF
     umask "${UMASK}"
@@ -796,6 +800,9 @@ generate_cattle_identifier() {
         info "Generating Cattle ID"
         if [ -f "${CATTLE_AGENT_CONFIG_DIR}/cattle-id" ]; then
             CATTLE_ID=$(cat ${CATTLE_AGENT_CONFIG_DIR}/cattle-id);
+            if [ -z "${CATTLE_ID}" ]; then
+              fatal "Cattle ID was empty, aborting installation"
+            fi
             info "Cattle ID was already detected as ${CATTLE_ID}. Not generating a new one."
             return
         fi
@@ -805,6 +812,9 @@ generate_cattle_identifier() {
         umask 0177
         echo "${CATTLE_ID}" > ${CATTLE_AGENT_CONFIG_DIR}/cattle-id
         umask "${UMASK}"
+        if [ ! -s ${CATTLE_AGENT_CONFIG_DIR}/cattle-id ]; then
+          fatal "Cattle ID could not be persisted. Aborting installation"
+        fi
         return
     fi
     info "Not generating Cattle ID"
@@ -832,6 +842,19 @@ create_env_file() {
     done
 }
 
+ensure_applyinator_not_active() {
+    i=1
+    while [ "${i}" -ne "${APPLYINATOR_ACTIVE_WAIT_COUNT}" ]; do
+      if [ -f "${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active" ]; then
+        i=$((i + 1))
+        info "Active plan reconciliation detected. Sleeping for 5 seconds and retrying check"
+        sleep 5
+        continue
+      fi
+      break
+    done
+}
+
 do_install() {
     if [ $(id -u) != 0 ]; then
       fatal "This script must be run as root."
@@ -842,6 +865,9 @@ do_install() {
     setup_env
     ensure_directories
     verify_downloader curl || fatal "can not find curl for downloading files"
+
+    touch ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
+    ensure_applyinator_not_active
 
     if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
         validate_ca_required
@@ -865,6 +891,7 @@ do_install() {
     systemctl enable rancher-system-agent
     info "Starting/restarting rancher-system-agent.service"
     systemctl restart rancher-system-agent
+    rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
 }
 
 do_install "$@"
