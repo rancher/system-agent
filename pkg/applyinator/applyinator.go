@@ -93,9 +93,9 @@ const defaultCommand = "/run.sh"
 const cattleAgentExecutionPwdEnvKey = "CATTLE_AGENT_EXECUTION_PWD"
 const cattleAgentAttemptKey = "CATTLE_AGENT_ATTEMPT_NUMBER"
 const planRetentionPolicyCount = 64
-const restartPendingTimeout = "5m"
 const restartPendingInterlockFile = "restart-pending"
 const applyinatorActiveInterlockFile = "applyinator-active"
+const restartPendingTimeout = 5 * time.Minute // Wait a maximum of 5 minutes before force-applying a plan if a restart is pending.
 
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir, interlockDir string, imageUtil *image.Utility) *Applyinator {
 	return &Applyinator{
@@ -168,9 +168,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		if _, err := os.Stat(applyinatorActiveInterlockFile); err == nil {
 			err = os.Remove(applyinatorActiveInterlockFile)
 			if err != nil {
-				if err != nil {
-					logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
-				}
+				logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 			}
 		}
 
@@ -192,8 +190,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 					if err != nil {
 						return output, fmt.Errorf("unable to parse first-observed time in restart pending interlock file %s: %w", restartPendingInterlockFile, err)
 					}
-					maxRestartPendingWait, err := time.ParseDuration(restartPendingTimeout)
-					if now.Before(t.Add(maxRestartPendingWait)) {
+					if now.Before(t.Add(restartPendingTimeout)) {
 						return output, fmt.Errorf("restart is pending for system-agent")
 					}
 					// remove the restart pending file
