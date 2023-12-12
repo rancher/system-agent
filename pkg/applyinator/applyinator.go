@@ -177,28 +177,26 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			fileContents, err := os.ReadFile(restartPendingInterlockFilePath)
 			if err != nil {
 				return output, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFile, err)
-			} else {
-				if len(fileContents) == 0 {
-					// Write "now" as the first observed time of the file.
-					if err := os.WriteFile(restartPendingInterlockFile, []byte(nowUnixTimeString), 0600); err != nil {
-						return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFile, err)
-					}
-					return output, fmt.Errorf("restart is pending for system-agent")
-				} else {
-					// Parse the time out of the file and determine if we have passed our time threshold
-					t, err := time.Parse(time.UnixDate, string(fileContents))
-					if err != nil {
-						return output, fmt.Errorf("unable to parse first-observed time in restart pending interlock file %s: %w", restartPendingInterlockFile, err)
-					}
-					if now.Before(t.Add(restartPendingTimeout)) {
-						return output, fmt.Errorf("restart is pending for system-agent")
-					}
-					// remove the restart pending file
-					err = os.Remove(restartPendingInterlockFile)
-					if err != nil {
-						logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
-					}
+			}
+			if len(fileContents) == 0 {
+				// Write "now" as the first observed time of the file.
+				if err := os.WriteFile(restartPendingInterlockFile, []byte(nowUnixTimeString), 0600); err != nil {
+					return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFile, err)
 				}
+				return output, fmt.Errorf("restart is pending for system-agent")
+			}
+			// Parse the time out of the file and determine if we have passed our time threshold
+			t, err := time.Parse(time.UnixDate, string(fileContents))
+			if err != nil {
+				return output, fmt.Errorf("unable to parse first-observed time in restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+			}
+			if now.Before(t.Add(restartPendingTimeout)) {
+				return output, fmt.Errorf("restart is pending for system-agent")
+			}
+			// remove the restart pending file
+			err = os.Remove(restartPendingInterlockFile)
+			if err != nil {
+				logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
 			}
 		}
 
