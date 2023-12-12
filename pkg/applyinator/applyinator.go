@@ -176,14 +176,14 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			// check the restart pending interlock file to see if we've passed our threshold for blocking
 			fileContents, err := os.ReadFile(restartPendingInterlockFilePath)
 			if err != nil {
-				return output, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+				return output, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
 			}
 			// Parse the time out of the file and determine if we have passed our time threshold
 			t, err := time.Parse(time.UnixDate, string(fileContents))
 			if err != nil {
 				// If we are unable to parse the first observed time out of the file, write "now" as the first observed time of the file.
-				if err := os.WriteFile(restartPendingInterlockFile, []byte(nowUnixTimeString), 0600); err != nil {
-					return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFile, err)
+				if err := os.WriteFile(restartPendingInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+					return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
 				}
 				return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", restartPendingTimeout.String())
 			}
@@ -191,7 +191,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 				return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", t.Add(restartPendingTimeout).Sub(now).String())
 			}
 			// remove the restart pending file
-			err = os.Remove(restartPendingInterlockFile)
+			err = os.Remove(restartPendingInterlockFilePath)
 			if err != nil {
 				logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
 			}
