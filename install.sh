@@ -774,7 +774,7 @@ retrieve_connection_info() {
                 ;;
             esac
         done
-        error "Max retries exceeded for downloading Rancher connection information."
+        error "Failed to download Rancher connection information in ${i} attempts"
         umask "${UMASK}"
         # Clean up invalid rancher2_connection_info.json file
         rm -f ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
@@ -887,7 +887,7 @@ do_install() {
 
     if [ -n "${CATTLE_TOKEN}" ]; then
         generate_cattle_identifier
-        retrieve_connection_info || fatal "Could not get connection_info before max retries" # Only retrieve connection information from Rancher if a token was passed in.
+        retrieve_connection_info || fatal "Aborting system-agent installation due to failure to retrieve Rancher connection information"
     fi
     create_systemd_service_file
     create_env_file
