@@ -763,7 +763,8 @@ retrieve_connection_info() {
             case "${RESPONSE}" in
             200)
                 info "Successfully downloaded Rancher connection information"
-                break
+                umask "${UMASK}"
+                return 0
                 ;;
             *)
                 i=$((i + 1))
@@ -773,7 +774,11 @@ retrieve_connection_info() {
                 ;;
             esac
         done
+        error "Failed to download Rancher connection information in ${i} attempts"
         umask "${UMASK}"
+        # Clean up invalid rancher2_connection_info.json file
+        rm -f ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
+        return 1
     fi
 }
 
@@ -882,7 +887,7 @@ do_install() {
 
     if [ -n "${CATTLE_TOKEN}" ]; then
         generate_cattle_identifier
-        retrieve_connection_info # Only retrieve connection information from Rancher if a token was passed in.
+        retrieve_connection_info || fatal "Aborting system-agent installation due to failure to retrieve Rancher connection information"
     fi
     create_systemd_service_file
     create_env_file
