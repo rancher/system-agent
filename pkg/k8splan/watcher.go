@@ -439,7 +439,10 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 		},
 	})
 	config.WrapTransport = transportConfig.WrapTransport
-	config.Dial = transportConfig.Dial
+	if transportConfig.DialHolder != nil && transportConfig.DialHolder.Dial != nil {
+		config.Dial = transportConfig.DialHolder.Dial
+	}
+
 	// Overwrite TLS-related fields from config to avoid collision with
 	// Transport field.
 	config.TLSClientConfig = rest.TLSClientConfig{}
