@@ -49,7 +49,7 @@ require (
 	github.com/rancher/wharfie v0.6.2
 	github.com/rancher/wrangler v1.1.1
 	github.com/sirupsen/logrus v1.9.3
-	github.com/urfave/cli/v2 v2.25.7
+	github.com/urfave/cli/v2 v2.27.1
 	golang.org/x/sync v0.5.0
 	k8s.io/api v0.27.10
 	k8s.io/apimachinery v0.27.10
