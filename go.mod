@@ -6,7 +6,7 @@ go 1.21
 replace github.com/rancher/wrangler v1.1.1 => github.com/rancher/wrangler v1.1.1-0.20230831050635-df1bd5aae9df
 
 replace (
-	github.com/docker/cli => github.com/docker/cli v24.0.7+incompatible
+	github.com/docker/cli => github.com/docker/cli v25.0.5+incompatible
 	github.com/docker/docker => github.com/docker/docker v24.0.7+incompatible
 
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.46.0
