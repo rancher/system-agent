@@ -54,10 +54,11 @@ const (
 	cooldownTimerDuration    = "30s"
 )
 
-func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) {
+func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo, skipAlreadyApplied bool) {
 	w := &watcher{
-		connInfo:    connInfo,
-		applyinator: applyinator,
+		connInfo:           connInfo,
+		applyinator:        applyinator,
+		skipAlreadyApplied: skipAlreadyApplied,
 	}
 
 	go w.start(ctx)
@@ -68,6 +69,7 @@ type watcher struct {
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
 	secretUID                  string
+	skipAlreadyApplied         bool
 }
 
 func toInt(resourceVersion string) int {
@@ -198,12 +200,14 @@ func (w *watcher) start(ctx context.Context) {
 			}
 			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
 
+			alreadyApplied := false
 			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
 				logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
 				if secretChecksum == cp.Checksum {
 					logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
 					needsApplied = false
+					alreadyApplied = true
 				}
 			}
 
@@ -211,6 +215,11 @@ func (w *watcher) start(ctx context.Context) {
 				logrus.Infof("Detected first start, force-applying one-time instruction set")
 				needsApplied = true
 				hasRunOnce = true
+			}
+
+			if w.skipAlreadyApplied && alreadyApplied {
+				logrus.Debugf("[K8s] Skipping already applied plan.")
+				needsApplied = false
 			}
 
 			// Check to see if we've exceeded our failure count threshold

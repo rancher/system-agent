@@ -92,7 +92,7 @@ func run(c *cli.Context) error {
 			return fmt.Errorf("unable to parse connection info file: %w", err)
 		}
 
-		k8splan.Watch(topContext, *applyinator, connInfo)
+		k8splan.Watch(topContext, *applyinator, connInfo, cf.RemoteSkipAlreadyApplied)
 	}
 
 	if cf.LocalEnabled {
