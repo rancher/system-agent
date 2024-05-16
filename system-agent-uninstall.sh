@@ -11,11 +11,6 @@ fi
 #   - CATTLE_AGENT_BIN_PREFIX (default: /usr/local)
 #
 
-DIRECTORY_RKE2="/usr/local/bin"
-DIRECTORY_OPT_RKE2="/opt/rke2/bin"
-DIRECTORY_K3S="/usr/local/bin"
-DIRECTORY_OPT_K3S="/opt/k3s/bin"
-
 # info logs the given argument at info log level.
 info() {
 	echo "[INFO] " "$@"
@@ -28,12 +23,12 @@ warn() {
 
 # check_target_mountpoint return success if the target directory is on a dedicated mount point
 check_target_mountpoint() {
-	mountpoint -q "${CATTLE_AGENT_BIN_PREFIX}"
+	mountpoint -q "$@"
 }
 
 # check_target_ro returns success if the target directory is read-only
 check_target_ro() {
-	touch "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test && rm -rf "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test
+	touch "$@"/.r-sa-ro-test && rm -rf "$@"/.r-sa-ro-test
 	test $? -ne 0
 }
 
@@ -71,12 +66,19 @@ setup_env() {
 	# --- true, assume that is what was done, since removing from /usr/local wouldn't be possible anyway.
 	if [ -z "${CATTLE_AGENT_BIN_PREFIX}" ]; then
 		CATTLE_AGENT_BIN_PREFIX="/usr/local"
-		if check_target_mountpoint || check_target_ro; then
+		if check_target_mountpoint "${CATTLE_AGENT_BIN_PREFIX}" || check_target_ro "${CATTLE_AGENT_BIN_PREFIX}"; then
 			CATTLE_AGENT_BIN_PREFIX="/opt/rancher-system-agent"
 			warn "/usr/local is read-only or a mount point; checking ${CATTLE_AGENT_BIN_PREFIX}"
 		fi
 	fi
 
+	if [ -z "${DISTRO_BIN_PREFIX}"]; then
+		DISTRO_BIN_PREFIX="/usr/local"
+		if check_target_mountpoint "${DISTRO_BIN_PREFIX}" || check_target_ro "${DISTRO_BIN_PREFIX}"; then
+			DISTRO_BIN_PREFIX="/opt"
+			warn "/usr/local is read-only or a mount point; checking ${DISTRO_BIN_PREFIX} for distro"
+		fi
+	fi
 }
 
 parse_args() {
@@ -145,57 +147,57 @@ uninstall_remove_files() {
 }
 
 kill_all_rke2() {
-	if [ -f "$DIRECTORY_RKE2/rke2-killall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/bin/rke2-killall.sh" ]; then
 		info "Running rke2-killall.sh"
-		bash $DIRECTORY_RKE2/rke2-killall.sh
+		bash $DISTRO_BIN_PREFIX/bin/rke2-killall.sh
 		return
 	fi
 
-	if [ -f "$DIRECTORY_OPT_RKE2/rke2-killall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/rke2/bin/rke2-killall.sh" ]; then
 		info "Running rke2-killall.sh"
-		bash $DIRECTORY_OPT_RKE2/rke2-killall.sh
+		bash $DISTRO_BIN_PREFIX/rke2/bin/rke2-killall.sh
 		return
 	fi
 }
 
 kill_all_k3s() {
-	if [ -f "$DIRECTORY_K3S/k3s-killall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/bin/k3s-killall.sh" ]; then
 		info "Running k3s-killall.sh"
-		bash $DIRECTORY_K3S/k3s-killall.sh
+		bash $DISTRO_BIN_PREFIX/bin/k3s-killall.sh
 		return
 	fi
 
-	if [ -f "$DIRECTORY_OPT_K3S/k3s-killall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/k3s/bin/k3s-killall.sh" ]; then
 		info "Running k3s-killall.sh"
-		bash $DIRECTORY_OPT_K3S/k3s-killall.sh
+		bash $DISTRO_BIN_PREFIX/k3s/bin/k3s-killall.sh
 		return
 	fi
 }
 
 uninstall_rke2() {
-	if [ -f "$DIRECTORY_RKE2/rke2-uninstall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/bin/rke2-uninstall.sh" ]; then
 		info "Running rke2-uninstall.sh"
-		bash $DIRECTORY_RKE2/rke2-uninstall.sh
+		bash $DISTRO_BIN_PREFIX/bin/rke2-uninstall.sh
 		return
 	fi
 
-	if [ -f "$DIRECTORY_OPT_RKE2/rke2-uninstall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/rke2/bin/rke2-uninstall.sh" ]; then
 		info "Running rke2-uninstall.sh"
-		bash $DIRECTORY_OPT_RKE2/rke2-uninstall.sh
+		bash $DISTRO_BIN_PREFIX/rke2/bin/rke2-uninstall.sh
 		return
 	fi
 }
 
 uninstall_k3s() {
-	if [ -f "$DIRECTORY_K3S/k3s-uninstall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/bin/k3s-uninstall.sh" ]; then
 		info "Running k3s-uninstall.sh"
-		bash $DIRECTORY_K3S/k3s-uninstall.sh
+		bash $DISTRO_BIN_PREFIX/bin/k3s-uninstall.sh
 		return
 	fi
 
-	if [ -f "$DIRECTORY_OPT_K3S/k3s-uninstall.sh" ]; then
+	if [ -f "$DISTRO_BIN_PREFIX/k3s/bin/k3s-uninstall.sh" ]; then
 		info "Running k3s-uninstall.sh"
-		bash $DIRECTORY_OPT_K3S/k3s-uninstall.sh
+		bash $DISTRO_BIN_PREFIX/k3s/bin/k3s-uninstall.sh
 		return
 	fi
 }
