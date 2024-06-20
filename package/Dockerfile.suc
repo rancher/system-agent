@@ -18,5 +18,6 @@ COPY system-agent-uninstall.sh /opt/rancher-system-agent-suc/system-agent-uninst
 COPY bin/rancher-system-agent /opt/rancher-system-agent-suc
 COPY package/suc/run.sh /opt/rancher-system-agent-suc/run.sh
 COPY --from=kubectl /usr/bin/kubectl /usr/bin/
+RUN chmod +x /opt/rancher-system-agent-suc/rancher-system-agent
 
 ENTRYPOINT ["/opt/rancher-system-agent-suc/run.sh"]
