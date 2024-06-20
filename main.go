@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mattn/go-colorable"
 	"github.com/rancher/system-agent/pkg/applyinator"
@@ -17,9 +18,10 @@ import (
 )
 
 const (
-	cattleLogLevelEnv    = "CATTLE_LOGLEVEL"
-	cattleAgentConfigEnv = "CATTLE_AGENT_CONFIG"
-	defaultConfigFile    = "/etc/rancher/agent/config.yaml"
+	cattleLogLevelEnv          = "CATTLE_LOGLEVEL"
+	cattleAgentConfigEnv       = "CATTLE_AGENT_CONFIG"
+	cattleAgentStrictVerifyEnv = "CATTLE_AGENT_STRICT_VERIFY"
+	defaultConfigFile          = "/etc/rancher/agent/config.yaml"
 )
 
 func main() {
@@ -92,7 +94,12 @@ func run(c *cli.Context) error {
 			return fmt.Errorf("unable to parse connection info file: %w", err)
 		}
 
-		k8splan.Watch(topContext, *applyinator, connInfo)
+		var strictVerify bool // When strictVerify is set to true, the kubeconfig validator will not discard CA data if it is invalid
+		if strings.ToLower(os.Getenv(cattleAgentStrictVerifyEnv)) == "true" {
+			strictVerify = true
+		}
+
+		k8splan.Watch(topContext, *applyinator, connInfo, strictVerify)
 	}
 
 	if cf.LocalEnabled {

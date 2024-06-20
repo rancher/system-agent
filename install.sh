@@ -43,6 +43,7 @@ fi
 #   - CATTLE_AGENT_BINARY_LOCAL_LOCATION (default: )
 #   - CATTLE_AGENT_UNINSTALL_LOCAL (default: false)
 #   - CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION (default: )
+#   - CATTLE_AGENT_STRICT_VERIFY | STRICT_VERIFY (default: false)
 
 FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
@@ -390,6 +391,14 @@ setup_env() {
         fi
     fi
 
+    if [ -z "${CATTLE_AGENT_STRICT_VERIFY}" ]; then
+      CATTLE_AGENT_STRICT_VERIFY=false
+      if [ -n "${STRICT_VERIFY}" ]; then
+        CATTLE_AGENT_STRICT_VERIFY=${STRICT_VERIFY}
+      fi
+      info "CA strict verification is set to ${CATTLE_AGENT_STRICT_VERIFY}"
+    fi
+
     if [ -z "${CATTLE_AGENT_CONFIG_DIR}" ]; then
         CATTLE_AGENT_CONFIG_DIR=/etc/rancher/agent
         info "Using default agent configuration directory ${CATTLE_AGENT_CONFIG_DIR}"
@@ -563,6 +572,7 @@ Restart=always
 RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
+Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
 }
@@ -874,7 +884,10 @@ do_install() {
     touch ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
     ensure_applyinator_not_active
 
-    if [ -n "${CATTLE_CA_CHECKSUM}" ]; then
+    if [ -z "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') = "true" ]; then
+      fatal "Aborting system-agent installation due to requested strict CA verification with no CA checksum provided"
+    fi
+    if [ -n "${CATTLE_CA_CHECKSUM}" && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') != "true" ]; then
         validate_ca_required
     fi
     validate_ca_checksum
