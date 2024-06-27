@@ -54,13 +54,13 @@ const (
 	cooldownTimerDuration    = "30s"
 )
 
-func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo) {
+func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo, strictVerify bool) {
 	w := &watcher{
 		connInfo:    connInfo,
 		applyinator: applyinator,
 	}
 
-	go w.start(ctx)
+	go w.start(ctx, strictVerify)
 }
 
 type watcher struct {
@@ -86,14 +86,18 @@ func incrementCount(count []byte) []byte {
 	return []byte("1")
 }
 
-func (w *watcher) start(ctx context.Context) {
+func (w *watcher) start(ctx context.Context, strictVerify bool) {
 	kc, err := clientcmd.RESTConfigFromKubeConfig([]byte(w.connInfo.KubeConfig))
 	if err != nil {
 		panic(err)
 	}
 
+	if strictVerify && len(kc.CAData) == 0 {
+		logrus.Fatal("CA Data in provided kubeconfig was empty while strict verify was enabled. Aborting startup.")
+	}
+
 	if err := validateKC(ctx, kc); err != nil {
-		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 {
+		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 && !strictVerify {
 			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
 			kc.CAData = nil // nullify the provided CA data
 			if err := validateKC(ctx, kc); err != nil {
