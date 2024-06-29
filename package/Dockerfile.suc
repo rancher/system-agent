@@ -1,4 +1,4 @@
-ARG ALPINE=alpine:3.18
+ARG ALPINE=alpine:3.20
 FROM ${ALPINE} as kubectl
 ENV KUBECTL_VERSION v1.27.10
 RUN apk add -U curl
@@ -9,7 +9,7 @@ RUN ARCH=$(uname -m) && \
     chmod +x /usr/bin/kubectl
 RUN /usr/bin/kubectl version --client
 
-ARG ALPINE=alpine:3.18
+ARG ALPINE=alpine:3.20
 FROM ${ALPINE}
 
 RUN mkdir /opt/rancher-system-agent-suc
