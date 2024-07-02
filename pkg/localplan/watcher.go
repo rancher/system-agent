@@ -70,7 +70,7 @@ func (w *watcher) listFiles(ctx context.Context, force bool) error {
 	return nil
 }
 
-func (w *watcher) listFilesIn(ctx context.Context, base string, force bool) error {
+func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

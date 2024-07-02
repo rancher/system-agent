@@ -140,7 +140,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 	hasRunOnce := false
 
-	core.Secret().OnChange(ctx, "secret-watch", func(s string, secret *v1.Secret) (*v1.Secret, error) {
+	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *v1.Secret) (*v1.Secret, error) {
 		if secret == nil {
 			logrus.Fatalf("[K8s] received nil secret that was nil, stopping")
 			return nil, nil

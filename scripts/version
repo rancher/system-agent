@@ -19,6 +19,10 @@ fi
 
 SUFFIX="-${ARCH}"
 
+if [[ -n ${GH_VERSION} ]]; then
+ VERSION=${GH_VERSION}
+fi
+
 TAG=${TAG:-${VERSION}${SUFFIX}}
 REPO=${REPO:-rancher}
 
