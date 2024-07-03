@@ -2,7 +2,8 @@
 
 set -x -e
 
-TMPDIRBASE=/var/lib/rancher/agent/tmp
+CATTLE_AGENT_VAR_DIR=${CATTLE_AGENT_VAR_DIR:-/var/lib/rancher/agent}
+TMPDIRBASE=${CATTLE_AGENT_VAR_DIR}/tmp
 
 mkdir -p "/host${TMPDIRBASE}"
 
