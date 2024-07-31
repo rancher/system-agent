@@ -1,20 +1,29 @@
-ARG ALPINE=alpine:3.18
-FROM ${ALPINE} as kubectl
-ENV KUBECTL_VERSION v1.27.10
-RUN apk add -U curl
+ARG IMG_VERSION=15.6
+FROM registry.suse.com/bci/bci-base:${IMG_VERSION} as kubectl
+
+ARG KUBECTL_VERSION=v1.28.10
+
+# https://dl.k8s.io/release/v1.28.10/bin/linux/arm64/kubectl.sha256
+ENV KUBECTL_SUM_arm64=e659d23d442c2706debe5b96742326c0a1e1d7b5c695a9fe7dfe8ea7402caee8
+# https://dl.k8s.io/release/v1.28.10/bin/linux/amd64/kubectl.sha256
+ENV KUBECTL_SUM_amd64=389c17a9700a4b01ebb055e39b8bc0886330497440dde004b5ed90f2a3a028db
+
+RUN zypper in -y curl
+
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi && \
     if [ "$ARCH" = "aarch64" ]; then ARCH=arm64; fi && \
-    curl -L -f -o /usr/bin/kubectl https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl && \
-    chmod +x /usr/bin/kubectl
+    curl -L -f -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/bin/kubectl && \
+    KUBECTL_SUM="KUBECTL_SUM_${ARCH}" && echo "${!KUBECTL_SUM}  /usr/bin/kubectl" | sha256sum -c -
 RUN /usr/bin/kubectl version --client
 
-ARG ALPINE=alpine:3.18
-FROM ${ALPINE}
+FROM registry.suse.com/bci/bci-micro:${IMG_VERSION}
 
 ENV CATTLE_AGENT_VAR_DIR="/var/lib/rancher/agent"
 
 RUN mkdir /opt/rancher-system-agent-suc
+
 COPY install.sh /opt/rancher-system-agent-suc/install.sh
 COPY system-agent-uninstall.sh /opt/rancher-system-agent-suc/system-agent-uninstall.sh
 COPY bin/rancher-system-agent /opt/rancher-system-agent-suc
