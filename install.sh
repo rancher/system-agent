@@ -44,6 +44,7 @@ fi
 #   - CATTLE_AGENT_UNINSTALL_LOCAL (default: false)
 #   - CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION (default: )
 #   - CATTLE_AGENT_STRICT_VERIFY | STRICT_VERIFY (default: false)
+#   - CATTLE_AGENT_FALLBACK_PATH (default: )
 
 FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
@@ -887,7 +888,7 @@ do_install() {
     if [ -z "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') = "true" ]; then
       fatal "Aborting system-agent installation due to requested strict CA verification with no CA checksum provided"
     fi
-    if [ -n "${CATTLE_CA_CHECKSUM}" && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') != "true" ]; then
+    if [ -n "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') != "true" ]; then
         validate_ca_required
     fi
     validate_ca_checksum
