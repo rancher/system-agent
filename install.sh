@@ -44,11 +44,13 @@ fi
 #   - CATTLE_AGENT_UNINSTALL_LOCAL (default: false)
 #   - CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION (default: )
 #   - CATTLE_AGENT_STRICT_VERIFY | STRICT_VERIFY (default: false)
+#   - CATTLE_AGENT_FALLBACK_PATH (default: )
 
 FALLBACK=v0.2.9
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 APPLYINATOR_ACTIVE_WAIT_COUNT=60 # If the system-agent is unhealthy but had created an interlock file to indicate it was actively applying a plan, after 5 minutes, ignore the interlock.
+DEFAULT_BIN_PREFIX=/usr/local
 
 # info logs the given argument at info log level.
 info() {
@@ -73,12 +75,12 @@ fatal() {
 
 # check_target_mountpoint return success if the target directory is on a dedicated mount point
 check_target_mountpoint() {
-    mountpoint -q "${CATTLE_AGENT_BIN_PREFIX}"
+    mountpoint -q "${DEFAULT_BIN_PREFIX}"
 }
 
 # check_target_ro returns success if the target directory is read-only
 check_target_ro() {
-    touch "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test && rm -rf "${CATTLE_AGENT_BIN_PREFIX}"/.r-sa-ro-test
+    touch "${DEFAULT_BIN_PREFIX}"/.r-sa-ro-test && rm -rf "${DEFAULT_BIN_PREFIX}"/.r-sa-ro-test
     test $? -ne 0
 }
 
@@ -855,6 +857,14 @@ create_env_file() {
         echo "$i=$v" | tee -a ${FILE_SA_ENV} >/dev/null
       fi
     done
+
+    # if /usr/local/ is ready only or on a separate partition, we want to add the bin dirs of rke2/k3s to our path
+    if check_target_mountpoint || check_target_ro; then
+      if [ -n "${CATTLE_AGENT_FALLBACK_PATH}" ]; then
+        info "${DEFAULT_BIN_PREFIX} is unsuitable for installation: adding fallback path to systemd unit env file."
+        echo "PATH=${PATH}:${CATTLE_AGENT_FALLBACK_PATH}" | tee -a ${FILE_SA_ENV} >/dev/null
+      fi
+    fi
 }
 
 ensure_applyinator_not_active() {
@@ -887,7 +897,7 @@ do_install() {
     if [ -z "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') = "true" ]; then
       fatal "Aborting system-agent installation due to requested strict CA verification with no CA checksum provided"
     fi
-    if [ -n "${CATTLE_CA_CHECKSUM}" && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') != "true" ]; then
+    if [ -n "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') != "true" ]; then
         validate_ca_required
     fi
     validate_ca_checksum
