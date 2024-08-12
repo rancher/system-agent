@@ -8,7 +8,7 @@ ENV KUBECTL_SUM_arm64=7b6649aaa298be728c5fb7ccb65f98738a4e8bda0741afbd5a9ed9e488
 # https://dl.k8s.io/release/v1.29.7/bin/linux/amd64/kubectl.sha256
 ENV KUBECTL_SUM_amd64=e3df008ef60ea50286ea93c3c40a020e178a338cea64a185b4e21792d88c75d6
 
-RUN zypper in -y curl
+RUN zypper in -y curl openssl patterns-base-fips
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi && \
