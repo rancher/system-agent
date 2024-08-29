@@ -1,9 +1,11 @@
-FROM golang:1.22-alpine3.20
+FROM registry.suse.com/bci/golang:1.22
 
 ARG DAPPER_HOST_ARCH
 ENV ARCH $DAPPER_HOST_ARCH
 
-RUN apk -U add bash git gcc musl-dev docker vim less file curl wget ca-certificates
+RUN zypper -n rm container-suseconnect && \
+    zypper -n install curl docker gzip tar wget awk zip
+
 RUN go install golang.org/x/lint/golint@latest && \
     go install golang.org/x/tools/cmd/goimports@latest && \
     rm -rf /go/src /go/pkg
