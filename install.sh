@@ -860,9 +860,11 @@ create_env_file() {
 
     # if /usr/local/ is ready only or on a separate partition, we want to add the bin dirs of rke2/k3s to our path
     if check_target_mountpoint || check_target_ro; then
+      info "${DEFAULT_BIN_PREFIX} is unsuitable for installation: adding fallback path to systemd unit env file."
       if [ -n "${CATTLE_AGENT_FALLBACK_PATH}" ]; then
-        info "${DEFAULT_BIN_PREFIX} is unsuitable for installation: adding fallback path to systemd unit env file."
         echo "PATH=${PATH}:${CATTLE_AGENT_FALLBACK_PATH}" | tee -a ${FILE_SA_ENV} >/dev/null
+      else
+        echo "PATH=${PATH}:/opt/rke2/bin:/opt/bin" | tee -a ${FILE_SA_ENV} >/dev/null
       fi
     fi
 }
