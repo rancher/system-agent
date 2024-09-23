@@ -17,3 +17,11 @@ func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) e
 	}
 	return os.Chown(path, uid, gid)
 }
+
+func getPermissions(path string) (os.FileMode, error) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return 0000, err
+	}
+	return fileInfo.Mode(), nil
+}
