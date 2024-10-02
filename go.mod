@@ -44,6 +44,7 @@ require (
 	github.com/google/go-containerregistry v0.19.0
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.0.0-20230830164424-d684fdeb6f29
+	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/wharfie v0.6.6
 	github.com/rancher/wrangler v1.1.1
 	github.com/sirupsen/logrus v1.9.3

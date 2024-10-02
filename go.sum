@@ -167,6 +167,8 @@ github.com/rancher/dynamiclistener v0.3.5 h1:5TaIHvkDGmZKvc96Huur16zfTKOiLhDtK4S
 github.com/rancher/dynamiclistener v0.3.5/go.mod h1:dW/YF6/m2+uEyJ5VtEcd9THxda599HP6N9dSXk81+k0=
 github.com/rancher/lasso v0.0.0-20230830164424-d684fdeb6f29 h1:+kige/h8/LnzWgPjB5NUIHz/pWiW/lFpqcTUkN5uulY=
 github.com/rancher/lasso v0.0.0-20230830164424-d684fdeb6f29/go.mod h1:kgk9kJVMj9FIrrXU0iyM6u/9Je4bEjPImqswkTVaKsQ=
+github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065 h1:nJPrW/DdnSYQnKryQYlFXMs6nh12Q7MCW8Zb6l9Cb1A=
+github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065/go.mod h1:PDAb+l6/i6cbSokQ2CuNCgGOT/BHQY2WgZATwPXEyU4=
 github.com/rancher/wharfie v0.6.6 h1:ESxPxBDiq9RXd8G9fC71qc7+AbetThVtxPC9K8VVZ2Y=
 github.com/rancher/wharfie v0.6.6/go.mod h1:sfCy07HF8EE1MDKhpDc/cLptLTiTC0y/wisD44gr8uc=
 github.com/rancher/wrangler v1.1.1 h1:wmqUwqc2M7ADfXnBCJTFkTB5ZREWpD78rnZMzmxwMvM=
