@@ -46,7 +46,7 @@ require (
 	github.com/rancher/lasso v0.0.0-20230830164424-d684fdeb6f29
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/wharfie v0.6.7
-	github.com/rancher/wrangler v1.1.1
+	github.com/rancher/wrangler v1.1.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.25.7
 	golang.org/x/sync v0.7.0
