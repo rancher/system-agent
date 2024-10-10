@@ -73,7 +73,8 @@ type PeriodicInstructionOutput struct {
 
 type OneTimeInstruction struct {
 	CommonInstruction
-	SaveOutput bool `json:"saveOutput,omitempty"`
+	SaveOutput                        bool `json:"saveOutput,omitempty"`
+	ResetFailureCountOnServiceRestart bool `json:"resetFailuresOnServiceRestart,omitempty"`
 }
 
 // Path would be `/etc/kubernetes/ssl/ca.pem`, Content is base64 encoded.
