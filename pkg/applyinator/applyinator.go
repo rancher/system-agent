@@ -45,6 +45,9 @@ type Plan struct {
 	OneTimeInstructions  []OneTimeInstruction    `json:"instructions,omitempty"`
 	Probes               map[string]prober.Probe `json:"probes,omitempty"`
 	PeriodicInstructions []PeriodicInstruction   `json:"periodicInstructions,omitempty"`
+	// ResetFailureCountOnStartup denotes whether the system-agent should reset the failure count
+	// and applied-checksum for plans that are force applied each time the system-agent starts.
+	ResetFailureCountOnStartup bool `json:"resetFailureCountOnStartup,omitempty"`
 }
 
 type CommonInstruction struct {
