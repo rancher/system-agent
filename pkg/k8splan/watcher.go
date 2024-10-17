@@ -215,6 +215,12 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 				logrus.Infof("Detected first start, force-applying one-time instruction set")
 				needsApplied = true
 				hasRunOnce = true
+				// Plans which have previously succeeded but need to be force applied
+				// should continue to respect the specified failure count.
+				if cp.Plan.ResetFailureCountOnStartup {
+					secret.Data[appliedChecksumKey] = []byte("")
+					secret.Data[failureCountKey] = []byte("0")
+				}
 			}
 
 			// Check to see if we've exceeded our failure count threshold
