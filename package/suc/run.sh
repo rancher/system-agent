@@ -5,6 +5,26 @@ set -x -e
 CATTLE_AGENT_VAR_DIR=${CATTLE_AGENT_VAR_DIR:-/var/lib/rancher/agent}
 TMPDIRBASE=${CATTLE_AGENT_VAR_DIR}/tmp
 
+if [ -f /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_CACERTS_VALID ]; then
+  export CATTLE_CACERTS_VALID="$(cat /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_CACERTS_VALID)"
+  echo Using CATTLE_CACERTS_VALID from secret
+fi
+
+if [ -f /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_CA_CHECKSUM ]; then
+  export CATTLE_CA_CHECKSUM="$(cat /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_CA_CHECKSUM)"
+  echo Using CATTLE_CA_CHECKSUM from secret
+fi
+
+if [ -f /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_SERVER ]; then
+  export CATTLE_SERVER="$(cat /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_SERVER)"
+  echo Using CATTLE_SERVER from secret
+fi
+
+if [ -f /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_TOKEN ]; then
+  export CATTLE_TOKEN="$(cat /host${CATTLE_AGENT_VAR_DIR}/env/CATTLE_TOKEN)"
+  echo Using CATTLE_TOKEN from secret
+fi
+
 mkdir -p "/host${TMPDIRBASE}"
 
 TMPDIR=$(chroot /host /bin/sh -c "mktemp -d -p ${TMPDIRBASE}")
