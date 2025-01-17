@@ -271,9 +271,26 @@ jobs:
       - merge-suc
     permissions:
       contents: write # needed for creating the GH release
+      id-token: write
     steps:
+      - name: Read App Secrets
+        uses: rancher-eio/read-vault-secrets@main
+        with:
+          secrets: |
+            secret/data/github/repo/${{ github.repository }}/github/app-credentials appId | APP_ID ;
+            secret/data/github/repo/${{ github.repository }}/github/app-credentials privateKey | PRIVATE_KEY
+
+      - name: Create App Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Download binary
         uses: actions/download-artifact@v4
@@ -299,6 +316,45 @@ jobs:
 
       - name: Create release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run:
           gh release create ${{ github.ref_name }} --verify-tag --generate-notes dist/*
+
+  dispatch:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: github_release
+    strategy:
+      fail-fast: false
+      matrix:
+        target-branch: [release/v2.9, release/v2.10, main]
+    steps:
+      - name: Read App Secrets
+        uses: rancher-eio/read-vault-secrets@main
+        with:
+          secrets: |
+            secret/data/github/repo/${{ github.repository }}/github/app-credentials appId | APP_ID ;
+            secret/data/github/repo/${{ github.repository }}/github/app-credentials privateKey | PRIVATE_KEY
+
+      - name: Create App Token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          
+      - name: Run dispatch
+        run: |
+          ACTION_TARGET_BRANCH=${{ matrix.target-branch }}
+          echo "Dispatching to $ACTION_TARGET_BRANCH branch of rancher/rancher"
+          gh workflow run "System Agent Upgrade" --repo rancher/rancher --ref $ACTION_TARGET_BRANCH -F system_agent_version=${{ github.ref_name }} -F source_author=${{ github.actor }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
