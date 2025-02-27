@@ -11,7 +11,8 @@ if ! command -v golangci-lint; then
 fi
 
 echo Running: golangci-lint
-golangci-lint run
+golangci-lint version
+golangci-lint run --timeout 5m
 
 echo Running: go fmt
 for package in $(go list ./...); do
