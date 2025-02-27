@@ -14,12 +14,12 @@ RUN zypper refresh && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
-ARG KUBECTL_VERSION=v1.29.7
+ARG KUBECTL_VERSION=v1.32.2
 
-# https://dl.k8s.io/release/v1.29.7/bin/linux/arm64/kubectl.sha256
-ENV KUBECTL_SUM_arm64=7b6649aaa298be728c5fb7ccb65f98738a4e8bda0741afbd5a9ed9e488c0e725
-# https://dl.k8s.io/release/v1.29.7/bin/linux/amd64/kubectl.sha256
-ENV KUBECTL_SUM_amd64=e3df008ef60ea50286ea93c3c40a020e178a338cea64a185b4e21792d88c75d6
+# https://dl.k8s.io/release/v1.32.2/bin/linux/arm64/kubectl.sha256
+ENV KUBECTL_SUM_arm64=7381bea99c83c264100f324c2ca6e7e13738a73b8928477ac805991440a065cd
+# https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl.sha256
+ENV KUBECTL_SUM_amd64=4f6a959dcc5b702135f8354cc7109b542a2933c46b808b248a214c1f69f817ea
 
 RUN zypper in -y curl openssl patterns-base-fips
 
