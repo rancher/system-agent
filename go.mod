@@ -21,7 +21,7 @@ replace (
 	k8s.io/component-helpers => k8s.io/component-helpers v0.32.2
 	k8s.io/controller-manager => k8s.io/controller-manager v0.32.2
 	k8s.io/cri-api => k8s.io/cri-api v0.32.2
-	k8s.io/cri-client => k8s.io/cri-client v0.32.2
+	k8s.io/cri-client => k8s.io/cri-client v0.32.3
 	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.32.2
 	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.32.2
 	k8s.io/endpointslice => k8s.io/endpointslice v0.32.2
@@ -50,9 +50,9 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.25.7
 	golang.org/x/sync v0.8.0
-	k8s.io/api v0.32.2
-	k8s.io/apimachinery v0.32.2
-	k8s.io/client-go v0.32.2
+	k8s.io/api v0.32.3
+	k8s.io/apimachinery v0.32.3
+	k8s.io/client-go v0.32.3
 	k8s.io/kubernetes v1.32.2
 	sigs.k8s.io/yaml v1.4.0
 )
@@ -156,10 +156,10 @@ require (
 	k8s.io/apiextensions-apiserver v0.25.4 // indirect
 	k8s.io/apiserver v0.32.2 // indirect
 	k8s.io/cloud-provider v0.0.0 // indirect
-	k8s.io/component-base v0.32.2 // indirect
+	k8s.io/component-base v0.32.3 // indirect
 	k8s.io/component-helpers v0.32.2 // indirect
 	k8s.io/controller-manager v0.32.2 // indirect
-	k8s.io/cri-api v0.32.2 // indirect
+	k8s.io/cri-api v0.32.3 // indirect
 	k8s.io/cri-client v0.0.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kms v0.32.2 // indirect
