@@ -14,7 +14,7 @@ RUN zypper refresh && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
-ARG KUBECTL_VERSION=v1.32.2
+ARG KUBECTL_VERSION=v1.32.3
 
 # https://dl.k8s.io/release/v1.32.2/bin/linux/arm64/kubectl.sha256
 ENV KUBECTL_SUM_arm64=7381bea99c83c264100f324c2ca6e7e13738a73b8928477ac805991440a065cd
