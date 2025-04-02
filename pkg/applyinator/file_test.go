@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -20,10 +22,24 @@ func TestWriteContentToFile(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	getFile := func(path string, permissions string, content string) File {
+		u, err := user.Current()
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, err := strconv.Atoi(u.Uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gid, err := strconv.Atoi(u.Gid)
+		if err != nil {
+			t.Fatal(err)
+		}
 		return File{
-			Permissions: permissions,
-			Path:        filepath.Join(tempDir, path),
 			Content:     content,
+			UID:         uid,
+			GID:         gid,
+			Path:        filepath.Join(tempDir, path),
+			Permissions: permissions,
 		}
 	}
 
@@ -155,10 +171,24 @@ func TestCreateDirectory(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	getFile := func(path string, permissions string) File {
+		u, err := user.Current()
+		if err != nil {
+			t.Fatal(err)
+		}
+		uid, err := strconv.Atoi(u.Uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gid, err := strconv.Atoi(u.Gid)
+		if err != nil {
+			t.Fatal(err)
+		}
 		return File{
 			Directory:   true,
-			Permissions: permissions,
+			UID:         uid,
+			GID:         gid,
 			Path:        filepath.Join(tempDir, path),
+			Permissions: permissions,
 		}
 	}
 
