@@ -507,7 +507,7 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
 		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)
-		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
+		if err := createDirectory(File{Directory: true, Path: executionDir, UID: -1, GID: -1}); err != nil {
 			logrus.Errorf("error while creating empty working directory: %v", err)
 			return nil, nil, -1, err
 		}
