@@ -91,7 +91,7 @@ jobs:
 
       - name: Build and push tag
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6
         with:
           context: .
           file:  package/Dockerfile
@@ -198,7 +198,7 @@ jobs:
 
       - name: Build and push Docker tag
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6
         with:
           context: .
           file: package/Dockerfile.suc
@@ -281,7 +281,7 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/github/app-credentials privateKey | PRIVATE_KEY
 
       - name: Create App Token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2
         id: app-token
         with:
           app-id: ${{ env.APP_ID }}
@@ -340,7 +340,7 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/github/workflow-dispatcher/app-credentials privateKey | PRIVATE_KEY
 
       - name: Create App Token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2
         id: app-token
         with:
           app-id: ${{ env.APP_ID }}
