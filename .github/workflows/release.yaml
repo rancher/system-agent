@@ -330,7 +330,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target-branch: [release/v2.9, release/v2.10, main]
+        target-branch: [release/v2.9, release/v2.10, release/v2.11, main]
     steps:
       - name: Read App Secrets
         uses: rancher-eio/read-vault-secrets@main
@@ -345,6 +345,7 @@ jobs:
         with:
           app-id: ${{ env.APP_ID }}
           private-key: ${{ env.PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Checkout code
         uses: actions/checkout@v4
