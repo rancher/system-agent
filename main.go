@@ -14,7 +14,7 @@ import (
 	"github.com/rancher/system-agent/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 const (
