@@ -21,9 +21,11 @@ func TestWriteContentToFile(t *testing.T) {
 
 	getFile := func(path string, permissions string, content string) File {
 		return File{
-			Permissions: permissions,
-			Path:        filepath.Join(tempDir, path),
 			Content:     content,
+			UID:         -1,
+			GID:         -1,
+			Path:        filepath.Join(tempDir, path),
+			Permissions: permissions,
 		}
 	}
 
@@ -157,8 +159,10 @@ func TestCreateDirectory(t *testing.T) {
 	getFile := func(path string, permissions string) File {
 		return File{
 			Directory:   true,
-			Permissions: permissions,
+			UID:         -1,
+			GID:         -1,
 			Path:        filepath.Join(tempDir, path),
+			Permissions: permissions,
 		}
 	}
 
