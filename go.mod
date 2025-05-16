@@ -48,6 +48,7 @@ require (
 	github.com/rancher/wharfie v0.6.7
 	github.com/rancher/wrangler v1.1.1
 	github.com/sirupsen/logrus v1.9.3
+	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.25.7
 	golang.org/x/sync v0.8.0
 	k8s.io/api v0.32.2
@@ -110,6 +111,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.0-rc3 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.19.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.55.0 // indirect
