@@ -88,6 +88,7 @@ type File struct {
 	GID         int    `json:"gid,omitempty"`
 	Path        string `json:"path,omitempty"`
 	Permissions string `json:"permissions,omitempty"` // internally, the string will be converted to a uint32 to satisfy os.FileMode
+	Action      string `json:"action,omitempty"`
 }
 
 const appliedPlanFileSuffix = "-applied.plan"
@@ -99,6 +100,7 @@ const planRetentionPolicyCount = 64
 const restartPendingInterlockFile = "restart-pending"
 const applyinatorActiveInterlockFile = "applyinator-active"
 const restartPendingTimeout = 5 * time.Minute // Wait a maximum of 5 minutes before force-applying a plan if a restart is pending.
+const deleteFileAction = "delete"
 
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir, interlockDir string, imageUtil *image.Utility) *Applyinator {
 	return &Applyinator{
@@ -232,7 +234,11 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 	if input.ReconcileFiles {
 		for _, file := range input.CalculatedPlan.Plan.Files {
-			if file.Directory {
+			if file.Action == deleteFileAction {
+				if err := removeFile(file); err != nil {
+					return output, err
+				}
+			} else if file.Directory {
 				logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
 				if err := createDirectory(file); err != nil {
 					return output, err
