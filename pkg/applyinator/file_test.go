@@ -302,3 +302,79 @@ func TestParsePerm(t *testing.T) {
 		})
 	}
 }
+
+func TestFileActionDelete(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "test-removedir-")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	getFile := func(path string, isDir bool) File {
+		return File{
+			Path:      filepath.Join(tempDir, path),
+			Directory: isDir,
+			Action:    deleteFileAction,
+		}
+	}
+
+	testCases := []struct {
+		Name      string
+		Setup     func(path string) error
+		Path      string
+		Directory bool
+	}{
+		{
+			Name: "Existing directory",
+			Setup: func(path string) error {
+				return os.Mkdir(path, defaultDirectoryPermissions)
+			},
+			Path:      "existing-dir",
+			Directory: true,
+		},
+		{
+			Name: "Missing directory",
+			Setup: func(_ string) error {
+				return nil
+			},
+			Path:      "missing-dir",
+			Directory: true,
+		},
+		{
+			Name: "Existing file",
+			Setup: func(path string) error {
+				return os.WriteFile(path, []byte("t"), defaultFilePermissions)
+			},
+			Path: "existing-file",
+		},
+		{
+			Name: "Missing file",
+			Setup: func(_ string) error {
+				return nil
+			},
+			Path: "missing-file",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			fullPath := filepath.Join(tempDir, tc.Path)
+			if err := tc.Setup(fullPath); err != nil {
+				t.Errorf("Setup failed for %s: %v", tc.Name, err)
+				return
+			}
+
+			f := getFile(tc.Path, tc.Directory)
+
+			if err := removeFile(f); err != nil {
+				t.Errorf("Error deleting file for %s: %v", tc.Name, err)
+			}
+
+			if _, err := os.Stat(fullPath); err == nil {
+				t.Errorf("Path still exists after deletion: %s", fullPath)
+			} else if !os.IsNotExist(err) {
+				t.Errorf("Expected '%s' to be deleted, but os.Stat returned unexpected error: %v", tc.Name, err)
+			}
+		})
+	}
+}

@@ -77,6 +77,21 @@ func createDirectory(file File) error {
 	return reconcileFilePermissions(file.Path, file.UID, file.GID, fileMode)
 }
 
+func removeFile(file File) error {
+	if file.Directory {
+		logrus.Debugf("[Applyinator] Removing directory %s", file.Path)
+		if err := os.RemoveAll(file.Path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		logrus.Debugf("[Applyinator] Removing file %s", file.Path)
+		if err := os.Remove(file.Path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func parsePerm(perm string) (os.FileMode, error) {
 	parsedPerm, err := strconv.ParseInt(perm, 8, 32)
 	if err != nil {
