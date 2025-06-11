@@ -12,7 +12,7 @@ import (
 	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/pkg/localplan"
 	"github.com/rancher/system-agent/pkg/version"
-	"github.com/rancher/wrangler/pkg/signals"
+	"github.com/rancher/wrangler/v3/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
