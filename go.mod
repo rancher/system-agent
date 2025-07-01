@@ -41,7 +41,7 @@ replace (
 )
 
 require (
-	github.com/google/go-containerregistry v0.20.2
+	github.com/google/go-containerregistry v0.20.3
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.2.3-rc1
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
