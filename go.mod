@@ -43,10 +43,10 @@ replace (
 require (
 	github.com/google/go-containerregistry v0.20.2
 	github.com/mattn/go-colorable v0.1.13
-	github.com/rancher/lasso v0.2.3-rc1
+	github.com/rancher/lasso v0.2.3
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/wharfie v0.7.0
-	github.com/rancher/wrangler/v3 v3.2.2-rc.1
+	github.com/rancher/wrangler/v3 v3.2.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.5
 	golang.org/x/sync v0.12.0
