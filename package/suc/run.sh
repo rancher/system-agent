@@ -53,4 +53,9 @@ if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
     fi
   done
 fi
-chroot /host ${TMPDIR}/install.sh "$@"
+
+chroot /host ${TMPDIR}/install.sh "$@" &
+# wait on the install script to free up trap handling
+# ref: https://www.gnu.org/software/bash/manual/html_node/Signals.html#Signals-1
+# removal of the above chroot process will occur during cgroup cleanup
+wait $!
