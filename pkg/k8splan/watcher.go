@@ -216,7 +216,6 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 				needsApplied = true
 				hasRunOnce = true
 				secret.Data[appliedChecksumKey] = []byte("")
-				secret.Data[failureCountKey] = []byte("0")
 			}
 
 			// Check to see if we've exceeded our failure count threshold
