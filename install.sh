@@ -577,6 +577,8 @@ Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
+# Ensure predictable, world-readable unit perms even under hardened umask (e.g., 027)
+chmod 0644 /etc/systemd/system/rancher-system-agent.service || true
 }
 
 download_rancher_files() {
