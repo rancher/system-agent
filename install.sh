@@ -557,6 +557,10 @@ verify_downloader() {
 # --- write systemd service file ---
 create_systemd_service_file() {
     info "systemd: Creating service file"
+
+    UMASK=$(umask)
+    umask 022
+
     cat <<-EOF >"/etc/systemd/system/rancher-system-agent.service"
 [Unit]
 Description=Rancher System Agent
@@ -576,6 +580,10 @@ Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
+
+    chmod 0644 /etc/systemd/system/rancher-system-agent.service
+    umask "${UMASK}"
+
 EOF
 }
 
