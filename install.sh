@@ -580,11 +580,9 @@ Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
-
-    chmod 0644 /etc/systemd/system/rancher-system-agent.service
-    umask "${UMASK}"
-
 EOF
+
+    umask "${UMASK}"
 }
 
 download_rancher_files() {
