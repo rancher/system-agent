@@ -6,8 +6,6 @@ on:
 jobs:
   test-build-linux:
     runs-on: ubuntu-latest
-    container:
-      image: rancher/dapper:v0.6.0
     permissions:
       contents: read
     strategy:
@@ -15,24 +13,21 @@ jobs:
         os: [ linux ]
         arch: [ amd64, arm64 ]
     steps:
-      - name: Fix the not-a-git-repository issue
-        run: |
-          apk -U add git
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
       - name: Set environment variables
         run: |
-          echo "DAPPER_HOST_ARCH=${{ matrix.arch }}"   >> "$GITHUB_ENV"
-          echo "GH_VERSION=${{ github.ref_name }}"     >> "$GITHUB_ENV"
           echo "GOARCH=${{ matrix.arch }}"             >> "$GITHUB_ENV"
           echo "GOOS=${{ matrix.os }}"                 >> "$GITHUB_ENV"
-          echo "CROSS=false"                           >> "$GITHUB_ENV"
 
-      - name: build with Dapper
-        run: dapper gha-ci
+      - name: Build and test
+        run: make ci
 
   test-build-windows:
     strategy:
@@ -46,17 +41,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
 
       - name: Set environment variables
         run: |
-          echo "DAPPER_HOST_ARCH=${{ matrix.arch }}"   >> "$GITHUB_ENV"
-          echo "GH_VERSION=${{ github.ref_name }}"     >> "$GITHUB_ENV"
           echo "GOARCH=${{ matrix.arch }}"             >> "$GITHUB_ENV"
           echo "GOOS=${{ matrix.os }}"                 >> "$GITHUB_ENV"
-          echo "CROSS=false"                           >> "$GITHUB_ENV"
 
       - name: Build and Test
-        run: bash ./scripts/gha-ci
+        run: make ci
