@@ -76,17 +76,17 @@ CGO_ENABLED ?= 0
 # Registry / images
 TAG ?= $(if $(shell echo $(VERSION) | grep -q dirty && echo dirty),dev,$(VERSION))
 ARCH ?= $(shell go env GOARCH)
-OS ?= $(shell go env GOOS)
+TARGET_OS ?= $(if $(GOOS),$(GOOS),$(shell go env GOOS))
 REGISTRY ?= docker.io
 ORG ?= rancher
 IMAGE_NAME ?= system-agent
 IMAGE ?= $(REGISTRY)/$(ORG)/$(IMAGE_NAME)
-TAG_SUFFIX ?= $(OS)-$(ARCH)
+TAG_SUFFIX ?= $(TARGET_OS)-$(ARCH)
 
 # Build flags
 LDFLAGS := -X github.com/rancher/system-agent/pkg/version.Version=$(VERSION)
 LDFLAGS += -X github.com/rancher/system-agent/pkg/version.GitCommit=$(COMMIT)
-ifeq ($(OS),linux)
+ifeq ($(TARGET_OS),linux)
 	LDFLAGS += -extldflags "-static" -s
 endif
 
@@ -195,15 +195,15 @@ test: ## Run tests
 
 .PHONY: build
 build: $(BIN_DIR) ## Build the system-agent binary
-	@echo "Building rancher-system-agent for $(OS)/$(ARCH)..."
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(OS) GOARCH=$(ARCH) go build -ldflags "$(LDFLAGS)" -o bin/rancher-system-agent
+	@echo "Building rancher-system-agent for $(TARGET_OS)/$(ARCH)..."
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(TARGET_OS) GOARCH=$(ARCH) go build -ldflags "$(LDFLAGS)" -o bin/rancher-system-agent
 	@echo "Build complete!"
 
 ##@ Docker (Local Development)
 
 .PHONY: docker-build
 docker-build: ## Build Docker image locally (no push)
-	docker build --platform=$(OS)/$(ARCH) \
+	docker build --platform=$(TARGET_OS)/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent \
@@ -212,7 +212,7 @@ docker-build: ## Build Docker image locally (no push)
 
 .PHONY: docker-build-suc
 docker-build-suc: ## Build SUC Docker image locally (no push)
-	docker build --platform=$(OS)/$(ARCH) \
+	docker build --platform=$(TARGET_OS)/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent-suc \
@@ -223,7 +223,7 @@ docker-build-suc: ## Build SUC Docker image locally (no push)
 
 .PHONY: docker-buildx-push
 docker-buildx-push: ## Build and push Docker image with buildx (used by release workflow)
-	docker buildx build --platform=$(OS)/$(ARCH) \
+	docker buildx build --platform=$(TARGET_OS)/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent \
@@ -233,7 +233,7 @@ docker-buildx-push: ## Build and push Docker image with buildx (used by release 
 
 .PHONY: docker-buildx-push-suc
 docker-buildx-push-suc: ## Build and push SUC Docker image with buildx (used by release workflow)
-	docker buildx build --platform=$(OS)/$(ARCH) \
+	docker buildx build --platform=$(TARGET_OS)/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent-suc \
@@ -255,11 +255,8 @@ docker-manifest: ## Create and push multi-platform manifests (used by release wo
 
 ##@ CI / CD
 
-.PHONY: ci
-ci: build test validate verify ## Run CI pipeline (build, test, validate, verify)
-
 .PHONY: validate
-validate: lint fmt-check ## Run validation checks (lint + format check)
+validate: lint fmt-check vet ## Run validation checks (lint + format check)
 
 ##@ Release
 
@@ -290,7 +287,7 @@ clean-all: clean vendor-clean ## Clean everything including vendor
 $(GOLANGCI_LINT_BIN): $(GOLANGCI_LINT) ## Build a local copy of golangci-lint
 
 $(GOLANGCI_LINT): $(TOOLS_BIN_DIR) ## Build golangci-lint from tools folder
-	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOLANGCI_LINT_PKG) $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
+	GOOS= GOARCH= GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOLANGCI_LINT_PKG) $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
 
 .PHONY: version
 version: ## Display version information
