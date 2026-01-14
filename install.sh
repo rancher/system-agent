@@ -794,8 +794,8 @@ retrieve_connection_info() {
                 FIRST_CHAR=$(head -c 1 "${TEMP_CONNECTION_INFO}" 2>/dev/null)
                 if [ "${FIRST_CHAR}" != "{" ] && [ "${FIRST_CHAR}" != "[" ]; then
                     i=$((i + 1))
-                    error "Downloaded connection info does not appear to be valid JSON. Content preview:"
-                    head -n 5 "${TEMP_CONNECTION_INFO}" >&2
+                    error "Downloaded connection info does not appear to be valid JSON."
+                    error "First character is '${FIRST_CHAR}' but expected '{' or '['"
                     error "This may indicate a webhook or API error. Sleeping for 5 seconds and trying again"
                     rm -f "${TEMP_CONNECTION_INFO}"
                     sleep 5
