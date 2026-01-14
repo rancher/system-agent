@@ -825,7 +825,7 @@ retrieve_connection_info() {
         umask "${UMASK}"
         # Clean up any temporary or invalid files
         rm -f "${TEMP_CONNECTION_INFO}"
-        rm -f ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
+        rm -f "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
         return 1
     fi
 }
