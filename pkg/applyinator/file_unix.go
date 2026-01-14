@@ -17,6 +17,7 @@ func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) e
 	return os.Chown(path, uid, gid)
 }
 
+//nolint:unused // used in tests
 func getPermissions(path string) (os.FileMode, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
