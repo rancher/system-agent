@@ -771,30 +771,60 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         UMASK=$(umask)
         umask 0177
+        TEMP_CONNECTION_INFO="${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json.tmp"
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
                 noproxy="--noproxy '*'"
             fi
-            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o "${TEMP_CONNECTION_INFO}")
             case "${RESPONSE}" in
             200)
-                info "Successfully downloaded Rancher connection information"
+                # Validate that the downloaded content is valid JSON
+                if [ ! -s "${TEMP_CONNECTION_INFO}" ]; then
+                    i=$((i + 1))
+                    error "Downloaded connection info file is empty. Sleeping for 5 seconds and trying again"
+                    rm -f "${TEMP_CONNECTION_INFO}"
+                    sleep 5
+                    continue
+                fi
+                
+                # Check if file starts with '{' or '[' (basic JSON validation)
+                FIRST_CHAR=$(head -c 1 "${TEMP_CONNECTION_INFO}" 2>/dev/null)
+                if [ "${FIRST_CHAR}" != "{" ] && [ "${FIRST_CHAR}" != "[" ]; then
+                    i=$((i + 1))
+                    error "Downloaded connection info does not appear to be valid JSON. Content preview:"
+                    head -n 5 "${TEMP_CONNECTION_INFO}" >&2
+                    error "This may indicate a webhook or API error. Sleeping for 5 seconds and trying again"
+                    rm -f "${TEMP_CONNECTION_INFO}"
+                    sleep 5
+                    continue
+                fi
+                
+                # Move temp file to final location only if validation passes
+                mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
+                info "Successfully downloaded and validated Rancher connection information"
                 umask "${UMASK}"
                 return 0
                 ;;
             *)
                 i=$((i + 1))
                 error "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
+                rm -f "${TEMP_CONNECTION_INFO}"
                 sleep 5
                 continue
                 ;;
             esac
         done
         error "Failed to download Rancher connection information in ${i} attempts"
+        error "Please verify:"
+        error "  1. Rancher server is accessible at ${CATTLE_SERVER}"
+        error "  2. The authentication token is valid"
+        error "  3. Required webhooks are running (check rancher-webhook service)"
         umask "${UMASK}"
-        # Clean up invalid rancher2_connection_info.json file
+        # Clean up any temporary or invalid files
+        rm -f "${TEMP_CONNECTION_INFO}"
         rm -f ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
         return 1
     fi
