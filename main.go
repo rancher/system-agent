@@ -91,7 +91,10 @@ func run(_ *cli.Context) error {
 		var connInfo config.ConnectionInfo
 
 		if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
-			return fmt.Errorf("unable to parse connection info file: %w", err)
+			if os.IsNotExist(err) {
+				return fmt.Errorf("connection info file not found at %s: this file should be created by the system-agent install script during registration with the Rancher server. Please verify the agent was installed correctly and the file exists with valid JSON content", cf.ConnectionInfoFile)
+			}
+			return fmt.Errorf("unable to parse connection info file %s: %w. The file may contain invalid JSON. Please verify the file contains valid JSON and was written correctly during agent installation", cf.ConnectionInfoFile, err)
 		}
 
 		var strictVerify bool // When strictVerify is set to true, the kubeconfig validator will not discard CA data if it is invalid
