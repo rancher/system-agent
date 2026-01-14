@@ -46,7 +46,7 @@ func Parse(path string, result interface{}) error {
 		return err
 	}
 
-	if err := pathOwnedByRoot(fi, path); err != nil {
+	if err := pathOwnedByCurrentUser(path); err != nil {
 		return err
 	}
 
