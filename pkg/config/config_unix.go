@@ -9,8 +9,8 @@ import (
 	"syscall"
 )
 
-// pathOwnedByRoot is abstracted out for Linux as root is a Linux only concept.
-func pathOwnedByRoot(path string) error {
+// pathOwnedByCurrentUser is abstracted out for Linux as root is a Linux only concept.
+func pathOwnedByCurrentUser(path string) error {
 	var stat syscall.Stat_t
 	err := syscall.Stat(path, &stat)
 	if err != nil {

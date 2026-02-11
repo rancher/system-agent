@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-// pathOwnedByRoot is abstracted out with Windows being a no op.
-func pathOwnedByRoot(_ string) error {
+// pathOwnedByCurrentUser is abstracted out with Windows being a no op.
+func pathOwnedByCurrentUser(_ string) error {
 	return nil
 }
 
