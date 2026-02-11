@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -416,7 +415,10 @@ func gzipByteSlice(input []byte) ([]byte, error) {
 
 	gzWriter := gzip.NewWriter(&gzOutput)
 
-	gzWriter.Write(input)
+	if _, err := gzWriter.Write(input); err != nil {
+		logrus.Errorf("error writing gzipped byte slice: %v", err)
+	}
+
 	if err := gzWriter.Close(); err != nil {
 		return []byte{}, err
 	}
@@ -494,7 +496,7 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 		sort.Slice(planFiles, func(i, j int) bool {
 			return planFiles[i].Name() > planFiles[j].Name()
 		})
-		existingFileContent, err := ioutil.ReadFile(filepath.Join(a.appliedPlanDir, planFiles[0].Name()))
+		existingFileContent, err := os.ReadFile(filepath.Join(a.appliedPlanDir, planFiles[0].Name()))
 		if err != nil {
 			return err
 		}

@@ -22,7 +22,7 @@ import (
 	"github.com/rancher/system-agent/pkg/prober"
 	corecontrollers "github.com/rancher/wrangler/v3/pkg/generated/controllers/core/v1"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -124,7 +124,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 	})
 
 	controllerFactory := controller.NewSharedControllerFactory(cacheFactory, &controller.SharedControllerFactoryOptions{
-		DefaultRateLimiter: workqueue.NewItemExponentialFailureRateLimiter(1*time.Minute, 5*time.Minute),
+		DefaultRateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[any](1*time.Minute, 5*time.Minute),
 		DefaultWorkers:     1,
 	})
 	core := corecontrollers.New(controllerFactory)
@@ -140,7 +140,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 	hasRunOnce := false
 
-	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *v1.Secret) (*v1.Secret, error) {
+	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *corev1.Secret) (*corev1.Secret, error) {
 		if secret == nil {
 			logrus.Fatalf("[K8s] received nil secret that was nil, stopping")
 			return nil, nil
@@ -363,8 +363,8 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 }
 
 // updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict and the new plan doesn't match the plan being applied in the current iteration, it will discontinue.
-func (w *watcher) updateSecret(core corecontrollers.Interface, secret *v1.Secret) (*v1.Secret, error) {
-	var resultingSecret *v1.Secret
+func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Secret) (*corev1.Secret, error) {
+	var resultingSecret *corev1.Secret
 	var latestSecretUpdateAttempted bool
 	err := retry.OnError(retry.DefaultBackoff,
 		func(err error) bool {

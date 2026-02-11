@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -64,7 +64,7 @@ func (w *watcher) listFiles(ctx context.Context, force bool) error {
 	var errs []error
 	for _, base := range w.bases {
 		if err := w.listFilesIn(ctx, base, force); err != nil {
-			errs = append(errs, err)
+			_ = append(errs, err)
 		}
 	}
 	return nil
@@ -184,7 +184,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 			logrus.Errorf("error marshalling new plan position data: %v", err)
 		}
 
-		if bytes.Compare(newPPData, posData) != 0 {
+		if !bytes.Equal(newPPData, posData) {
 			logrus.Debugf("[local] Writing position data")
 			if err := os.WriteFile(posFile, newPPData, 0600); err != nil {
 				logrus.Errorf("[local] Error encountered when writing position file for %s: %v", path, err)
@@ -202,7 +202,7 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	}
 	defer f.Close()
 
-	b, err := ioutil.ReadAll(f)
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return applyinator.CalculatedPlan{}, err
 	}

@@ -1,3 +1,14 @@
-./.dapper
+# Build outputs
 ./.cache
 ./dist
+./bin
+
+# IDE
+.idea/
+.vscode/
+
+# Tools
+hack/tools/bin/
+
+# Git
+.git/

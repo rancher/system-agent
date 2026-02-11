@@ -1,276 +1,106 @@
-name: Release
+name: System Agent Release
 
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create releases
+  id-token: write # to read vault secrets
 
 env:
-  IMAGE: rancher/system-agent
   TAG: ${{ github.ref_name }}
-  TAG_SUC: ${{ github.ref_name }}-suc
 
 jobs:
-  build-binary:
+  # Build Docker images using multi-stage Dockerfile
+  release:
+    name: Build and push images
     runs-on: ubuntu-latest
-    container:
-      image: rancher/dapper:v0.6.0
-    permissions:
-      contents: read
     strategy:
       matrix:
-        os: [ linux ]
-        arch: [ amd64, arm64 ]
-    steps:
-      - name: Fix the not-a-git-repository issue
-        run: |
-          apk -U add git
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set environment variables
-        run: |
-          echo "DAPPER_HOST_ARCH=${{ matrix.arch }}"   >> "$GITHUB_ENV"
-          echo "GH_VERSION=${{ github.ref_name }}"     >> "$GITHUB_ENV"
-          echo "GOARCH=${{ matrix.arch }}"             >> "$GITHUB_ENV"
-          echo "GOOS=${{ matrix.os }}"                 >> "$GITHUB_ENV"
-          echo "CROSS=false"                           >> "$GITHUB_ENV"
-
-      - name: build with Dapper
-        run: dapper gha-ci
-
-      - name: upload the binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: bin/rancher-system-agent
-          if-no-files-found: error
-          overwrite: true
-
-  build-push-image:
-    runs-on: ubuntu-latest
-    needs:
-      - build-binary
-    permissions:
-      contents: read
-      id-token: write # needed for the Vault authentication
-    strategy:
-      matrix:
-        os: [ linux ]
-        arch: [ amd64, arm64 ]
+        include:
+          - arch: amd64
+            tag-suffix: "linux-amd64"
+          - arch: arm64
+            tag-suffix: "linux-arm64"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Download binary
-        uses: actions/download-artifact@v4
         with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: bin
+          fetch-depth: 0
 
-      - name: Set up QEMU
+      - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Load secrets from Vault
+      - name: Read Vault secrets
         uses: rancher-eio/read-vault-secrets@main
         with:
           secrets: |
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
 
-      - name: Login to Docker Hub
+      - name: Log into Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Build and push tag
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file:  package/Dockerfile
-          push: true
-          tags: ${{ env.IMAGE }}:${{ env.TAG }}
-          platforms: ${{ matrix.os }}/${{ matrix.arch }}
+      - name: Build and push system-agent image
+        run: make docker-buildx-push
+        env:
+          TAG: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          GOOS: linux
+          TAG_SUFFIX: ${{ matrix.tag-suffix }}
+          COMMIT: ${{ github.sha }}
 
-      - name: Export digest
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: "digests-${{ matrix.os }}-${{ matrix.arch }}"
-          path: /tmp/digests/*
-          if-no-files-found: error
-          overwrite: true
+      - name: Build and push system-agent-suc image
+        run: make docker-buildx-push-suc
+        env:
+          TAG: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          GOOS: linux
+          TAG_SUFFIX: ${{ matrix.tag-suffix }}
+          COMMIT: ${{ github.sha }}
 
   merge:
     runs-on: ubuntu-latest
     needs:
-      - build-push-image
-    permissions:
-      contents: read
-      id-token: write # needed for the Vault authentication
+      - release
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Load secrets from Vault
+      - name: Read Vault secrets
         uses: rancher-eio/read-vault-secrets@main
         with:
           secrets: |
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
 
-      - name: Login to Docker Hub
+      - name: Log into Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: digests-*
-          merge-multiple: true
-
-      - name: Create manifest list and push
-        working-directory: /tmp/digests
-        run: |
-          docker buildx imagetools create --tag ${{ env.IMAGE }}:${{ env.TAG }} $(printf '${{ env.IMAGE }}@sha256:%s ' *)
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect  ${{ env.IMAGE }}:${{ env.TAG }}
-
-  build-push-image-suc:
-    runs-on: ubuntu-latest
-    needs:
-      - build-binary
-    permissions:
-      contents: read
-      id-token: write # needed for the Vault authentication
-    strategy:
-      matrix:
-        os: [ linux ]
-        arch: [ amd64, arm64 ]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: bin
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Load secrets from Vault
-        uses: rancher-eio/read-vault-secrets@main
-        with:
-          secrets: |
-            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
-            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Build and push Docker tag
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: package/Dockerfile.suc
-          push: true
-          tags: ${{ env.IMAGE }}:${{ env.TAG_SUC }}
-          platforms: ${{ matrix.os }}/${{ matrix.arch }}
-
-      - name: Export digest
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: "suc-digests-${{ matrix.os }}-${{ matrix.arch }}"
-          path: /tmp/digests/*
-          if-no-files-found: error
-          overwrite: true
-
-
-  merge-suc:
-    runs-on: ubuntu-latest
-    needs:
-      - build-push-image-suc
-    permissions:
-      contents: read
-      id-token: write # needed for the Vault authentication
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Load secrets from Vault
-        uses: rancher-eio/read-vault-secrets@main
-        with:
-          secrets: |
-            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
-            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: suc-digests-*
-          merge-multiple: true
-
-      - name: Create manifest list and push
-        working-directory: /tmp/digests
-        run: |
-          docker buildx imagetools create --tag ${{ env.IMAGE }}:${{ env.TAG_SUC }} $(printf '${{ env.IMAGE }}@sha256:%s ' *)
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect  ${{ env.IMAGE }}:${{ env.TAG_SUC }}            
+      - name: Create and push multi-platform manifests
+        run: make docker-manifest
+        env:
+          TAG: ${{ github.ref_name }}
 
   github_release:
+    name: Create GitHub release
     runs-on: ubuntu-latest
     needs:
       - merge
-      - merge-suc
     permissions:
-      contents: write # needed for creating the GH release
+      contents: write
       id-token: write
     steps:
       - name: Read App Secrets
@@ -292,70 +122,22 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Download binary
-        uses: actions/download-artifact@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          pattern: binary-*
-          path: bin
+          go-version-file: 'go.mod'
 
-      - name: Prepare release
-        run: |
-          mkdir tmp
-          for DIR in bin/binary-*; do
-            if [[ -d "$DIR" && -f "$DIR/rancher-system-agent" ]]; then
-              ARCH=$(echo "$DIR" | awk -F'-' '{print $NF}')
-              mv "$DIR/rancher-system-agent" "tmp/rancher-system-agent-$ARCH"
-            fi
-          done
-          cp install.sh system-agent-uninstall.sh tmp
-          mkdir dist
-          for file in tmp/*; do
-            sha256sum "$file" >> dist/sha256sum.txt
-          done
-          mv tmp/* dist
+      - name: Build release binaries
+        run: make release-binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
 
-      - name: Create release
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run:
-          gh release create ${{ github.ref_name }} --verify-tag --generate-notes dist/*
-
-  dispatch:
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: github_release
-    strategy:
-      fail-fast: false
-      matrix:
-        target-branch: [release/v2.9, release/v2.10, release/v2.11, main]
-    steps:
-      - name: Read App Secrets
-        uses: rancher-eio/read-vault-secrets@main
-        with:
-          secrets: |
-            secret/data/github/repo/${{ github.repository }}/github/workflow-dispatcher/app-credentials appId | APP_ID ;
-            secret/data/github/repo/${{ github.repository }}/github/workflow-dispatcher/app-credentials privateKey | PRIVATE_KEY
-
-      - name: Create App Token
-        uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ env.APP_ID }}
-          private-key: ${{ env.PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          
-      - name: Run dispatch
         run: |
-          ACTION_TARGET_BRANCH=${{ matrix.target-branch }}
-          echo "Dispatching to $ACTION_TARGET_BRANCH branch of rancher/rancher"
-          gh workflow run "System Agent Upgrade" --repo rancher/rancher --ref $ACTION_TARGET_BRANCH -F system_agent_version=${{ github.ref_name }} -F source_author=${{ github.actor }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          gh release create ${{ github.ref_name }} \
+            --verify-tag \
+            --generate-notes \
+            dist/*
