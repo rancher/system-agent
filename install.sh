@@ -790,20 +790,18 @@ retrieve_connection_info() {
                     continue
                 fi
                 
-                # Check if file starts with '{' or '[' (basic JSON validation)
-                FIRST_CHAR=$(head -c 1 "${TEMP_CONNECTION_INFO}" 2>/dev/null)
-                if [ "${FIRST_CHAR}" != "{" ] && [ "${FIRST_CHAR}" != "[" ]; then
+                # Move temp file to final location
+                mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
+
+                # Validate using the system-agent validate command
+                if ! "${CATTLE_AGENT_BIN_DIR}/rancher-system-agent" validate "${CATTLE_AGENT_CONFIG_DIR}/config.yaml" 2>&1; then
                     i=$((i + 1))
-                    error "Downloaded connection info does not appear to be valid JSON."
-                    error "First character is '${FIRST_CHAR}' but expected '{' or '['"
-                    error "This may indicate a webhook or API error. Sleeping for 5 seconds and trying again"
-                    rm -f "${TEMP_CONNECTION_INFO}"
+                    error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
+                    rm -f "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
                     sleep 5
                     continue
                 fi
                 
-                # Move temp file to final location only if validation passes
-                mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
                 info "Successfully downloaded and validated Rancher connection information"
                 umask "${UMASK}"
                 return 0
@@ -818,10 +816,6 @@ retrieve_connection_info() {
             esac
         done
         error "Failed to download Rancher connection information in ${i} attempts"
-        error "Please verify:"
-        error "  1. Rancher server is accessible at ${CATTLE_SERVER}"
-        error "  2. The authentication token is valid"
-        error "  3. Required webhooks are running (check rancher-webhook service)"
         umask "${UMASK}"
         # Clean up any temporary or invalid files
         rm -f "${TEMP_CONNECTION_INFO}"
