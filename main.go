@@ -154,7 +154,7 @@ func validate(c *cli.Context) error {
 	if !cf.LocalEnabled && !cf.RemoteEnabled {
 		return fmt.Errorf("neither local nor remote watching is enabled")
 	}
-	
+
 	if cf.LocalEnabled {
 		logrus.Infof("Local plan watching is enabled")
 	}
@@ -182,13 +182,13 @@ func validate(c *cli.Context) error {
 
 func validateRemoteConfig(cf config.AgentConfig) error {
 	logrus.Infof("Validating remote configuration")
-	
+
 	if cf.ConnectionInfoFile == "" {
 		return fmt.Errorf("remote watching enabled but connection info file not specified")
 	}
 
 	logrus.Infof("Checking connection info file: %s", cf.ConnectionInfoFile)
-	
+
 	if _, err := os.Stat(cf.ConnectionInfoFile); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("connection info file not found: %s. This file should be created by the system-agent install script", cf.ConnectionInfoFile)
@@ -227,7 +227,7 @@ func validateRemoteConfig(cf config.AgentConfig) error {
 
 func validateLocalConfig(cf config.AgentConfig) error {
 	logrus.Infof("Validating local configuration")
-	
+
 	if cf.LocalPlanDir == "" {
 		return fmt.Errorf("local watching enabled but local plan directory not specified")
 	}

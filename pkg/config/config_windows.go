@@ -8,7 +8,7 @@ import (
 )
 
 // pathOwnedByRoot is abstracted out with Windows being a no op.
-func pathOwnedByRoot(_ os.FileInfo, _ string) error {
+func pathOwnedByRoot(_ string) error {
 	return nil
 }
 

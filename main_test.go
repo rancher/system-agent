@@ -10,11 +10,6 @@ import (
 )
 
 func TestValidate(t *testing.T) {
-	// Skip if not running as root since the validate command requires root
-	if os.Getuid() != 0 {
-		t.Skip("Skipping test because it requires root privileges")
-	}
-
 	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "system-agent-test-*")
 	if err != nil {
@@ -37,14 +32,14 @@ remoteEnabled: true
 localEnabled: false
 connectionInfoFile: ` + filepath.Join(tmpDir, "connection-info.json") + `
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
 				// Create connection info file
 				connInfoFile := filepath.Join(tmpDir, "connection-info.json")
 				connInfoContent := `{"kubeConfig": "test-config", "namespace": "default", "secretName": "test-secret"}`
-				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0600); err != nil {
+				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -57,7 +52,7 @@ connectionInfoFile: ` + filepath.Join(tmpDir, "connection-info.json") + `
 			setupFunc: func() (string, error) {
 				configFile := filepath.Join(tmpDir, "valid-local-config.yaml")
 				localPlanDir := filepath.Join(tmpDir, "plans")
-				if err := os.MkdirAll(localPlanDir, 0755); err != nil {
+				if err := os.MkdirAll(localPlanDir, 0o755); err != nil {
 					return "", err
 				}
 
@@ -66,7 +61,7 @@ remoteEnabled: false
 localEnabled: true
 localPlanDirectory: ` + localPlanDir + `
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -90,7 +85,7 @@ localPlanDirectory: ` + localPlanDir + `
 remoteEnabled: false
 localEnabled: false
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -108,7 +103,7 @@ remoteEnabled: true
 localEnabled: false
 connectionInfoFile: ` + filepath.Join(tmpDir, "missing.json") + `
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -126,14 +121,14 @@ remoteEnabled: true
 localEnabled: false
 connectionInfoFile: ` + filepath.Join(tmpDir, "invalid.json") + `
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
 				// Create invalid connection info file
 				connInfoFile := filepath.Join(tmpDir, "invalid.json")
 				connInfoContent := `Internal error occurred: failed calling webhook`
-				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0600); err != nil {
+				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -151,14 +146,14 @@ remoteEnabled: true
 localEnabled: false
 connectionInfoFile: ` + filepath.Join(tmpDir, "no-kubeconfig.json") + `
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
 				// Create connection info file without kubeConfig
 				connInfoFile := filepath.Join(tmpDir, "no-kubeconfig.json")
 				connInfoContent := `{"namespace": "default", "secretName": "test-secret"}`
-				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0600); err != nil {
+				if err := os.WriteFile(connInfoFile, []byte(connInfoContent), 0o600); err != nil {
 					return "", err
 				}
 
@@ -175,7 +170,7 @@ connectionInfoFile: ` + filepath.Join(tmpDir, "no-kubeconfig.json") + `
 remoteEnabled: false
 localEnabled: true
 `
-				if err := os.WriteFile(configFile, []byte(configContent), 0600); err != nil {
+				if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 					return "", err
 				}
 
