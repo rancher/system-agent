@@ -51,6 +51,12 @@ func main() {
 				Usage:  "run the rancher-system-agent sentinel to watch plans",
 				Action: run,
 			},
+			{
+				Name:      "validate",
+				Usage:     "validate agent configuration and environment",
+				Action:    validate,
+				ArgsUsage: "[config-file]",
+			},
 		}}
 
 	if err := app.Run(os.Args); err != nil {
@@ -91,7 +97,10 @@ func run(_ *cli.Context) error {
 		var connInfo config.ConnectionInfo
 
 		if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
-			return fmt.Errorf("unable to parse connection info file: %w", err)
+			if os.IsNotExist(err) {
+				return fmt.Errorf("connection info file not found at %s: this file should be created by the system-agent install script during registration with the Rancher server. Please verify the agent was installed correctly", cf.ConnectionInfoFile)
+			}
+			return fmt.Errorf("unable to parse connection info file %s: %w. The file may contain invalid JSON from a failed installation. Please verify it was written correctly during agent installation", cf.ConnectionInfoFile, err)
 		}
 
 		var strictVerify bool // When strictVerify is set to true, the kubeconfig validator will not discard CA data if it is invalid
@@ -108,5 +117,130 @@ func run(_ *cli.Context) error {
 	}
 
 	<-topContext.Done()
+	return nil
+}
+
+func validate(c *cli.Context) error {
+	logrus.Infof("Rancher System Agent version %s - Configuration Validation", version.FriendlyVersion())
+
+	// Get config file from positional argument or use default
+	configFile := c.Args().First()
+	if configFile == "" {
+		configFile = os.Getenv(cattleAgentConfigEnv)
+	}
+	if configFile == "" {
+		configFile = defaultConfigFile
+	}
+
+	logrus.Infof("Validating configuration file: %s", configFile)
+
+	// Check config file exists
+	if _, err := os.Stat(configFile); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("configuration file not found: %s", configFile)
+		}
+		return fmt.Errorf("error accessing configuration file: %w", err)
+	}
+	logrus.Infof("Configuration file exists")
+
+	// Parse config file
+	var cf config.AgentConfig
+	if err := config.Parse(configFile, &cf); err != nil {
+		return fmt.Errorf("failed to parse configuration file: %w", err)
+	}
+	logrus.Infof("Configuration file parsed successfully")
+
+	// Verify local or remote is enabled
+	if !cf.LocalEnabled && !cf.RemoteEnabled {
+		return fmt.Errorf("neither local nor remote watching is enabled")
+	}
+
+	if cf.LocalEnabled {
+		logrus.Infof("Local plan watching is enabled")
+	}
+	if cf.RemoteEnabled {
+		logrus.Infof("Remote plan watching is enabled")
+	}
+
+	// Validate remote configuration if enabled
+	if cf.RemoteEnabled {
+		if err := validateRemoteConfig(cf); err != nil {
+			return err
+		}
+	}
+
+	// Validate local configuration if enabled
+	if cf.LocalEnabled {
+		if err := validateLocalConfig(cf); err != nil {
+			return err
+		}
+	}
+
+	logrus.Infof("Configuration validation successful")
+	return nil
+}
+
+func validateRemoteConfig(cf config.AgentConfig) error {
+	logrus.Infof("Validating remote configuration")
+
+	if cf.ConnectionInfoFile == "" {
+		return fmt.Errorf("remote watching enabled but connection info file not specified")
+	}
+
+	logrus.Infof("Checking connection info file: %s", cf.ConnectionInfoFile)
+
+	if _, err := os.Stat(cf.ConnectionInfoFile); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("connection info file not found: %s. This file should be created by the system-agent install script", cf.ConnectionInfoFile)
+		}
+		return fmt.Errorf("error accessing connection info file: %w", err)
+	}
+	logrus.Infof("Connection info file exists")
+
+	// Parse the connection info file
+	var connInfo config.ConnectionInfo
+	if err := config.Parse(cf.ConnectionInfoFile, &connInfo); err != nil {
+		return fmt.Errorf("failed to parse connection info file: %w. The file may contain invalid JSON from a failed installation", err)
+	}
+	logrus.Infof("Connection info file is valid JSON")
+
+	// Verify required fields
+	if connInfo.KubeConfig == "" {
+		return fmt.Errorf("connection info missing required kubeConfig field")
+	}
+	logrus.Infof("Connection info has required kubeConfig field")
+
+	if connInfo.Namespace == "" {
+		logrus.Warnf("Connection info missing namespace field")
+	} else {
+		logrus.Infof("Connection info has namespace: %s", connInfo.Namespace)
+	}
+
+	if connInfo.SecretName == "" {
+		logrus.Warnf("Connection info missing secretName field")
+	} else {
+		logrus.Infof("Connection info has secretName: %s", connInfo.SecretName)
+	}
+
+	return nil
+}
+
+func validateLocalConfig(cf config.AgentConfig) error {
+	logrus.Infof("Validating local configuration")
+
+	if cf.LocalPlanDir == "" {
+		return fmt.Errorf("local watching enabled but local plan directory not specified")
+	}
+
+	if _, err := os.Stat(cf.LocalPlanDir); err != nil {
+		if os.IsNotExist(err) {
+			logrus.Warnf("Local plan directory does not exist: %s (will be created on startup)", cf.LocalPlanDir)
+		} else {
+			return fmt.Errorf("error accessing local plan directory: %w", err)
+		}
+	} else {
+		logrus.Infof("Local plan directory exists: %s", cf.LocalPlanDir)
+	}
+
 	return nil
 }
