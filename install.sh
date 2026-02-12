@@ -781,27 +781,18 @@ retrieve_connection_info() {
             RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o "${TEMP_CONNECTION_INFO}")
             case "${RESPONSE}" in
             200)
-                # Validate that the downloaded content is valid JSON
-                if [ ! -s "${TEMP_CONNECTION_INFO}" ]; then
+                # Validate using the system-agent validate command
+                if ! "${CATTLE_AGENT_BIN_DIR}/rancher-system-agent" validate "${TEMP_CONNECTION_INFO}" 2>&1; then
                     i=$((i + 1))
-                    error "Downloaded connection info file is empty. Sleeping for 5 seconds and trying again"
+                    error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
                     rm -f "${TEMP_CONNECTION_INFO}"
                     sleep 5
                     continue
                 fi
-                
+
                 # Move temp file to final location
                 mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
 
-                # Validate using the system-agent validate command
-                if ! "${CATTLE_AGENT_BIN_DIR}/rancher-system-agent" validate "${CATTLE_AGENT_CONFIG_DIR}/config.yaml" 2>&1; then
-                    i=$((i + 1))
-                    error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
-                    rm -f "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
-                    sleep 5
-                    continue
-                fi
-                
                 info "Successfully downloaded and validated Rancher connection information"
                 umask "${UMASK}"
                 return 0
