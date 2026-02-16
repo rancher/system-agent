@@ -1,0 +1,50 @@
+name: Run short e2e tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  GINKGO_LABEL_FILTER: "short"
+  E2E_IMAGE_TAG: e2e-test
+
+jobs:
+  e2e:
+    name: E2E Short Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: true
+
+      - name: Display tool versions
+        run: |
+          go version
+          kind version
+          docker version
+
+      - name: Run e2e tests
+        run: make test-e2e
+
+      - name: Collect run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-short-artifacts
+          path: _artifacts
+          if-no-files-found: ignore
