@@ -17,7 +17,7 @@
 # Build the rancher-system-agent binary
 # This Dockerfile replaces Dockerfile.dapper for containerized builds
 
-ARG GOLANG_VERSION=1.24
+ARG GOLANG_VERSION=1.25
 ARG builder_image=registry.suse.com/bci/golang:${GOLANG_VERSION}
 
 # =============================================================================
