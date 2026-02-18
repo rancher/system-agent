@@ -62,6 +62,10 @@ GOLANGCI_LINT_BIN := golangci-lint
 GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER))
 GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 
+GINKGO_VER := v2.28.1
+GINKGO_BIN := $(abspath $(TOOLS_BIN_DIR)/ginkgo-$(GINKGO_VER))
+GINKGO_PKG := github.com/onsi/ginkgo/v2/ginkgo
+
 GO_INSTALL := ./scripts/go-install.sh
 
 # Version information
@@ -72,6 +76,20 @@ VERSION ?= $(if $(and $(GIT_TAG),$(if $(DIRTY),,true)),$(GIT_TAG),$(COMMIT)$(if 
 
 # Build configuration
 CGO_ENABLED ?= 0
+
+# E2E configuration
+E2E_IMAGE_TAG ?= e2e-test
+E2E_IMAGE_NAME ?= $(ORG)/$(IMAGE_NAME)
+E2E_KIND_CLUSTER_NAME ?= system-agent-e2e
+SKIP_RESOURCE_CLEANUP ?= false
+
+# Ginkgo E2E configuration
+GINKGO_LABEL_FILTER ?= short
+GINKGO_NODES ?= 1
+GINKGO_TIMEOUT ?= 30m
+GINKGO_POLL_PROGRESS_AFTER ?= 10m
+GINKGO_POLL_PROGRESS_INTERVAL ?= 1m
+E2E_ARTIFACTS ?= $(ROOT_DIR)/_artifacts
 
 # Registry / images
 TAG ?= $(if $(shell echo $(VERSION) | grep -q dirty && echo dirty),dev,$(VERSION))
@@ -191,6 +209,33 @@ verify-gen: generate ## Verify go generated files are up to date
 test: ## Run tests
 	go test -cover -tags=test ./...
 
+.PHONY: e2e-image
+e2e-image: ## Build system-agent Docker image for e2e tests
+	docker build --platform=linux/$(ARCH) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--target system-agent \
+		-t $(E2E_IMAGE_NAME):$(E2E_IMAGE_TAG) .
+
+.PHONY: test-e2e
+test-e2e: $(GINKGO_BIN) e2e-image ## Run e2e tests (builds image and creates Kind cluster)
+	@mkdir -p $(E2E_ARTIFACTS)
+	cd test && \
+	E2E_IMAGE_TAG=$(E2E_IMAGE_TAG) \
+	E2E_IMAGE_NAME=$(E2E_IMAGE_NAME) \
+	E2E_KIND_CLUSTER_NAME=$(E2E_KIND_CLUSTER_NAME) \
+	SKIP_RESOURCE_CLEANUP=$(SKIP_RESOURCE_CLEANUP) \
+	$(GINKGO_BIN) -v --trace \
+		--tags=e2e \
+		--label-filter="$(GINKGO_LABEL_FILTER)" \
+		--nodes=$(GINKGO_NODES) \
+		--timeout=$(GINKGO_TIMEOUT) \
+		--poll-progress-after=$(GINKGO_POLL_PROGRESS_AFTER) \
+		--poll-progress-interval=$(GINKGO_POLL_PROGRESS_INTERVAL) \
+		--output-dir="$(E2E_ARTIFACTS)" \
+		--junit-report="junit.e2e_suite.xml" \
+		./e2e/suites/...
+
 ##@ Build
 
 .PHONY: build
@@ -203,7 +248,7 @@ build: $(BIN_DIR) ## Build the system-agent binary
 
 .PHONY: docker-build
 docker-build: ## Build Docker image locally (no push)
-	docker build --platform=$(TARGET_OS)/$(ARCH) \
+	docker build --platform=linux/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent \
@@ -212,18 +257,18 @@ docker-build: ## Build Docker image locally (no push)
 
 .PHONY: docker-build-suc
 docker-build-suc: ## Build SUC Docker image locally (no push)
-	docker build --platform=$(TARGET_OS)/$(ARCH) \
+	docker build --platform=linux/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent-suc \
 		-t $(IMAGE):$(TAG)-suc .
-	@echo "Built $(IMAGE):$(TAG)-suc"
+	@echo "Built $(IMAGE):$(TAG)-suc)"
 
 ##@ Docker (Release - used by CI/CD workflows)
 
 .PHONY: docker-buildx-push
 docker-buildx-push: ## Build and push Docker image with buildx (used by release workflow)
-	docker buildx build --platform=$(TARGET_OS)/$(ARCH) \
+	docker buildx build --platform=linux/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent \
@@ -233,7 +278,7 @@ docker-buildx-push: ## Build and push Docker image with buildx (used by release 
 
 .PHONY: docker-buildx-push-suc
 docker-buildx-push-suc: ## Build and push SUC Docker image with buildx (used by release workflow)
-	docker buildx build --platform=$(TARGET_OS)/$(ARCH) \
+	docker buildx build --platform=linux/$(ARCH) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--target system-agent-suc \
@@ -288,6 +333,9 @@ $(GOLANGCI_LINT_BIN): $(GOLANGCI_LINT) ## Build a local copy of golangci-lint
 
 $(GOLANGCI_LINT): $(TOOLS_BIN_DIR) ## Build golangci-lint from tools folder
 	GOOS= GOARCH= GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOLANGCI_LINT_PKG) $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
+
+$(GINKGO_BIN): $(TOOLS_BIN_DIR) ## Build ginkgo for e2e tests
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GINKGO_PKG) ginkgo $(GINKGO_VER)
 
 .PHONY: version
 version: ## Display version information

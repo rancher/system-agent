@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: system-agent
+  namespace: ${NAMESPACE}
+  labels:
+    app: system-agent
+spec:
+  selector:
+    matchLabels:
+      app: system-agent
+  template:
+    metadata:
+      labels:
+        app: system-agent
+    spec:
+      serviceAccountName: system-agent
+      hostPID: true
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: system-agent
+        image: ${IMAGE_REF}
+        imagePullPolicy: Never
+        command: ["rancher-system-agent", "sentinel"]
+        env:
+        - name: CATTLE_AGENT_CONFIG
+          value: /etc/rancher/agent/config.yaml
+        - name: CATTLE_LOGLEVEL
+          value: debug
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        volumeMounts:
+        - name: agent-config
+          mountPath: /etc/rancher/agent
+        - name: work-dir
+          mountPath: /var/lib/rancher/agent/work
+        - name: plan-dir
+          mountPath: /var/lib/rancher/agent/plans
+      volumes:
+      - name: agent-config
+        configMap:
+          name: ${CONFIGMAP_NAME}
+          defaultMode: 384
+      - name: work-dir
+        emptyDir: {}
+      - name: plan-dir
+        emptyDir: {}

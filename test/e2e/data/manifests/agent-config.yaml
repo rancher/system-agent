@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: ${NAMESPACE}
+data:
+  config.yaml: |
+    workDirectory: /var/lib/rancher/agent/work
+    localEnabled: false
+    remoteEnabled: true
+    connectionInfoFile: /etc/rancher/agent/connection-info.json
+    preserveWorkDirectory: true
+  connection-info.json: |
+    ${CONNECTION_INFO}
