@@ -91,16 +91,20 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
 
-      - name: Log into Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
       - name: Create and push multi-platform manifests
-        run: make docker-manifest
+        uses: rancher/ecm-distro-tools/actions/publish-image@master
         env:
           TAG: ${{ github.ref_name }}
+        with:
+          image: "system-agent"
+          tag: ${{ github.ref_name }}
+          make-target: docker-manifest
+
+          public-repo: rancher
+          public-username: ${{ env.DOCKER_USERNAME }}
+          public-password: ${{ env.DOCKER_PASSWORD }}
+
+          push-to-prime: false
 
   github_release:
     name: Create GitHub release
