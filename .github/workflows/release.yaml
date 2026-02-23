@@ -31,12 +31,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
       - name: Read Vault secrets
         uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # main
         with:
@@ -44,29 +38,43 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_PASSWORD
 
-      - name: Log into Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - name: Publish Image
+        uses: rancher/ecm-distro-tools/actions/publish-image@master
+        env:
+          TAG: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          GOOS: linux
+          TAG_SUFFIX: ${{ matrix.tag-suffix }}
+          COMMIT: ${{ github.sha }}
         with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
+          image: "system-agent"
+          tag: ${{ github.ref_name }}
+          make-target: docker-buildx-push
 
-      - name: Build and push system-agent image
-        run: make docker-buildx-push
+          public-repo: rancher
+          public-username: ${{ env.DOCKER_USERNAME }}
+          public-password: ${{ env.DOCKER_PASSWORD }}
+
+          push-to-prime: false
+
+      - name: Publish Image
+        uses: rancher/ecm-distro-tools/actions/publish-image@master
         env:
           TAG: ${{ github.ref_name }}
           ARCH: ${{ matrix.arch }}
           GOOS: linux
           TAG_SUFFIX: ${{ matrix.tag-suffix }}
           COMMIT: ${{ github.sha }}
+        with:
+          image: "system-agent"
+          tag: ${{ github.ref_name }}
+          make-target: docker-buildx-push-suc
 
-      - name: Build and push system-agent-suc image
-        run: make docker-buildx-push-suc
-        env:
-          TAG: ${{ github.ref_name }}
-          ARCH: ${{ matrix.arch }}
-          GOOS: linux
-          TAG_SUFFIX: ${{ matrix.tag-suffix }}
-          COMMIT: ${{ github.sha }}
+          public-repo: rancher
+          public-username: ${{ env.DOCKER_USERNAME }}
+          public-password: ${{ env.DOCKER_PASSWORD }}
+
+          push-to-prime: false
 
   merge:
     runs-on: ubuntu-latest
