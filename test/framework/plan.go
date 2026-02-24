@@ -107,6 +107,20 @@ func (b *PlanBuilder) WithPeriodicInstruction(name, command string, args []strin
 	return b
 }
 
+// WithPeriodicInstructionSaveStderr adds a periodic instruction with saveStderrOutput to the plan.
+func (b *PlanBuilder) WithPeriodicInstructionSaveStderr(name, command string, args []string, periodSeconds int, saveStderrOutput bool) *PlanBuilder {
+	b.plan.PeriodicInstructions = append(b.plan.PeriodicInstructions, applyinator.PeriodicInstruction{
+		CommonInstruction: applyinator.CommonInstruction{
+			Name:    name,
+			Command: command,
+			Args:    args,
+		},
+		PeriodSeconds:    periodSeconds,
+		SaveStderrOutput: saveStderrOutput,
+	})
+	return b
+}
+
 // WithProbe adds an HTTP probe to the plan.
 func (b *PlanBuilder) WithProbe(name, url string, insecure bool) *PlanBuilder {
 	b.plan.Probes[name] = prober.Probe{
@@ -115,6 +129,19 @@ func (b *PlanBuilder) WithProbe(name, url string, insecure bool) *PlanBuilder {
 		TimeoutSeconds:   5,
 		SuccessThreshold: 1,
 		FailureThreshold: 3,
+	}
+	return b
+}
+
+// WithProbeCustomThresholds adds an HTTP probe with custom thresholds and initial delay.
+func (b *PlanBuilder) WithProbeCustomThresholds(name, url string, insecure bool, successThreshold, failureThreshold, initialDelaySeconds, timeoutSeconds int) *PlanBuilder {
+	b.plan.Probes[name] = prober.Probe{
+		Name:                name,
+		HTTPGetAction:       prober.HTTPGetAction{URL: url, Insecure: insecure},
+		InitialDelaySeconds: initialDelaySeconds,
+		TimeoutSeconds:      timeoutSeconds,
+		SuccessThreshold:    successThreshold,
+		FailureThreshold:    failureThreshold,
 	}
 	return b
 }

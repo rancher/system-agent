@@ -142,7 +142,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *corev1.Secret) (*corev1.Secret, error) {
 		if secret == nil {
-			logrus.Fatalf("[K8s] received nil secret that was nil, stopping")
+			logrus.Debugf("[K8s] received nil secret (object deleted from cache), skipping")
 			return nil, nil
 		}
 		originalSecret := secret.DeepCopy()
@@ -171,16 +171,22 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true // needsApplied indicates whether the one-time instructions should be run
-		if rvMismatch, uidMismatch := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion), w.secretUID != "" && w.secretUID != string(secret.UID); rvMismatch || uidMismatch {
-			if rvMismatch {
-				logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			}
-			if uidMismatch {
-				logrus.Fatalf("[K8s] received secret UID that differed from existing secret UID. (%s vs %s)", secret.UID, w.secretUID)
-				return nil, nil
-			}
+
+		uidChanged := w.secretUID != "" && w.secretUID != string(secret.UID)
+		rvIsOlder := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion)
+
+		switch {
+		case uidChanged:
+			// Secret was deleted and recreated with a new UID; reset state so the new secret is force-applied.
+			logrus.Infof("[K8s] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state", secret.UID, w.secretUID)
+			w.secretUID = ""
+			w.lastAppliedResourceVersion = ""
+			hasRunOnce = false
+		case rvIsOlder:
+			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
 			return secret, errors.New("secret received was too old")
 		}
+
 		if planData, ok := secret.Data[planKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
 			logrus.Tracef("[K8s] Plan string was %s", string(planData))
