@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/gomega"
@@ -113,5 +114,66 @@ func GetProbeStatuses(ctx context.Context, cl client.Client, namespace, name str
 	var result map[string]interface{}
 	err := json.Unmarshal(raw, &result)
 	Expect(err).NotTo(HaveOccurred(), "Failed to unmarshal probe-statuses")
+	return result
+}
+
+// CreatePlanSecretWithData creates a Kubernetes Secret containing a plan plus additional data fields.
+func CreatePlanSecretWithData(ctx context.Context, cl client.Client, namespace, name string, plan []byte, extraData map[string][]byte) error {
+	data := map[string][]byte{
+		"plan": plan,
+	}
+	for k, v := range extraData {
+		data[k] = v
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: data,
+	}
+	return cl.Create(ctx, secret)
+}
+
+// WaitForSecretFieldCondition polls a Secret until the specified condition function returns true for the field.
+func WaitForSecretFieldCondition(ctx context.Context, cl client.Client, namespace, name, field string, condition func([]byte) bool, timeout, interval time.Duration) []byte {
+	var value []byte
+	Eventually(func() bool {
+		secret := &corev1.Secret{}
+		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+			return false
+		}
+		val, ok := secret.Data[field]
+		if !ok {
+			return false
+		}
+		if condition(val) {
+			value = val
+			return true
+		}
+		return false
+	}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Secret %s/%s field %q condition not met in time", namespace, name, field))
+	return value
+}
+
+// WaitForSecretFieldIntAtLeast polls until an integer field in the Secret reaches the specified minimum value.
+func WaitForSecretFieldIntAtLeast(ctx context.Context, cl client.Client, namespace, name, field string, minVal int, timeout, interval time.Duration) int {
+	var result int
+	Eventually(func() bool {
+		secret := &corev1.Secret{}
+		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+			return false
+		}
+		val, ok := secret.Data[field]
+		if !ok {
+			return false
+		}
+		n, err := strconv.Atoi(string(val))
+		if err != nil {
+			return false
+		}
+		result = n
+		return n >= minVal
+	}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Secret %s/%s field %q should be >= %d", namespace, name, field, minVal))
 	return result
 }

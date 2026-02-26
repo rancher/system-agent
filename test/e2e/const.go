@@ -27,6 +27,9 @@ var (
 
 	//go:embed data/manifests/agent-daemonset.yaml
 	AgentDaemonSetTemplate []byte
+
+	//go:embed data/manifests/http-test-server.yaml
+	HTTPTestServerManifestTemplate []byte
 )
 
 // Environment variable names for e2e configuration.

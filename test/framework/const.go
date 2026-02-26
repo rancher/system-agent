@@ -38,4 +38,10 @@ const (
 
 	// DefaultTimeout is the default timeout for waiting on conditions.
 	DefaultTimeout = "60s"
+
+	// HTTPTestServerName is the name of the HTTP test server pod and service.
+	HTTPTestServerName = "http-test-server"
+
+	// HTTPTestServerLabel is the label selector for the HTTP test server.
+	HTTPTestServerLabel = "app=http-test-server"
 )
