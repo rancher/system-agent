@@ -19,7 +19,10 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+
+	"github.com/rancher/system-agent/pkg/applyinator"
 )
 
 // DecodeOutput decodes a gzip-compressed output,
@@ -65,4 +68,65 @@ func DecodeOutput(encoded []byte) (string, error) {
 	}
 
 	return result.String(), nil
+}
+
+// GetOutputMap decodes a gzip-compressed output and returns a map of instruction names
+// to their decoded string outputs.
+func GetOutputMap(encoded []byte) (map[string]string, error) {
+	if len(encoded) == 0 {
+		return nil, nil
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	gzipResult, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var rawMap map[string]string
+	if err := json.Unmarshal(gzipResult, &rawMap); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string, len(rawMap))
+	for k, v := range rawMap {
+		decoded, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode output for %s: %w", k, err)
+		}
+		result[k] = string(decoded)
+	}
+
+	return result, nil
+}
+
+// DecodePeriodicOutput decodes the gzip-compressed periodic output and returns
+// a map of instruction names to their PeriodicInstructionOutput structs.
+func DecodePeriodicOutput(encoded []byte) (map[string]applyinator.PeriodicInstructionOutput, error) {
+	if len(encoded) == 0 {
+		return nil, nil
+	}
+
+	reader, err := gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	gzipResult, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var outputMap map[string]applyinator.PeriodicInstructionOutput
+	if err := json.Unmarshal(gzipResult, &outputMap); err != nil {
+		return nil, err
+	}
+
+	return outputMap, nil
 }

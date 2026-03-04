@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/test/framework"
 )
 
@@ -46,7 +47,7 @@ var _ = Describe("Remote Plan - File Operations", Label(framework.ShortTestLabel
 		expectedChecksum := fmt.Sprintf("%x", sha256.Sum256(plan))
 		appliedChecksum := framework.WaitForSecretField(ctx, cl,
 			framework.E2ENamespace, framework.PlanSecretName,
-			"applied-checksum", 60*time.Second, 2*time.Second)
+			k8splan.AppliedChecksumKey, framework.WaitTimeout, 2*time.Second)
 		Expect(string(appliedChecksum)).To(Equal(expectedChecksum),
 			"Applied checksum should match the plan checksum")
 
@@ -81,7 +82,7 @@ var _ = Describe("Remote Plan - Instruction Execution", Label(framework.ShortTes
 		By("Waiting for applied-output to appear in the Secret")
 		appliedOutput := framework.WaitForSecretField(ctx, cl,
 			framework.E2ENamespace, framework.PlanSecretName,
-			"applied-output", 60*time.Second, 2*time.Second)
+			k8splan.AppliedOutputKey, framework.WaitTimeout, 2*time.Second)
 		Expect(appliedOutput).ToNot(BeEmpty(), "applied-output should be populated")
 
 		By("Decoding the gzip output")
