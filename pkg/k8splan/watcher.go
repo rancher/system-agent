@@ -38,20 +38,33 @@ import (
 )
 
 const (
-	appliedChecksumKey       = "applied-checksum"
-	appliedOutputKey         = "applied-output"
-	appliedPeriodicOutputKey = "applied-periodic-output"
-	failedChecksumKey        = "failed-checksum"
-	failedOutputKey          = "failed-output"
-	failureCountKey          = "failure-count"
-	lastApplyTimeKey         = "last-apply-time"
-	successCountKey          = "success-count"
-	maxFailuresKey           = "max-failures"
-	probeStatusesKey         = "probe-statuses"
-	probePeriodKey           = "probe-period-seconds"
-	planKey                  = "plan"
-	enqueueAfterDuration     = "5s"
-	cooldownTimerDuration    = "30s"
+	// AppliedChecksumKey is the Secret data key for the applied plan checksum.
+	AppliedChecksumKey = "applied-checksum"
+	// AppliedOutputKey is the Secret data key for the applied one-time instruction output.
+	AppliedOutputKey = "applied-output"
+	// AppliedPeriodicOutputKey is the Secret data key for the applied periodic instruction output.
+	AppliedPeriodicOutputKey = "applied-periodic-output"
+	// FailedChecksumKey is the Secret data key for the failed plan checksum.
+	FailedChecksumKey = "failed-checksum"
+	// FailedOutputKey is the Secret data key for the failed instruction output.
+	FailedOutputKey = "failed-output"
+	// FailureCountKey is the Secret data key for the failure count.
+	FailureCountKey = "failure-count"
+	// LastApplyTimeKey is the Secret data key for the last apply time.
+	LastApplyTimeKey = "last-apply-time"
+	// SuccessCountKey is the Secret data key for the success count.
+	SuccessCountKey = "success-count"
+	// MaxFailuresKey is the Secret data key for the max-failures threshold.
+	MaxFailuresKey = "max-failures"
+	// ProbeStatusesKey is the Secret data key for probe statuses.
+	ProbeStatusesKey = "probe-statuses"
+	// ProbePeriodKey is the Secret data key for the probe period in seconds.
+	ProbePeriodKey = "probe-period-seconds"
+	// PlanKey is the Secret data key for the plan payload.
+	PlanKey = "plan"
+
+	enqueueAfterDuration  = "5s"
+	cooldownTimerDuration = "30s"
 )
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo, strictVerify bool) {
@@ -142,7 +155,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *corev1.Secret) (*corev1.Secret, error) {
 		if secret == nil {
-			logrus.Fatalf("[K8s] received nil secret that was nil, stopping")
+			logrus.Debugf("[K8s] received nil secret (object deleted from cache), skipping")
 			return nil, nil
 		}
 		originalSecret := secret.DeepCopy()
@@ -152,7 +165,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 		currentTime = time.Now()
 
-		if rawLAT, ok := secret.Data[lastApplyTimeKey]; ok {
+		if rawLAT, ok := secret.Data[LastApplyTimeKey]; ok {
 			lastApplyTime, err = time.Parse(time.UnixDate, string(rawLAT))
 			if err != nil {
 				logrus.Errorf("[K8s] error parsing last apply time %s, using current time", string(rawLAT))
@@ -162,7 +175,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			lastApplyTime = currentTime
 		}
 
-		if rawPeriod, ok := secret.Data[probePeriodKey]; ok {
+		if rawPeriod, ok := secret.Data[ProbePeriodKey]; ok {
 			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
 				logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
 			} else {
@@ -171,23 +184,29 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 		}
 		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 		needsApplied := true // needsApplied indicates whether the one-time instructions should be run
-		if rvMismatch, uidMismatch := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion), w.secretUID != "" && w.secretUID != string(secret.UID); rvMismatch || uidMismatch {
-			if rvMismatch {
-				logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			}
-			if uidMismatch {
-				logrus.Fatalf("[K8s] received secret UID that differed from existing secret UID. (%s vs %s)", secret.UID, w.secretUID)
-				return nil, nil
-			}
+
+		uidChanged := w.secretUID != "" && w.secretUID != string(secret.UID)
+		rvIsOlder := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion)
+
+		switch {
+		case uidChanged:
+			// Secret was deleted and recreated with a new UID; reset state so the new secret is force-applied.
+			logrus.Infof("[K8s] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state", secret.UID, w.secretUID)
+			w.secretUID = ""
+			w.lastAppliedResourceVersion = ""
+			hasRunOnce = false
+		case rvIsOlder:
+			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
 			return secret, errors.New("secret received was too old")
 		}
-		if planData, ok := secret.Data[planKey]; ok {
+
+		if planData, ok := secret.Data[PlanKey]; ok {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
 			logrus.Tracef("[K8s] Plan string was %s", string(planData))
 
 			var probeStatuses map[string]prober.ProbeStatus
 			// retrieve existing probe statuses from the secret if they exist
-			if rawProbeStatusByteData, ok := secret.Data[probeStatusesKey]; ok {
+			if rawProbeStatusByteData, ok := secret.Data[ProbeStatusesKey]; ok {
 				if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
 					logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
 					probeStatuses = make(map[string]prober.ProbeStatus, 0)
@@ -202,7 +221,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			}
 			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
 
-			if secretChecksumData, ok := secret.Data[appliedChecksumKey]; ok {
+			if secretChecksumData, ok := secret.Data[AppliedChecksumKey]; ok {
 				secretChecksum := string(secretChecksumData)
 				logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
 				if secretChecksum == cp.Checksum {
@@ -215,12 +234,12 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 				logrus.Infof("Detected first start, force-applying one-time instruction set")
 				needsApplied = true
 				hasRunOnce = true
-				secret.Data[appliedChecksumKey] = []byte("")
+				secret.Data[AppliedChecksumKey] = []byte("")
 			}
 
 			// Check to see if we've exceeded our failure count threshold
 			var maxFailureThreshold int
-			if rawMaxFailureThreshold, ok := secret.Data[maxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
+			if rawMaxFailureThreshold, ok := secret.Data[MaxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
 				// max failure threshold is defined. parse and compare
 				maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
 				if err != nil {
@@ -235,14 +254,14 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 			wasFailedPlan := false
 			var failureCount int
-			if rawFailureCount, ok := secret.Data[failureCountKey]; ok {
+			if rawFailureCount, ok := secret.Data[FailureCountKey]; ok {
 				failureCount, err = strconv.Atoi(string(rawFailureCount))
 				if err != nil {
 					logrus.Errorf("[K8s] Error while parsing raw failure count: %v", err)
 					failureCount = 0
 				}
 				if failureCount != 0 {
-					if rFC, ok := secret.Data[failedChecksumKey]; ok {
+					if rFC, ok := secret.Data[FailedChecksumKey]; ok {
 						if string(rFC) == cp.Checksum {
 							logrus.Debugf("[K8s] Plan appears to have failed before, failure count was %d", failureCount)
 							wasFailedPlan = true
@@ -270,18 +289,18 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			var output []byte
 
 			if wasFailedPlan {
-				output, ok = secret.Data[failedOutputKey]
+				output, ok = secret.Data[FailedOutputKey]
 				if !ok {
 					output = []byte{}
 				}
 			} else {
-				output, ok = secret.Data[appliedOutputKey]
+				output, ok = secret.Data[AppliedOutputKey]
 				if !ok {
 					output = []byte{}
 				}
 			}
 
-			periodicOutput := secret.Data[appliedPeriodicOutputKey]
+			periodicOutput := secret.Data[AppliedPeriodicOutputKey]
 
 			input := applyinator.ApplyInput{
 				CalculatedPlan:             cp,
@@ -300,30 +319,30 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			output = applyOutput.OneTimeOutput
 			periodicOutput = applyOutput.PeriodicOutput
 
-			secret.Data[appliedPeriodicOutputKey] = periodicOutput
+			secret.Data[AppliedPeriodicOutputKey] = periodicOutput
 
 			if (needsApplied && !applyOutput.OneTimeApplySucceeded) || (!needsApplied && wasFailedPlan) {
 				logrus.Debugf("[K8s] one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", cp.Checksum)
 				// Update the corresponding counts/outputs
-				secret.Data[failedChecksumKey] = []byte(cp.Checksum)
+				secret.Data[FailedChecksumKey] = []byte(cp.Checksum)
 				if needsApplied {
-					secret.Data[failureCountKey] = incrementCount(secret.Data[failureCountKey])
-					secret.Data[failedOutputKey] = output
-					secret.Data[successCountKey] = []byte("0")
-					secret.Data[lastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
+					secret.Data[FailureCountKey] = incrementCount(secret.Data[FailureCountKey])
+					secret.Data[FailedOutputKey] = output
+					secret.Data[SuccessCountKey] = []byte("0")
+					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
 				}
 			} else {
 				// secret.Data should always have already been initialized because otherwise we would have failed out above.
 				logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
-				secret.Data[appliedChecksumKey] = []byte(cp.Checksum)
-				secret.Data[appliedOutputKey] = output
+				secret.Data[AppliedChecksumKey] = []byte(cp.Checksum)
+				secret.Data[AppliedOutputKey] = output
 				// On a successful application, we should blank out the corresponding failure keys.
-				secret.Data[failureCountKey] = []byte("0")
-				secret.Data[failedOutputKey] = []byte{}
-				secret.Data[failedChecksumKey] = []byte{}
+				secret.Data[FailureCountKey] = []byte("0")
+				secret.Data[FailedOutputKey] = []byte{}
+				secret.Data[FailedChecksumKey] = []byte{}
 				if needsApplied {
-					secret.Data[lastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
-					secret.Data[successCountKey] = incrementCount(secret.Data[successCountKey])
+					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
+					secret.Data[SuccessCountKey] = incrementCount(secret.Data[SuccessCountKey])
 				}
 			}
 
@@ -333,7 +352,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			if err != nil {
 				logrus.Errorf("error while marshalling probe statuses: %v", err)
 			} else {
-				secret.Data[probeStatusesKey] = marshalledProbeStatus
+				secret.Data[ProbeStatusesKey] = marshalledProbeStatus
 			}
 
 			if applyOutput.OneTimeApplySucceeded == needsApplied {
@@ -376,23 +395,23 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Se
 				latestSecret, getErr := core.Secret().Get(secret.Namespace, secret.Name, metav1.GetOptions{})
 				if getErr == nil {
 					// if the get error is nil, then we can go ahead and compare secrets and try again.
-					if pd, ok := latestSecret.Data[planKey]; ok {
+					if pd, ok := latestSecret.Data[PlanKey]; ok {
 						ck, calculateErr := applyinator.CalculatePlan(pd)
 						if calculateErr != nil {
 							return false
 						}
-						if ck.Checksum == string(secret.Data[appliedChecksumKey]) {
+						if ck.Checksum == string(secret.Data[AppliedChecksumKey]) {
 							logrus.Debugf("[K8s] secret %s/%s resource version changed from %s to %s but plan checksum still matches, updating latest secret", secret.Namespace, secret.Name, secret.ResourceVersion, latestSecret.ResourceVersion)
 							// we can go ahead copy the relevant data out of the "old" secret and return true to let it update the secret.
-							latestSecret.Data[probeStatusesKey] = secret.Data[probeStatusesKey]
-							latestSecret.Data[appliedPeriodicOutputKey] = secret.Data[appliedPeriodicOutputKey]
-							latestSecret.Data[failedChecksumKey] = secret.Data[failedChecksumKey]
-							latestSecret.Data[failureCountKey] = secret.Data[failureCountKey]
-							latestSecret.Data[failedOutputKey] = secret.Data[failedOutputKey]
-							latestSecret.Data[successCountKey] = secret.Data[successCountKey]
-							latestSecret.Data[lastApplyTimeKey] = secret.Data[lastApplyTimeKey]
-							latestSecret.Data[appliedChecksumKey] = secret.Data[appliedChecksumKey]
-							latestSecret.Data[appliedOutputKey] = secret.Data[appliedOutputKey]
+							latestSecret.Data[ProbeStatusesKey] = secret.Data[ProbeStatusesKey]
+							latestSecret.Data[AppliedPeriodicOutputKey] = secret.Data[AppliedPeriodicOutputKey]
+							latestSecret.Data[FailedChecksumKey] = secret.Data[FailedChecksumKey]
+							latestSecret.Data[FailureCountKey] = secret.Data[FailureCountKey]
+							latestSecret.Data[FailedOutputKey] = secret.Data[FailedOutputKey]
+							latestSecret.Data[SuccessCountKey] = secret.Data[SuccessCountKey]
+							latestSecret.Data[LastApplyTimeKey] = secret.Data[LastApplyTimeKey]
+							latestSecret.Data[AppliedChecksumKey] = secret.Data[AppliedChecksumKey]
+							latestSecret.Data[AppliedOutputKey] = secret.Data[AppliedOutputKey]
 							secret = latestSecret
 							latestSecretUpdateAttempted = true
 							return true
