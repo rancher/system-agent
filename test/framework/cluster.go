@@ -207,3 +207,25 @@ func KubectlGetLogs(ctx context.Context, kubeconfigPath, namespace, podName stri
 	}, result)
 	return string(result.Stdout)
 }
+
+// DeployHTTPTestServer deploys a simple busybox-based HTTP server pod and service
+// in the given namespace. Waits for the pod to become ready.
+func DeployHTTPTestServer(ctx context.Context, kubeconfigPath, namespace string, template []byte) {
+	ApplyFromTemplate(ctx, ApplyFromTemplateInput{
+		KubeconfigPath: kubeconfigPath,
+		Template:       template,
+		Variables: map[string]string{
+			"NAMESPACE": namespace,
+		},
+	})
+	KubectlWaitForPodsReady(ctx, kubeconfigPath, namespace, HTTPTestServerLabel, 60*time.Second)
+}
+
+// CleanupHTTPTestServer removes the HTTP test server pod and service.
+func CleanupHTTPTestServer(ctx context.Context, kubeconfigPath, namespace string) {
+	result := &RunCommandResult{}
+	RunCommand(ctx, RunCommandInput{
+		Command: "kubectl",
+		Args:    []string{"--kubeconfig", kubeconfigPath, "delete", "pod,svc", HTTPTestServerName, "-n", namespace, "--ignore-not-found"},
+	}, result)
+}

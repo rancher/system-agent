@@ -18,9 +18,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/gomega"
+	"github.com/rancher/system-agent/pkg/k8splan"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,7 +36,7 @@ func CreatePlanSecret(ctx context.Context, cl client.Client, namespace, name str
 			Namespace: namespace,
 		},
 		Data: map[string][]byte{
-			"plan": plan,
+			k8splan.PlanKey: plan,
 		},
 	}
 	return cl.Create(ctx, secret)
@@ -49,7 +51,7 @@ func UpdatePlanSecret(ctx context.Context, cl client.Client, namespace, name str
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
 	}
-	secret.Data["plan"] = plan
+	secret.Data[k8splan.PlanKey] = plan
 	return cl.Update(ctx, secret)
 }
 
@@ -97,21 +99,82 @@ func GetSecretData(ctx context.Context, cl client.Client, namespace, name string
 	return secret.Data
 }
 
-// GetAppliedChecksum retrieves the "applied-checksum" field from a plan Secret.
+// GetAppliedChecksum retrieves the applied-checksum field from a plan Secret.
 func GetAppliedChecksum(ctx context.Context, cl client.Client, namespace, name string) string {
 	data := GetSecretData(ctx, cl, namespace, name)
-	return string(data["applied-checksum"])
+	return string(data[k8splan.AppliedChecksumKey])
 }
 
-// GetProbeStatuses retrieves and unmarshals the "probe-statuses" field from a plan Secret.
+// GetProbeStatuses retrieves and unmarshals the probe-statuses field from a plan Secret.
 func GetProbeStatuses(ctx context.Context, cl client.Client, namespace, name string) map[string]interface{} {
 	data := GetSecretData(ctx, cl, namespace, name)
-	raw, ok := data["probe-statuses"]
+	raw, ok := data[k8splan.ProbeStatusesKey]
 	if !ok {
 		return nil
 	}
 	var result map[string]interface{}
 	err := json.Unmarshal(raw, &result)
 	Expect(err).NotTo(HaveOccurred(), "Failed to unmarshal probe-statuses")
+	return result
+}
+
+// CreatePlanSecretWithData creates a Kubernetes Secret containing a plan plus additional data fields.
+func CreatePlanSecretWithData(ctx context.Context, cl client.Client, namespace, name string, plan []byte, extraData map[string][]byte) error {
+	data := map[string][]byte{
+		k8splan.PlanKey: plan,
+	}
+	for k, v := range extraData {
+		data[k] = v
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: data,
+	}
+	return cl.Create(ctx, secret)
+}
+
+// WaitForSecretFieldCondition polls a Secret until the specified condition function returns true for the field.
+func WaitForSecretFieldCondition(ctx context.Context, cl client.Client, namespace, name, field string, condition func([]byte) bool, timeout, interval time.Duration) []byte {
+	var value []byte
+	Eventually(func() bool {
+		secret := &corev1.Secret{}
+		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+			return false
+		}
+		val, ok := secret.Data[field]
+		if !ok {
+			return false
+		}
+		if condition(val) {
+			value = val
+			return true
+		}
+		return false
+	}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Secret %s/%s field %q condition not met in time", namespace, name, field))
+	return value
+}
+
+// WaitForSecretFieldIntAtLeast polls until an integer field in the Secret reaches the specified minimum value.
+func WaitForSecretFieldIntAtLeast(ctx context.Context, cl client.Client, namespace, name, field string, minVal int, timeout, interval time.Duration) int {
+	var result int
+	Eventually(func() bool {
+		secret := &corev1.Secret{}
+		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+			return false
+		}
+		val, ok := secret.Data[field]
+		if !ok {
+			return false
+		}
+		n, err := strconv.Atoi(string(val))
+		if err != nil {
+			return false
+		}
+		result = n
+		return n >= minVal
+	}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Secret %s/%s field %q should be >= %d", namespace, name, field, minVal))
 	return result
 }
