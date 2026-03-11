@@ -17,6 +17,7 @@
 # Build the rancher-system-agent binary
 # This Dockerfile replaces Dockerfile.dapper for containerized builds
 
+ARG BCI_VERSION=15.7
 ARG GOLANG_VERSION=1.25
 ARG builder_image=registry.suse.com/bci/golang:${GOLANG_VERSION}
 
@@ -58,10 +59,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # =============================================================================
 # Final stage for system-agent image (minimal runtime)
 # =============================================================================
-FROM registry.suse.com/bci/bci-micro:15.6 AS runtime-base
+FROM registry.suse.com/bci/bci-micro:${BCI_VERSION} AS runtime-base
 
 # Temporary build stage image for installing packages
-FROM registry.suse.com/bci/bci-base:15.6 AS runtime-builder
+FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS runtime-builder
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
@@ -93,7 +94,7 @@ CMD ["rancher-system-agent"]
 # system-agent-suc - for system-upgrade-controller
 # =============================================================================
 # Temporary build stage for SUC packages
-FROM registry.suse.com/bci/bci-base:15.6 AS suc-builder
+FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
 ARG KUBECTL_VERSION=v1.34.1
 
