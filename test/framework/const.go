@@ -14,6 +14,8 @@
 
 package framework
 
+import "time"
+
 const (
 	// E2ENamespace is the namespace used for e2e test resources.
 	E2ENamespace = "system-agent-e2e"
@@ -38,4 +40,13 @@ const (
 
 	// DefaultTimeout is the default timeout for waiting on conditions.
 	DefaultTimeout = "60s"
+
+	// WaitTimeout is the standard timeout used for waiting on plan secret fields.
+	WaitTimeout = 120 * time.Second
+
+	// HTTPTestServerName is the name of the HTTP test server pod and service.
+	HTTPTestServerName = "http-test-server"
+
+	// HTTPTestServerLabel is the label selector for the HTTP test server.
+	HTTPTestServerLabel = "app=http-test-server"
 )
