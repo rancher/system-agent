@@ -97,9 +97,14 @@ ARCH ?= $(shell go env GOARCH)
 TARGET_OS ?= $(if $(GOOS),$(GOOS),$(shell go env GOOS))
 REGISTRY ?= docker.io
 ORG ?= rancher
+REPO ?= $(REGISTRY)/$(ORG)
 IMAGE_NAME ?= system-agent
 IMAGE ?= $(REGISTRY)/$(ORG)/$(IMAGE_NAME)
 TAG_SUFFIX ?= $(TARGET_OS)-$(ARCH)
+BUILDX_BUILDER ?= system-agent
+IMAGE_BUILDER ?= docker buildx
+DEFAULT_PLATFORMS := linux/amd64,linux/arm64
+BUILDX_ARGS ?= --provenance=false --sbom=false
 
 # Build flags
 LDFLAGS := -X github.com/rancher/system-agent/pkg/version.Version=$(VERSION)
@@ -266,37 +271,130 @@ docker-build-suc: ## Build SUC Docker image locally (no push)
 
 ##@ Docker (Release - used by CI/CD workflows)
 
+.PHONY: buildx-builder
+buildx-builder:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || docker buildx create --name=$(BUILDX_BUILDER) --platform=$(DEFAULT_PLATFORMS)
+
+.PHONY: buildx-release
+buildx-release: buildx-builder
+	@bash -c 'set -euo pipefail; \
+		BUILDX_PLATFORM="$${BUILDX_PLATFORM:-$${TARGET_PLATFORMS:-linux/$(ARCH)}}"; \
+		$(IMAGE_BUILDER) build \
+			$${IID_FILE_FLAG:-} \
+			$${BUILDX_BUILDER_FLAG:+--builder $${BUILDX_BUILDER_FLAG}} \
+			--build-arg VERSION="$(VERSION)" \
+			--build-arg COMMIT="$(COMMIT)" \
+			$${BUILDX_TARGET:+--target $${BUILDX_TARGET}} \
+			$${BUILDX_PLATFORM:+--platform $${BUILDX_PLATFORM}} \
+			$${BUILDX_TAG_ARGS:-} \
+			$${BUILDX_EXTRA_ARGS:-} \
+			$${BUILDX_PUSH:+--push} \
+			.'
+
+.PHONY: push-image
+push-image: ## Build and push a tagged system-agent image
+	@echo "--- Building and Pushing Image ---"
+	@bash -c 'set -euo pipefail; \
+		IMAGE="$${REPO}/$(IMAGE_NAME):$${TAG}"; \
+		$(MAKE) --no-print-directory buildx-release \
+			BUILDX_BUILDER_FLAG="$(BUILDX_BUILDER)" \
+			BUILDX_TARGET=system-agent \
+			BUILDX_TAG_ARGS="--tag $${IMAGE}" \
+			BUILDX_EXTRA_ARGS="$(BUILDX_ARGS)" \
+			BUILDX_PUSH=1 \
+			IID_FILE_FLAG="$${IID_FILE_FLAG:-}"; \
+		echo "Pushed $${IMAGE}"'
+
+.PHONY: push-prime-image
+push-prime-image: ## Build and push a tagged system-agent image with prime attestations
+	@$(MAKE) --no-print-directory push-image \
+		BUILDX_ARGS="--sbom=true --attest type=provenance,mode=max"
+
+.PHONY: push-image-suc
+push-image-suc: ## Build and push a tagged system-agent SUC image
+	@echo "--- Building and Pushing SUC Image ---"
+	@bash -c 'set -euo pipefail; \
+		IMAGE="$${REPO}/$(IMAGE_NAME):$${TAG}"; \
+		$(MAKE) --no-print-directory buildx-release \
+			BUILDX_BUILDER_FLAG="$(BUILDX_BUILDER)" \
+			BUILDX_TARGET=system-agent-suc \
+			BUILDX_TAG_ARGS="--tag $${IMAGE}" \
+			BUILDX_EXTRA_ARGS="$(BUILDX_ARGS)" \
+			BUILDX_PUSH=1 \
+			IID_FILE_FLAG="$${IID_FILE_FLAG:-}"; \
+		echo "Pushed $${IMAGE}"'
+
+.PHONY: push-prime-image-suc
+push-prime-image-suc: ## Build and push a tagged system-agent SUC image with prime attestations
+	@$(MAKE) --no-print-directory push-image-suc \
+		BUILDX_ARGS="--sbom=true --attest type=provenance,mode=max"
+
+.PHONY: push-manifest
+push-manifest: ## Create and push a multi-platform system-agent manifest
+	@echo "--- Creating and Pushing Manifest ---"
+	@bash -c 'set -euo pipefail; \
+		IMAGE="$${REPO}/$(IMAGE_NAME):$${TAG}"; \
+		docker buildx imagetools create -t "$${IMAGE}" \
+			"$${REPO}/$(IMAGE_NAME):$${TAG}-linux-amd64" \
+			"$${REPO}/$(IMAGE_NAME):$${TAG}-linux-arm64"; \
+		if [ -n "$${IID_FILE:-}" ]; then \
+			digest=$$(docker buildx imagetools inspect "$${IMAGE}" | sed -n "s/^Digest:[[:space:]]*//p" | head -n 1); \
+			printf "%s\n" "$${digest}" > "$${IID_FILE}"; \
+		fi; \
+		echo "Pushed $${IMAGE}"'
+
+.PHONY: push-prime-manifest
+push-prime-manifest: ## Create and push a multi-platform system-agent manifest for prime signing
+	@$(MAKE) --no-print-directory push-manifest
+
+.PHONY: push-manifest-suc
+push-manifest-suc: ## Create and push a multi-platform system-agent SUC manifest
+	@echo "--- Creating and Pushing SUC Manifest ---"
+	@bash -c 'set -euo pipefail; \
+		BASE_TAG="$${TAG%-suc}"; \
+		if [ "$${BASE_TAG}" = "$${TAG}" ]; then \
+			echo "TAG must end with -suc"; \
+			exit 1; \
+		fi; \
+		IMAGE="$${REPO}/$(IMAGE_NAME):$${TAG}"; \
+		docker buildx imagetools create -t "$${IMAGE}" \
+			"$${REPO}/$(IMAGE_NAME):$${BASE_TAG}-linux-amd64-suc" \
+			"$${REPO}/$(IMAGE_NAME):$${BASE_TAG}-linux-arm64-suc"; \
+		if [ -n "$${IID_FILE:-}" ]; then \
+			digest=$$(docker buildx imagetools inspect "$${IMAGE}" | sed -n "s/^Digest:[[:space:]]*//p" | head -n 1); \
+			printf "%s\n" "$${digest}" > "$${IID_FILE}"; \
+		fi; \
+		echo "Pushed $${IMAGE}"'
+
+.PHONY: push-prime-manifest-suc
+push-prime-manifest-suc: ## Create and push a multi-platform system-agent SUC manifest for prime signing
+	@$(MAKE) --no-print-directory push-manifest-suc
+
 .PHONY: docker-buildx-push
-docker-buildx-push: ## Build and push Docker image with buildx (used by release workflow)
-	docker buildx build --platform=linux/$(ARCH) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--target system-agent \
-		-t $(IMAGE):$(TAG)-$(TAG_SUFFIX) \
-		--push .
-	@echo "Built and pushed $(IMAGE):$(TAG)-$(TAG_SUFFIX)"
+docker-buildx-push: ## Build and push Docker image with buildx (legacy release target)
+	@$(MAKE) --no-print-directory push-image TAG="$(TAG)-$(TAG_SUFFIX)"
+
+.PHONY: docker-buildx-push-prime
+docker-buildx-push-prime: ## Build and push Docker image with buildx for prime signing
+	@$(MAKE) --no-print-directory push-prime-image TAG="$(TAG)-$(TAG_SUFFIX)"
 
 .PHONY: docker-buildx-push-suc
-docker-buildx-push-suc: ## Build and push SUC Docker image with buildx (used by release workflow)
-	docker buildx build --platform=linux/$(ARCH) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--target system-agent-suc \
-		-t $(IMAGE):$(TAG)-$(TAG_SUFFIX)-suc \
-		--push .
-	@echo "Built and pushed $(IMAGE):$(TAG)-$(TAG_SUFFIX)-suc"
+docker-buildx-push-suc: ## Build and push SUC Docker image with buildx (legacy release target)
+	@$(MAKE) --no-print-directory push-image-suc TAG="$(TAG)-$(TAG_SUFFIX)-suc"
+
+.PHONY: docker-buildx-push-suc-prime
+docker-buildx-push-suc-prime: ## Build and push SUC Docker image with buildx for prime signing
+	@$(MAKE) --no-print-directory push-prime-image-suc TAG="$(TAG)-$(TAG_SUFFIX)-suc"
 
 .PHONY: docker-manifest
-docker-manifest: ## Create and push multi-platform manifests (used by release workflow)
-	@echo "Creating multi-platform manifest for $(IMAGE):$(TAG)"
-	docker buildx imagetools create -t "$(IMAGE):$(TAG)" \
-		"$(IMAGE):$(TAG)-linux-amd64" \
-		"$(IMAGE):$(TAG)-linux-arm64"
-	@echo "Creating multi-platform manifest for $(IMAGE):$(TAG)-suc"
-	docker buildx imagetools create -t "$(IMAGE):$(TAG)-suc" \
-		"$(IMAGE):$(TAG)-linux-amd64-suc" \
-		"$(IMAGE):$(TAG)-linux-arm64-suc"
-	@echo "Multi-platform manifests pushed successfully"
+docker-manifest: ## Create and push multi-platform manifests (legacy release target)
+	@$(MAKE) --no-print-directory push-manifest
+	@$(MAKE) --no-print-directory push-manifest-suc TAG="$(TAG)-suc"
+
+.PHONY: docker-manifest-prime
+docker-manifest-prime: ## Create and push multi-platform manifests for prime signing
+	@$(MAKE) --no-print-directory push-prime-manifest
+	@$(MAKE) --no-print-directory push-prime-manifest-suc TAG="$(TAG)-suc"
 
 ##@ CI / CD
 
