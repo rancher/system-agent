@@ -46,8 +46,6 @@ jobs:
 
       - name: Publish main image to DockerHub and Prime Staging
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
-        env:
-          COMMIT: ${{ github.sha }}
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}
@@ -67,9 +65,8 @@ jobs:
           prime-password: ${{ env.PRIME_STG_REGISTRY_PASSWORD }}
 
       - name: Publish main image to Prime Prod
+        if: ${{ !contains(github.ref_name, '-rc') }}
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
-        env:
-          COMMIT: ${{ github.sha }}
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}
@@ -87,8 +84,6 @@ jobs:
 
       - name: Publish SUC image to DockerHub and Prime Staging
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
-        env:
-          COMMIT: ${{ github.sha }}
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}-suc
@@ -108,9 +103,8 @@ jobs:
           prime-password: ${{ env.PRIME_STG_REGISTRY_PASSWORD }}
 
       - name: Publish SUC image to Prime Prod
+        if: ${{ !contains(github.ref_name, '-rc') }}
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
-        env:
-          COMMIT: ${{ github.sha }}
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}-suc
@@ -167,6 +161,7 @@ jobs:
           prime-password: ${{ env.PRIME_STG_REGISTRY_PASSWORD }}
 
       - name: Publish main manifest to Prime Prod
+        if: ${{ !contains(github.ref_name, '-rc') }}
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
         with:
           image: "system-agent"
@@ -202,6 +197,7 @@ jobs:
           prime-password: ${{ env.PRIME_STG_REGISTRY_PASSWORD }}
 
       - name: Publish SUC manifest to Prime Prod
+        if: ${{ !contains(github.ref_name, '-rc') }}
         uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
         with:
           image: "system-agent"
