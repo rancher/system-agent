@@ -96,11 +96,11 @@ CMD ["rancher-system-agent"]
 # Temporary build stage for SUC packages
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
+# renovate-local: kubectl-amd64
 ARG KUBECTL_VERSION=v1.34.1
-
-# https://dl.k8s.io/release/v1.34.1/bin/linux/arm64/kubectl.sha256
+# renovate-local: kubectl-arm64=v1.34.1
 ENV KUBECTL_SUM_arm64=420e6110e3ba7ee5a3927b5af868d18df17aae36b720529ffa4e9e945aa95450
-# https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl.sha256
+# renovate-local: kubectl-amd64=v1.34.1
 ENV KUBECTL_SUM_amd64=7721f265e18709862655affba5343e85e1980639395d5754473dafaadcaa69e3
 
 # Install system packages using builder image that has zypper
