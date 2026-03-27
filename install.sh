@@ -8,8 +8,7 @@ else
 fi
 
 # Usage:
-#   curl ... | ENV_VAR=... sh -
-#       or
+#   Download install.sh, review it, and run:
 #   ENV_VAR=... ./install.sh
 #
 
@@ -32,9 +31,11 @@ fi
 #   - CATTLE_TAINTS
 #
 #   Advanced Environment Variables
-#   - CATTLE_AGENT_BINARY_BASE_URL (default: latest GitHub release)
-#   - CATTLE_AGENT_BINARY_URL (default: latest GitHub release)
-#   - CATTLE_AGENT_UNINSTALL_URL (default: latest GitHub release)
+#   - CATTLE_AGENT_BINARY_BASE_URL (default: pinned GitHub release)
+#   - CATTLE_AGENT_BINARY_URL (default: pinned GitHub release)
+#   - CATTLE_AGENT_BINARY_CHECKSUM (required for custom remote binary URLs)
+#   - CATTLE_AGENT_UNINSTALL_URL (default: pinned GitHub release)
+#   - CATTLE_AGENT_UNINSTALL_CHECKSUM (required for custom remote uninstall URLs)
 #   - CATTLE_PRESERVE_WORKDIR (default: false)
 #   - CATTLE_REMOTE_ENABLED (default: true)
 #   - CATTLE_LOCAL_ENABLED (default: false)
@@ -46,7 +47,14 @@ fi
 #   - CATTLE_AGENT_STRICT_VERIFY | STRICT_VERIFY (default: false)
 #   - CATTLE_AGENT_FALLBACK_PATH (default: )
 
-FALLBACK=v0.3.13
+# renovate: datasource=github-release-attachments depName=rancher/system-agent
+SYSTEM_AGENT_VERSION=v0.3.14
+# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
+SYSTEM_AGENT_SUM_amd64=39c09a2a3349c185165a2504e193006614293aba0109c5a2c7222096a1478bc3
+# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
+SYSTEM_AGENT_SUM_arm64=aa537b156c69d96f5f1a877f99528de0436e3f6099a67f10e353ed9caef226d6
+# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
+SYSTEM_AGENT_UNINSTALL_SUM=ded6af4d28ab396dadf3f7c5871aa06c723275f9d7a4ec2d50d0fad9f52988d3
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 APPLYINATOR_ACTIVE_WAIT_COUNT=60 # If the system-agent is unhealthy but had created an interlock file to indicate it was actively applying a plan, after 5 minutes, ignore the interlock.
@@ -336,18 +344,22 @@ setup_env() {
         fi
 
         if [ -z "${CATTLE_AGENT_BINARY_URL}" ]; then
-            if [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
-                info "GitHub Rate Limit exceeded, falling back to known good version"
-                VERSION=$FALLBACK
-            else
-                VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-                if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
-                    info "Error contacting GitHub to retrieve the latest version"
-                    VERSION=$FALLBACK
-                fi
-            fi
-            CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/rancher-system-agent-${ARCH}"
+            CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${SYSTEM_AGENT_VERSION}/rancher-system-agent-${ARCH}"
             BINARY_SOURCE=upstream
+        fi
+
+        if [ -z "${CATTLE_AGENT_BINARY_CHECKSUM}" ] && [ "${BINARY_SOURCE}" = "upstream" ]; then
+            case "${ARCH}" in
+            amd64)
+                CATTLE_AGENT_BINARY_CHECKSUM="${SYSTEM_AGENT_SUM_amd64}"
+                ;;
+            arm64)
+                CATTLE_AGENT_BINARY_CHECKSUM="${SYSTEM_AGENT_SUM_arm64}"
+                ;;
+            *)
+                fatal "No pinned upstream checksum is available for architecture ${ARCH}. Set CATTLE_AGENT_BINARY_URL and CATTLE_AGENT_BINARY_CHECKSUM explicitly."
+                ;;
+            esac
         fi
     fi
 
@@ -364,20 +376,12 @@ setup_env() {
         fi
 
         if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ]; then
-            if [ -n "${VERSION}" ]; then
-                info "Version ${VERSION} used for downloading the rancher-system-agent binary, will reuse for uninstall script"
-            elif [ $(curl --connect-timeout 60 --max-time 60 -s https://api.github.com/rate_limit | grep '"rate":' -A 4 | grep '"remaining":' | sed -E 's/.*"[^"]+": (.*),/\1/') = 0 ]; then
-                info "GitHub Rate Limit exceeded, falling back to known good version"
-                VERSION=$FALLBACK
-            else
-                VERSION=$(curl --connect-timeout 60 --max-time 60 -s "https://api.github.com/repos/rancher/system-agent/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-                if [ -z "$VERSION" ]; then # Fall back to a known good fallback version because we had an error pulling the latest
-                    info "Error contacting GitHub to retrieve the latest version"
-                    VERSION=$FALLBACK
-                fi
-            fi
-            CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${VERSION}/system-agent-uninstall.sh"
+            CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${SYSTEM_AGENT_VERSION}/system-agent-uninstall.sh"
             UNINSTALL_SOURCE=upstream
+        fi
+
+        if [ -z "${CATTLE_AGENT_UNINSTALL_CHECKSUM}" ] && [ "${UNINSTALL_SOURCE}" = "upstream" ]; then
+            CATTLE_AGENT_UNINSTALL_CHECKSUM="${SYSTEM_AGENT_UNINSTALL_SUM}"
         fi
     fi
 
@@ -588,8 +592,8 @@ EOF
 download_rancher_files() {
   mkdir -p ${CATTLE_AGENT_BIN_PREFIX}/bin
 
-  download_rancher_file "rancher-system-agent" "binary" "${CATTLE_AGENT_BINARY_URL}" "${CATTLE_AGENT_BINARY_LOCAL}" "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" "${BINARY_SOURCE}"
-  download_rancher_file "rancher-system-agent-uninstall.sh" "script" "${CATTLE_AGENT_UNINSTALL_URL}" "${CATTLE_AGENT_UNINSTALL_LOCAL}" "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" "${UNINSTALL_SOURCE}"
+  download_rancher_file "rancher-system-agent" "binary" "${CATTLE_AGENT_BINARY_URL}" "${CATTLE_AGENT_BINARY_LOCAL}" "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" "${BINARY_SOURCE}" "${CATTLE_AGENT_BINARY_CHECKSUM}"
+  download_rancher_file "rancher-system-agent-uninstall.sh" "script" "${CATTLE_AGENT_UNINSTALL_URL}" "${CATTLE_AGENT_UNINSTALL_LOCAL}" "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" "${UNINSTALL_SOURCE}" "${CATTLE_AGENT_UNINSTALL_CHECKSUM}"
 }
 
 download_rancher_file() {
@@ -599,11 +603,15 @@ download_rancher_file() {
   local=$4
   local_location=$5
   source=$6
+  checksum=$7
 
   if [ "${local}" = "true" ]; then
       info "Using local ${name} ${category} from ${local_location}"
       cp -f "${local_location}" "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
   else
+      if [ -z "${checksum}" ]; then
+          fatal "Checksum for ${name} must be provided when downloading from ${url}"
+      fi
       info "Downloading ${name} ${category} from ${url}"
       if [ "${source}" != "upstream" ]; then
           CURL_BIN_CAFLAG="${CURL_CAFLAG}"
@@ -630,6 +638,9 @@ download_rancher_file() {
               ;;
           esac
       done
+      if ! echo "${checksum}  ${CATTLE_AGENT_BIN_PREFIX}/bin/${name}" | sha256sum -c -; then
+          fatal "Checksum validation failed for ${name}"
+      fi
       chmod +x "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
   fi
 }
