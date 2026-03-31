@@ -33,9 +33,7 @@ fi
 #   Advanced Environment Variables
 #   - CATTLE_AGENT_BINARY_BASE_URL (default: pinned GitHub release)
 #   - CATTLE_AGENT_BINARY_URL (default: pinned GitHub release)
-#   - CATTLE_AGENT_BINARY_CHECKSUM (required for custom remote binary URLs)
 #   - CATTLE_AGENT_UNINSTALL_URL (default: pinned GitHub release)
-#   - CATTLE_AGENT_UNINSTALL_CHECKSUM (required for custom remote uninstall URLs)
 #   - CATTLE_PRESERVE_WORKDIR (default: false)
 #   - CATTLE_REMOTE_ENABLED (default: true)
 #   - CATTLE_LOCAL_ENABLED (default: false)
@@ -49,12 +47,6 @@ fi
 
 # renovate: datasource=github-release-attachments depName=rancher/system-agent
 SYSTEM_AGENT_VERSION=v0.3.14
-# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
-SYSTEM_AGENT_SUM_amd64=39c09a2a3349c185165a2504e193006614293aba0109c5a2c7222096a1478bc3
-# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
-SYSTEM_AGENT_SUM_arm64=aa537b156c69d96f5f1a877f99528de0436e3f6099a67f10e353ed9caef226d6
-# renovate: datasource=github-release-attachments depName=rancher/system-agent digestVersion=v0.3.14
-SYSTEM_AGENT_UNINSTALL_SUM=ded6af4d28ab396dadf3f7c5871aa06c723275f9d7a4ec2d50d0fad9f52988d3
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 APPLYINATOR_ACTIVE_WAIT_COUNT=60 # If the system-agent is unhealthy but had created an interlock file to indicate it was actively applying a plan, after 5 minutes, ignore the interlock.
@@ -347,20 +339,6 @@ setup_env() {
             CATTLE_AGENT_BINARY_URL="https://github.com/rancher/system-agent/releases/download/${SYSTEM_AGENT_VERSION}/rancher-system-agent-${ARCH}"
             BINARY_SOURCE=upstream
         fi
-
-        if [ -z "${CATTLE_AGENT_BINARY_CHECKSUM}" ] && [ "${BINARY_SOURCE}" = "upstream" ]; then
-            case "${ARCH}" in
-            amd64)
-                CATTLE_AGENT_BINARY_CHECKSUM="${SYSTEM_AGENT_SUM_amd64}"
-                ;;
-            arm64)
-                CATTLE_AGENT_BINARY_CHECKSUM="${SYSTEM_AGENT_SUM_arm64}"
-                ;;
-            *)
-                fatal "No pinned upstream checksum is available for architecture ${ARCH}. Set CATTLE_AGENT_BINARY_URL and CATTLE_AGENT_BINARY_CHECKSUM explicitly."
-                ;;
-            esac
-        fi
     fi
 
     if [ "${CATTLE_AGENT_UNINSTALL_LOCAL}" = "true" ]; then
@@ -378,10 +356,6 @@ setup_env() {
         if [ -z "${CATTLE_AGENT_UNINSTALL_URL}" ]; then
             CATTLE_AGENT_UNINSTALL_URL="https://github.com/rancher/system-agent/releases/download/${SYSTEM_AGENT_VERSION}/system-agent-uninstall.sh"
             UNINSTALL_SOURCE=upstream
-        fi
-
-        if [ -z "${CATTLE_AGENT_UNINSTALL_CHECKSUM}" ] && [ "${UNINSTALL_SOURCE}" = "upstream" ]; then
-            CATTLE_AGENT_UNINSTALL_CHECKSUM="${SYSTEM_AGENT_UNINSTALL_SUM}"
         fi
     fi
 
@@ -592,8 +566,8 @@ EOF
 download_rancher_files() {
   mkdir -p ${CATTLE_AGENT_BIN_PREFIX}/bin
 
-  download_rancher_file "rancher-system-agent" "binary" "${CATTLE_AGENT_BINARY_URL}" "${CATTLE_AGENT_BINARY_LOCAL}" "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" "${BINARY_SOURCE}" "${CATTLE_AGENT_BINARY_CHECKSUM}"
-  download_rancher_file "rancher-system-agent-uninstall.sh" "script" "${CATTLE_AGENT_UNINSTALL_URL}" "${CATTLE_AGENT_UNINSTALL_LOCAL}" "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" "${UNINSTALL_SOURCE}" "${CATTLE_AGENT_UNINSTALL_CHECKSUM}"
+  download_rancher_file "rancher-system-agent" "binary" "${CATTLE_AGENT_BINARY_URL}" "${CATTLE_AGENT_BINARY_LOCAL}" "${CATTLE_AGENT_BINARY_LOCAL_LOCATION}" "${BINARY_SOURCE}"
+  download_rancher_file "rancher-system-agent-uninstall.sh" "script" "${CATTLE_AGENT_UNINSTALL_URL}" "${CATTLE_AGENT_UNINSTALL_LOCAL}" "${CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION}" "${UNINSTALL_SOURCE}"
 }
 
 download_rancher_file() {
@@ -603,15 +577,11 @@ download_rancher_file() {
   local=$4
   local_location=$5
   source=$6
-  checksum=$7
 
   if [ "${local}" = "true" ]; then
       info "Using local ${name} ${category} from ${local_location}"
       cp -f "${local_location}" "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
   else
-      if [ -z "${checksum}" ]; then
-          fatal "Checksum for ${name} must be provided when downloading from ${url}"
-      fi
       info "Downloading ${name} ${category} from ${url}"
       if [ "${source}" != "upstream" ]; then
           CURL_BIN_CAFLAG="${CURL_CAFLAG}"
@@ -638,11 +608,60 @@ download_rancher_file() {
               ;;
           esac
       done
-      if ! echo "${checksum}  ${CATTLE_AGENT_BIN_PREFIX}/bin/${name}" | sha256sum -c -; then
-          fatal "Checksum validation failed for ${name}"
+      if [ "${source}" = "upstream" ]; then
+          checksum=$(get_upstream_release_checksum "$(basename "${url}")")
+          if ! printf '%s  %s\n' "${checksum}" "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}" | sha256sum -c -; then
+              fatal "Checksum validation failed for ${name}"
+          fi
       fi
       chmod +x "${CATTLE_AGENT_BIN_PREFIX}/bin/${name}"
   fi
+}
+
+ensure_upstream_release_checksums() {
+    checksum_url="https://github.com/rancher/system-agent/releases/download/${SYSTEM_AGENT_VERSION}/sha256sum.txt"
+    checksum_file="${CATTLE_AGENT_VAR_DIR}/system-agent-${SYSTEM_AGENT_VERSION}-sha256sum.txt"
+
+    if [ -s "${checksum_file}" ]; then
+        return 0
+    fi
+
+    info "Downloading release checksums from ${checksum_url}" >&2
+    i=1
+    while [ "${i}" -ne "${RETRYCOUNT}" ]; do
+        noproxy=""
+        if [ "$(in_no_proxy "${checksum_url}")" = "0" ]; then
+            noproxy="--noproxy '*'"
+        fi
+        RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 300 --write-out "%{http_code}\n" ${CURL_LOG} -fL "${checksum_url}" -o "${checksum_file}")
+        case "${RESPONSE}" in
+        200)
+            info "Successfully downloaded the release checksum file." >&2
+            return 0
+            ;;
+        *)
+            i=$((i + 1))
+            error "$RESPONSE received while downloading the release checksum file. Sleeping for 5 seconds and trying again"
+            sleep 5
+            continue
+            ;;
+        esac
+    done
+
+    fatal "Failed to download the release checksum file"
+}
+
+get_upstream_release_checksum() {
+    artifact_name=$1
+
+    ensure_upstream_release_checksums
+
+    checksum=$(awk -v artifact="${artifact_name}" '($2 == artifact || $2 == "tmp/" artifact) { print $1 }' "${CATTLE_AGENT_VAR_DIR}/system-agent-${SYSTEM_AGENT_VERSION}-sha256sum.txt" | head -n 1)
+    if [ -z "${checksum}" ]; then
+        fatal "Could not find checksum for ${artifact_name} in the release checksum file"
+    fi
+
+    echo "${checksum}"
 }
 
 check_x509_cert()
