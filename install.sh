@@ -771,22 +771,36 @@ retrieve_connection_info() {
     if [ "${CATTLE_REMOTE_ENABLED}" = "true" ]; then
         UMASK=$(umask)
         umask 0177
+        TEMP_CONNECTION_INFO="${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json.tmp"
         i=1
         while [ "${i}" -ne "${RETRYCOUNT}" ]; do
             noproxy=""
             if [ "$(in_no_proxy ${CATTLE_AGENT_BINARY_URL})" = "0" ]; then
                 noproxy="--noproxy '*'"
             fi
-            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json)
+            RESPONSE=$(curl $noproxy --connect-timeout 60 --max-time 60 --write-out "%{http_code}\n" ${CURL_CAFLAG} ${CURL_LOG} -H "Authorization: Bearer ${CATTLE_TOKEN}" -H "X-Cattle-Id: ${CATTLE_ID}" -H "X-Cattle-Role-Etcd: ${CATTLE_ROLE_ETCD}" -H "X-Cattle-Role-Control-Plane: ${CATTLE_ROLE_CONTROLPLANE}" -H "X-Cattle-Role-Worker: ${CATTLE_ROLE_WORKER}" -H "X-Cattle-Node-Name: ${CATTLE_NODE_NAME}" -H "X-Cattle-Address: ${CATTLE_ADDRESS}" -H "X-Cattle-Internal-Address: ${CATTLE_INTERNAL_ADDRESS}" -H "X-Cattle-Labels: ${CATTLE_LABELS}" -H "X-Cattle-Taints: ${CATTLE_TAINTS}" "${CATTLE_SERVER}"/v3/connect/agent -o "${TEMP_CONNECTION_INFO}")
             case "${RESPONSE}" in
             200)
-                info "Successfully downloaded Rancher connection information"
+                # Validate using the system-agent validate-connection command
+                if ! "${CATTLE_AGENT_BIN_DIR}/rancher-system-agent" validate-connection "${TEMP_CONNECTION_INFO}" 2>&1; then
+                    i=$((i + 1))
+                    error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
+                    rm -f "${TEMP_CONNECTION_INFO}"
+                    sleep 5
+                    continue
+                fi
+
+                # Move temp file to final location
+                mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
+
+                info "Successfully downloaded and validated Rancher connection information"
                 umask "${UMASK}"
                 return 0
                 ;;
             *)
                 i=$((i + 1))
                 error "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
+                rm -f "${TEMP_CONNECTION_INFO}"
                 sleep 5
                 continue
                 ;;
@@ -794,8 +808,6 @@ retrieve_connection_info() {
         done
         error "Failed to download Rancher connection information in ${i} attempts"
         umask "${UMASK}"
-        # Clean up invalid rancher2_connection_info.json file
-        rm -f ${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json
         return 1
     fi
 }
