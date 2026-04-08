@@ -802,7 +802,7 @@ retrieve_connection_info() {
             case "${RESPONSE}" in
             200)
                 # Validate using the system-agent validate-connection command
-                if ! "${CATTLE_AGENT_BIN_DIR}/rancher-system-agent" validate-connection "${TEMP_CONNECTION_INFO}" 2>&1; then
+                if ! "${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent" validate-connection "${TEMP_CONNECTION_INFO}" 2>&1; then
                     i=$((i + 1))
                     error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
                     rm -f "${TEMP_CONNECTION_INFO}"
