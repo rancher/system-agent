@@ -37,6 +37,7 @@ if [ -n "$SYSTEM_UPGRADE_NODE_NAME" ]; then
     if [ -z "$CATTLE_ROLE_WORKER" ] && grep -q 'node-role.kubernetes.io/worker: "true"' $NODE_FILE; then
         export CATTLE_ROLE_WORKER=true
     fi
+    export CATTLE_NODE_NAME="${SYSTEM_UPGRADE_NODE_NAME}"
 fi
 
 export CATTLE_AGENT_BINARY_LOCAL=true
