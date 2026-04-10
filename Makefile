@@ -236,6 +236,10 @@ test-e2e: $(GINKGO_BIN) e2e-image ## Run e2e tests (builds image and creates Kin
 		--junit-report="junit.e2e_suite.xml" \
 		./e2e/suites/...
 
+.PHONY: integration-tests
+integration-tests: ## Run integration tests (Rancher + system-agent + CAPR provisioning).
+	./scripts/integration-tests
+
 ##@ Build
 
 .PHONY: build
