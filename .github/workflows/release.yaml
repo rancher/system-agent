@@ -6,17 +6,34 @@ on:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write # to create releases
-  id-token: write # to read vault secrets
+permissions: {}
 
 env:
   TAG: ${{ github.ref_name }}
 
 jobs:
+  create-draft-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed for creating the GH release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ env.TAG }}" --generate-notes --verify-tag --draft --title "${{ env.TAG }}"
+
   # Build Docker images using multi-stage Dockerfile
   release:
     name: Build and push arch-specific images
+    needs:
+      - create-draft-release
+    permissions:
+      contents: read # to clone the repo
+      id-token: write # to read vault secrets
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -121,8 +138,12 @@ jobs:
           prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
 
   merge:
+    permissions:
+      id-token: write # to read vault secrets
+      contents: read # to clone the repo
     runs-on: ubuntu-latest
     needs:
+      - create-draft-release
       - release
     steps:
       - name: Checkout code
@@ -214,32 +235,18 @@ jobs:
           prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
 
   github_release:
-    name: Create GitHub release
+    name: Finalize GitHub release
     runs-on: ubuntu-latest
     needs:
+      - create-draft-release
       - merge
+      - release
     permissions:
       contents: write
       id-token: write
     steps:
-      - name: Read App Secrets
-        uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # main
-        with:
-          secrets: |
-            secret/data/github/repo/${{ github.repository }}/github/app-credentials appId | APP_ID ;
-            secret/data/github/repo/${{ github.repository }}/github/app-credentials privateKey | PRIVATE_KEY
-
-      - name: Create App Token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        id: app-token
-        with:
-          app-id: ${{ env.APP_ID }}
-          private-key: ${{ env.PRIVATE_KEY }}
-
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -252,11 +259,18 @@ jobs:
           VERSION: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
 
-      - name: Create GitHub release
+      - name: Add artfiacts to the GitHub release
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create ${{ github.ref_name }} \
-            --verify-tag \
-            --generate-notes \
-            dist/*
+          gh release upload ${{ env.TAG }} dist/*
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          flags="--draft=false"
+          if [[ "${{ env.TAG }}" == *"-rc"* ]]; then
+            flags="${flags} --prerelease"
+          fi
+          gh release edit "${{ env.TAG }}" ${flags}
