@@ -270,7 +270,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           flags="--draft=false"
-          if [[ "${{ env.TAG }}" == *"-rc"* ]]; then
+          # matching anything that contains a dash as a pre-release, e.g. `v1.2.3-rc1` or `v1.2.3-build1`
+          if [[ "${{ env.TAG }}" == *"-"* ]]; then
             flags="${flags} --prerelease"
           fi
           gh release edit "${{ env.TAG }}" ${flags}
