@@ -263,7 +263,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ env.TAG }} dist/*
+          gh release upload ${{ env.TAG }} --clobber dist/*
 
       - name: Publish GitHub release
         env:
