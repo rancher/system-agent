@@ -1,0 +1,39 @@
+#!/bin/bash
+set -ex
+cd $(dirname $0)/..
+
+TMP_DIR=$(TMPDIR=/var/tmp mktemp -d)
+pushd "$TMP_DIR"
+
+mkdir -p rancher
+
+GIT_URL=${GIT_URL:-https://github.com/rancher/rancher.git}
+GIT_BRANCH=${GIT_BRANCH:-release/v2.14}
+
+git clone --depth 1 -b $GIT_BRANCH $GIT_URL ./rancher
+
+export RANCHER_DIR=$TMP_DIR/rancher
+
+pushd ./rancher
+if [ -n "$RANCHER_COMMIT" ]; then
+    git fetch --depth 1 origin "$RANCHER_COMMIT"
+    git checkout "$RANCHER_COMMIT"
+fi
+mkdir -p "$RANCHER_DIR/bin"
+
+# Extract the rancher binary from the container image.
+RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.14-head}
+docker pull "$RANCHER_IMAGE"
+container_id=$(docker create "$RANCHER_IMAGE")
+docker cp "$container_id":/usr/bin/rancher "$RANCHER_DIR/bin/rancher"
+docker cp "$container_id":/usr/bin/k3s "$RANCHER_DIR/bin/k3s"
+docker cp "$container_id":/usr/bin/rancher-machine "$RANCHER_DIR/bin/rancher-machine"
+docker rm "$container_id"
+
+# Tag the image as rancher/rancher:dev so provisioning-tests skips building
+# Rancher from source (it checks for rancher/rancher:$TAG where TAG=dev).
+docker tag "$RANCHER_IMAGE" rancher/rancher:dev
+
+popd
+
+popd
