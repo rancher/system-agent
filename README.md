@@ -16,6 +16,10 @@ v0.3.16 is the last release following the old versioning schema.
 
 Note that only the **minor** versions are aligned — patch versions are incremented independently as needed. For example, Rancher v2.14.6 may reference system-agent v0.14.2.
 
+### Branches
+
+The `main` branch is used to cut releases for the most current minor release line. For previous release lines, dedicated branches are created following the pattern `release/v0.<minor>` (e.g., `release/v0.14`).
+
 ## Building
 
 `make`
