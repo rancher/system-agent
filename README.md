@@ -2,6 +2,20 @@
 
 `rancher-system-agent` is a daemon designed to run on a system and apply "plans" to the system. `rancher-system-agent` can support both local and remote plans, and was built to be integrated with the Rancher2 project for provisioning next-generation, CAPI driven clusters.
 
+## Versioning
+
+Starting after v0.3.16, `system-agent` releases are aligned with Rancher minor release lines. The minor version of `system-agent` corresponds to the minor version of the Rancher release it is intended for:
+
+| system-agent version | Rancher version |
+|----------------------|-----------------|
+| v0.3.x               | Legacy (independent versioning) |
+| v0.14.x              | Rancher v2.14.x |
+| v0.15.x              | Rancher v2.15.x |
+
+v0.3.16 is the last release following the old versioning schema.
+
+Note that only the **minor** versions are aligned — patch versions are incremented independently as needed. For example, Rancher v2.14.6 may reference system-agent v0.14.2.
+
 ## Building
 
 `make`
