@@ -24,6 +24,7 @@ go.work.sum
 
 # Dependency directories
 /vendor
+/test/vendor
 
 # IDE
 .idea
