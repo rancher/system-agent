@@ -3,16 +3,17 @@ package prober
 import (
 	"sync"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/sirupsen/logrus"
 )
 
-func DoProbes(probes map[string]Probe, probeStatuses map[string]ProbeStatus, initial bool) {
+func DoProbes(probes map[string]planapi.Probe, probeStatuses map[string]planapi.ProbeStatus, initial bool) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	for probeName, probe := range probes {
 		wg.Add(1)
-		go func(probeName string, probe Probe, wg *sync.WaitGroup) {
+		go func(probeName string, probe planapi.Probe, wg *sync.WaitGroup) {
 			defer wg.Done()
 			logrus.Debugf("[Prober] (%s) running probe", probeName)
 			mu.Lock()
@@ -21,7 +22,7 @@ func DoProbes(probes map[string]Probe, probeStatuses map[string]ProbeStatus, ini
 			mu.Unlock()
 			if !ok {
 				logrus.Tracef("[Prober] (%s) probe status was not present in map, initializing", probeName)
-				probeStatus = ProbeStatus{}
+				probeStatus = planapi.ProbeStatus{}
 			}
 			probe.Name = probeName
 			if err := DoProbe(probe, &probeStatus, initial); err != nil {

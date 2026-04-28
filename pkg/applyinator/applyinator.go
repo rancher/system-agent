@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,8 +17,8 @@ import (
 	"sync"
 	"time"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/system-agent/pkg/image"
-	"github.com/rancher/system-agent/pkg/prober"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -35,56 +34,8 @@ type Applyinator struct {
 
 // CalculatedPlan is passed into Applyinator and is a Plan with checksum calculated
 type CalculatedPlan struct {
-	Plan     Plan
+	Plan     planapi.Plan
 	Checksum string
-}
-
-type Plan struct {
-	Files                []File                  `json:"files,omitempty"`
-	OneTimeInstructions  []OneTimeInstruction    `json:"instructions,omitempty"`
-	Probes               map[string]prober.Probe `json:"probes,omitempty"`
-	PeriodicInstructions []PeriodicInstruction   `json:"periodicInstructions,omitempty"`
-}
-
-type CommonInstruction struct {
-	Name    string   `json:"name,omitempty"`
-	Image   string   `json:"image,omitempty"`
-	Env     []string `json:"env,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Command string   `json:"command,omitempty"`
-}
-
-type PeriodicInstruction struct {
-	CommonInstruction
-	PeriodSeconds    int  `json:"periodSeconds,omitempty"` // default 600, i.e. 10 minutes
-	SaveStderrOutput bool `json:"saveStderrOutput,omitempty"`
-}
-
-type PeriodicInstructionOutput struct {
-	Name                  string `json:"name"`
-	Stdout                []byte `json:"stdout"`                // Stdout is a byte array of the gzip+base64 stdout output
-	Stderr                []byte `json:"stderr"`                // Stderr is a byte array of the gzip+base64 stderr output
-	ExitCode              int    `json:"exitCode"`              // ExitCode is an int representing the exit code of the last run instruction
-	LastSuccessfulRunTime string `json:"lastSuccessfulRunTime"` // LastSuccessfulRunTime is a time.UnixDate formatted string of the last successful time (exit code 0) the instruction was run
-	Failures              int    `json:"failures"`              // Failures is the number of time the periodic instruction has failed to run
-	LastFailedRunTime     string `json:"lastFailedRunTime"`     // LastFailedRunTime is a time.UnixDate formatted string of the time that the periodic instruction started failing
-}
-
-type OneTimeInstruction struct {
-	CommonInstruction
-	SaveOutput bool `json:"saveOutput,omitempty"`
-}
-
-// Path would be `/etc/kubernetes/ssl/ca.pem`, Content is base64 encoded.
-// If Directory is true, then we are creating a directory, not a file
-type File struct {
-	Content     string `json:"content,omitempty"`
-	Directory   bool   `json:"directory,omitempty"`
-	UID         int    `json:"uid,omitempty"`
-	GID         int    `json:"gid,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Permissions string `json:"permissions,omitempty"` // internally, the string will be converted to a uint32 to satisfy os.FileMode
-	Action      string `json:"action,omitempty"`
 }
 
 const appliedPlanFileSuffix = "-applied.plan"
@@ -110,23 +61,14 @@ func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir, interl
 }
 
 func CalculatePlan(rawPlan []byte) (CalculatedPlan, error) {
-	var cp CalculatedPlan
-	var plan Plan
-	if err := json.Unmarshal(rawPlan, &plan); err != nil {
-		return cp, err
+	p, err := planapi.Parse(rawPlan)
+	if err != nil {
+		return CalculatedPlan{}, err
 	}
-
-	cp.Checksum = checksum(rawPlan)
-	cp.Plan = plan
-
-	return cp, nil
-}
-
-func checksum(input []byte) string {
-	h := sha256.New()
-	h.Write(input)
-
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return CalculatedPlan{
+		Plan:     p,
+		Checksum: planapi.Checksum(rawPlan),
+	}, nil
 }
 
 type ApplyOutput struct {
@@ -303,7 +245,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		output.OneTimeOutput = oneTimeApplyOutput
 	}
 
-	periodicOutputs := map[string]PeriodicInstructionOutput{}
+	periodicOutputs := map[string]planapi.PeriodicInstructionOutput{}
 	if len(input.ExistingPeriodicOutput) > 0 {
 		objectBuffer, err := generateByteBufferFromBytes(input.ExistingPeriodicOutput)
 		if err != nil {
@@ -381,7 +323,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		if !instruction.SaveStderrOutput {
 			stderr = []byte{}
 		}
-		periodicOutputs[instruction.Name] = PeriodicInstructionOutput{
+		periodicOutputs[instruction.Name] = planapi.PeriodicInstructionOutput{
 			Name:                  instruction.Name,
 			Stdout:                stdout,
 			Stderr:                stderr,
@@ -509,10 +451,10 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 	return writeContentToFile(filepath.Join(a.appliedPlanDir, file), os.Getuid(), os.Getgid(), 0600, anpString)
 }
 
-func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
+func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction planapi.CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
 		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)
-		if err := createDirectory(File{Directory: true, Path: executionDir}); err != nil {
+		if err := createDirectory(planapi.File{Directory: true, Path: executionDir}); err != nil {
 			logrus.Errorf("error while creating empty working directory: %v", err)
 			return nil, nil, -1, err
 		}
