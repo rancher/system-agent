@@ -17,6 +17,7 @@ import (
 	"github.com/rancher/lasso/pkg/client"
 	"github.com/rancher/lasso/pkg/controller"
 	"github.com/rancher/lasso/pkg/scheme"
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
 	"github.com/rancher/system-agent/pkg/prober"
@@ -204,15 +205,15 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			logrus.Tracef("[K8s] Byte data: %v", planData)
 			logrus.Tracef("[K8s] Plan string was %s", string(planData))
 
-			var probeStatuses map[string]prober.ProbeStatus
+			var probeStatuses map[string]planapi.ProbeStatus
 			// retrieve existing probe statuses from the secret if they exist
 			if rawProbeStatusByteData, ok := secret.Data[ProbeStatusesKey]; ok {
 				if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
 					logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
-					probeStatuses = make(map[string]prober.ProbeStatus, 0)
+					probeStatuses = make(map[string]planapi.ProbeStatus, 0)
 				}
 			} else {
-				probeStatuses = make(map[string]prober.ProbeStatus, 0)
+				probeStatuses = make(map[string]planapi.ProbeStatus, 0)
 			}
 			// calculate the checksum of the plan from the provided data
 			cp, err := applyinator.CalculatePlan(planData)
