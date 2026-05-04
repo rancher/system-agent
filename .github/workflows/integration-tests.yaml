@@ -77,6 +77,7 @@ jobs:
           mkdir -p _artifacts
           [ -f /tmp/rancher.log ] && cp /tmp/rancher.log _artifacts/rancher.log || true
           [ -n "$RANCHER_DIR" ] && [ -f "$RANCHER_DIR/build/testdata/k3s.log" ] && cp "$RANCHER_DIR/build/testdata/k3s.log" _artifacts/k3s.log || true
+          [ -d /tmp/system-agent-streams ] && cp -R /tmp/system-agent-streams _artifacts/system-agent-streams || true
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
