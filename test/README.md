@@ -4,6 +4,8 @@
 
 The e2e test suite validates system-agent functionality in a real Kubernetes environment. Tests create a Kind cluster, deploy the system-agent as a DaemonSet, and verify various agent capabilities.
 
+See also: [integration/README.md](integration/README.md) for the v2prov-based integration test suite.
+
 ## Running Tests
 
 From the repository root:

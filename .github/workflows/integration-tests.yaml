@@ -1,0 +1,87 @@
+name: Integration Tests
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: true
+      - name: Configure Docker for cgroupfs/insecure-registry
+        run: |
+          echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"], "insecure-registries": ["172.17.0.2:5000"]}' | sudo tee /etc/docker/daemon.json
+          if [ -d /run/systemd/system ]; then
+            sudo systemctl restart docker
+          fi
+          sudo docker info
+          # Alias 172.17.0.2 onto docker0 so the registry-cache is reachable.
+          sudo ip addr add 172.17.0.2/32 dev docker0
+      - name: Set up k3s binaries and CNI plugins
+        env:
+          CATTLE_K3S_VERSION: v1.35.3-k3s1
+        run: |
+          container_id=$(sudo docker create rancher/k3s:${CATTLE_K3S_VERSION})
+          for bin in blkid bandwidth cni conntrack containerd containerd-shim-runc-v2 ethtool firewall ip ipset k3s losetup pigz runc; do
+            sudo docker cp "${container_id}:/bin/${bin}" /usr/bin/ || true
+          done
+          sudo docker cp "${container_id}:/bin/aux/xtables-legacy-multi" /usr/bin/ || true
+          sudo docker rm "${container_id}"
+          sudo ln -sf /usr/bin/cni /usr/bin/bridge
+          sudo ln -sf /usr/bin/cni /usr/bin/flannel
+          sudo ln -sf /usr/bin/cni /usr/bin/host-local
+          sudo ln -sf /usr/bin/cni /usr/bin/loopback
+          sudo ln -sf /usr/bin/cni /usr/bin/portmap
+          sudo ln -sf /usr/bin/k3s /usr/bin/crictl
+          sudo ln -sf /usr/bin/k3s /usr/bin/ctr
+          sudo ln -sf /usr/bin/k3s /usr/bin/k3s-agent
+          sudo ln -sf /usr/bin/k3s /usr/bin/k3s-etcd-snapshot
+          sudo ln -sf /usr/bin/k3s /usr/bin/k3s-server
+          sudo ln -sf /usr/bin/k3s /usr/bin/kubectl
+          sudo ln -sf /usr/bin/pigz /usr/bin/unpigz
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/iptables
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/iptables-save
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/iptables-restore
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-save
+          sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
+      - name: Pre-pull container images
+        env:
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.14-head
+          RANCHER_IMAGE: rancher/rancher:v2.14-head
+        run: |
+          sudo docker pull "$RANCHER_IMAGE" &
+          sudo docker pull "$CATTLE_AGENT_IMAGE" &
+          wait
+      - name: Run integration tests
+        run: sudo -E env PATH="$PATH" make integration-tests
+      - name: Collect run artifacts
+        if: always()
+        run: |
+          mkdir -p _artifacts
+          [ -f /tmp/rancher.log ] && cp /tmp/rancher.log _artifacts/rancher.log || true
+          [ -n "$RANCHER_DIR" ] && [ -f "$RANCHER_DIR/build/testdata/k3s.log" ] && cp "$RANCHER_DIR/build/testdata/k3s.log" _artifacts/k3s.log || true
+          [ -d /tmp/system-agent-streams ] && cp -R /tmp/system-agent-streams _artifacts/system-agent-streams || true
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: integration-test-artifacts
+          path: _artifacts
+          if-no-files-found: ignore

@@ -1,0 +1,118 @@
+#!/bin/bash
+set -x
+
+cd "$(dirname "$0")/.." || exit 1
+
+SYSTEM_AGENT_DIR="$(pwd)"
+
+if [ "$V2PROV_TEST_DIST" != "rke2" ] && [ "$V2PROV_TEST_DIST" != "k3s" ]; then
+    export V2PROV_TEST_DIST=rke2
+fi
+
+# Provisioning_MP and PreBootstrap tests live in Rancher and run there with the
+# local system-agent binary swapped in. SystemAgent tests come from this repo;
+# keep new ones named Test_SystemAgent_* so they remain covered by the default regex.
+if [ -z "${V2PROV_TEST_RUN_REGEX}" ]; then
+    export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_MP|PreBootstrap|SystemAgent)_.*$"
+fi
+
+export DRONE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}
+
+set -ex
+
+make build
+
+mkdir -p /usr/share/rancher/ui/assets
+cp "${SYSTEM_AGENT_DIR}/install.sh" /usr/share/rancher/ui/assets/system-agent-install.sh
+
+source ./scripts/fetch-provisioning-tests
+
+# Copy system-agent integration tests into rancher's v2prov test tree.
+# These tests keep //go:build ignore in this repo so they do not get picked up by
+# the normal local go test package walk, but Rancher's v2prov runner expects them
+# to be regular test files once copied into its tree. Strip that line here so new
+# tests do not get silently skipped after being added.
+if compgen -G "${SYSTEM_AGENT_DIR}/test/integration/*_test.go" > /dev/null 2>&1; then
+    mkdir -p "${RANCHER_DIR}/tests/v2prov/tests/systemagent"
+    cp "${SYSTEM_AGENT_DIR}/test/integration/"*_test.go "${RANCHER_DIR}/tests/v2prov/tests/systemagent/"
+    sed -i '1{/^\/\/go:build ignore$/d}' "${RANCHER_DIR}/tests/v2prov/tests/systemagent/"*_test.go
+fi
+
+cd "$RANCHER_DIR"
+
+sed -i -e '3,5d' ./scripts/provisioning-tests
+
+# Use local system-agent binary instead of downloading from release server.
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/rancher-system-agent-amd64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui/assets/rancher-system-agent-amd64|" ./scripts/provisioning-tests
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/rancher-system-agent-arm64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui/assets/rancher-system-agent-arm64|" ./scripts/provisioning-tests
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/system-agent-uninstall.sh$|cp ${SYSTEM_AGENT_DIR}/system-agent-uninstall.sh /usr/share/rancher/ui/assets/system-agent-uninstall.sh|" ./scripts/provisioning-tests
+
+# Increase timeouts for 2-core GHA runners.
+sed -i 's|--timeout 300 "curl -sf -o /dev/null http://localhost:8080/ping"|--timeout 1200 "curl -sf -o /dev/null http://localhost:8080/ping"|' ./scripts/provisioning-tests
+sed -i 's/--timeout 300 `# Time out after 300 seconds/--timeout 600 `# Time out after 600 seconds/g' ./scripts/provisioning-tests
+sed -i 's|docker push 172\.17\.0\.2:5000/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
+sed -i 's/--timeout 300 \\$/--timeout 1200 \\/' ./scripts/provisioning-tests
+sed -i 's|^go test |stdbuf -oL go test |' ./scripts/provisioning-tests
+sed -i 's| tee /tmp/out.txt| stdbuf -oL tee /tmp/out.txt|' ./scripts/provisioning-tests
+
+if [ -n "${GITHUB_ENV}" ]; then
+    echo "RANCHER_DIR=${RANCHER_DIR}" >> "${GITHUB_ENV}"
+fi
+
+# Rancher expects ~/.kube/k3s.yaml but k3s writes to /etc/rancher/k3s/k3s.yaml.
+mkdir -p "${HOME}/.kube"
+ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
+
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.14-head}
+export PATH="${RANCHER_DIR}/bin:$PATH"
+
+STREAM_ARTIFACT_DIR=${STREAM_ARTIFACT_DIR:-/tmp/system-agent-streams}
+rm -rf "$STREAM_ARTIFACT_DIR"
+mkdir -p "$STREAM_ARTIFACT_DIR/system-agent"
+
+stream_logs() {
+    set +x
+    local KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    local waited=0
+
+    while [ ! -f "$KUBECONFIG" ]; do
+        sleep 5
+        waited=$((waited + 5))
+        if [ "$waited" -ge 600 ]; then echo "[stream_logs] kubeconfig not found after 10m, giving up"; return; fi
+    done
+    while ! kubectl --kubeconfig "$KUBECONFIG" version --short >/dev/null 2>&1; do
+        sleep 5
+        waited=$((waited + 5))
+        if [ "$waited" -ge 900 ]; then echo "[stream_logs] API server not ready after 15m, giving up"; return; fi
+    done
+
+    # Cluster-wide events — image pull errors, scheduling, probes, OOM, etc.
+    kubectl --kubeconfig "$KUBECONFIG" get events -A --watch-only \
+        -o 'custom-columns=TIME:.lastTimestamp,NS:.involvedObject.namespace,KIND:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MESSAGE:.message' \
+        2>/dev/null | sed -u 's/^/[events] /' >> "$STREAM_ARTIFACT_DIR/events.log" &
+
+    # System-agent logs from PodMachine pods as they appear.
+    while true; do
+        for pod in $(kubectl --kubeconfig "$KUBECONFIG" get pods -A -l rke.cattle.io/machine=true \
+            -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+            ns="${pod%%/*}"
+            name="${pod##*/}"
+            marker="$STREAM_ARTIFACT_DIR/.sa-stream-${ns}-${name}"
+            if [ ! -f "$marker" ]; then
+                touch "$marker"
+                kubectl --kubeconfig "$KUBECONFIG" -n "$ns" exec "$name" -- \
+                    journalctl -u rancher-system-agent -f --no-pager 2>/dev/null \
+                    | sed -u "s/^/[system-agent ${name}] /" >> "$STREAM_ARTIFACT_DIR/system-agent/${ns}-${name}.log" &
+            fi
+        done
+        sleep 10
+    done
+}
+
+stream_logs &
+STREAM_PID=$!
+trap 'kill -- -${STREAM_PID} 2>/dev/null || true; wait ${STREAM_PID} 2>/dev/null || true' EXIT
+
+echo "=== Starting provisioning-tests at $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
+set -o pipefail
+./scripts/provisioning-tests 2>&1 | awk '{ printf "[%s] %s\n", strftime("%H:%M:%S", systime()), $0; fflush() }'
