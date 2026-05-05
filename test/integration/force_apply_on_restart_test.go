@@ -11,6 +11,7 @@ import (
 
 	provisioningv1api "github.com/rancher/rancher/pkg/apis/provisioning.cattle.io/v1"
 	"github.com/rancher/rancher/pkg/capr"
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/rancher/tests/v2prov/clients"
 	"github.com/rancher/rancher/tests/v2prov/cluster"
 	"github.com/rancher/rancher/tests/v2prov/defaults"
@@ -21,9 +22,12 @@ import (
 
 // Test_SystemAgent_ForceApplyOnRestart provisions a single-node cluster,
 // restarts system-agent, and verifies:
-//  1. last-apply-time in the plan secret changes (proving the hasRunOnce
-//     force-reapply logic in k8splan/watcher.go fired).
-//  2. The cluster remains Ready (proving reconnection works).
+//  1. The agent respects terminal plan-state (succeeded) on restart and does
+//     NOT re-apply without an explicit plan-state:pending signal.
+//  2. After the orchestrator sets plan-state:pending, the restarted agent
+//     picks it up, applies, and transitions to plan-state:succeeded.
+//  3. last-apply-time in the plan secret changes after the re-apply.
+//  4. The cluster remains Ready throughout (proving reconnection works).
 func Test_SystemAgent_ForceApplyOnRestart(t *testing.T) {
 	t.Log("creating v2prov clients")
 	clients, err := clients.New()
@@ -72,7 +76,7 @@ func Test_SystemAgent_ForceApplyOnRestart(t *testing.T) {
 	machine := machines.Items[0]
 	planSecretName := capr.PlanSecretFromBootstrapName(machine.Spec.Bootstrap.ConfigRef.Name)
 
-	t.Logf("recording pre-restart last-apply-time from plan secret %s/%s", machine.Namespace, planSecretName)
+	t.Logf("reading plan secret %s/%s", machine.Namespace, planSecretName)
 	secret, err := clients.Core.Secret().Get(machine.Namespace, planSecretName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("plan secret not found: %v", err)
@@ -97,37 +101,68 @@ func Test_SystemAgent_ForceApplyOnRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to restart system-agent: %v\noutput: %s", err, string(out))
 	}
-	t.Log("systemctl restart succeeded, polling plan secret for updated last-apply-time")
+	t.Log("systemctl restart succeeded")
 
-	// Poll until last-apply-time changes — this proves hasRunOnce triggered
-	// a force-reapply after the restart.
+	// Poll for up to 30s to read the plan secret, retrying transient API errors
+	// that can occur right after a system-agent restart disrupts k3s connections.
+	t.Log("verifying agent does NOT re-apply with plan-state:succeeded (terminal) after restart")
+	verifyCtx, verifyCancel := context.WithTimeout(clients.Ctx, 30*time.Second)
+	defer verifyCancel()
+	var terminalData map[string][]byte
+	if err := wait.PollUntilContextCancel(verifyCtx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
+		s, err := clients.Core.Secret().Get(machine.Namespace, planSecretName, metav1.GetOptions{})
+		if err != nil {
+			t.Logf("transient error reading plan secret (will retry): %v", err)
+			return false, nil
+		}
+		terminalData = s.Data
+		return true, nil
+	}); err != nil {
+		t.Fatalf("could not read plan secret within 30s after restart: %v", err)
+	}
+	if current := string(terminalData[lastApplyTimeKey]); current != preRestartTime {
+		t.Errorf("last-apply-time changed from %q to %q after restart with terminal state — agent should not re-apply", preRestartTime, current)
+	}
+	t.Log("confirmed: no re-apply in terminal state after restart")
+
+	// Now simulate the orchestrator delivering a new plan by setting plan-state:pending.
+	// The restarted agent must pick this up and apply.
+	t.Log("patching plan-state:pending to trigger re-apply on the restarted agent")
+	if err := patchSecretData(clients, machine.Namespace, planSecretName, map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStatePending),
+	}); err != nil {
+		t.Fatalf("patch failed: %v", err)
+	}
+
+	// Poll until plan-state:succeeded and last-apply-time has changed.
 	ctx, cancel := context.WithTimeout(clients.Ctx, 3*time.Minute)
 	defer cancel()
 
+	t.Log("waiting for plan-state:succeeded and updated last-apply-time")
 	err = wait.PollUntilContextCancel(ctx, 5*time.Second, true, func(ctx context.Context) (bool, error) {
 		s, err := clients.Core.Secret().Get(machine.Namespace, planSecretName, metav1.GetOptions{})
 		if err != nil {
-			t.Logf("poll: error reading plan secret (will retry): %v", err)
-			return false, nil
+			return false, nil // retry
 		}
+		state := planapi.PlanState(s.Data[planapi.PlanStateKey])
 		current := string(s.Data[lastApplyTimeKey])
-		if current != preRestartTime && current != "" {
-			t.Logf("poll: last-apply-time changed to %s (was %s)", current, preRestartTime)
+		if state == planapi.PlanStateSucceeded && current != preRestartTime && current != "" {
+			t.Logf("plan-state:succeeded reached; last-apply-time changed to %s (was %s)", current, preRestartTime)
 			return true, nil
 		}
-		t.Logf("poll: last-apply-time still %s, waiting...", current)
+		t.Logf("poll: plan-state=%q last-apply-time=%q, waiting...", state, current)
 		return false, nil
 	})
 	if err != nil {
-		t.Fatalf("last-apply-time did not change within 3 minutes after restart: %v", err)
+		t.Fatalf("plan-state did not reach succeeded or last-apply-time did not change within 3 minutes: %v", err)
 	}
 
-	t.Log("waiting for cluster to converge back to ready after restart")
+	t.Log("waiting for cluster to remain ready after restart and re-apply")
 	c, err = cluster.WaitForCreate(clients, c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log("cluster still ready after system-agent restart")
+	t.Log("cluster still ready after system-agent restart and re-apply")
 
 	t.Log("deleting cluster and waiting for cleanup")
 	if err := clients.Provisioning.Cluster().Delete(c.Namespace, c.Name, &metav1.DeleteOptions{}); err != nil {
