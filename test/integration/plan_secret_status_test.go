@@ -9,6 +9,7 @@ import (
 
 	provisioningv1api "github.com/rancher/rancher/pkg/apis/provisioning.cattle.io/v1"
 	"github.com/rancher/rancher/pkg/capr"
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/rancher/tests/v2prov/clients"
 	"github.com/rancher/rancher/tests/v2prov/cluster"
 	"github.com/rancher/rancher/tests/v2prov/defaults"
@@ -118,6 +119,14 @@ func Test_SystemAgent_PlanSecretStatus(t *testing.T) {
 	// failed-checksum should be empty — no failures occurred.
 	if v := string(secret.Data[failedChecksumKey]); v != "" {
 		t.Errorf("failed-checksum should be empty, got %q", v)
+	}
+
+	// plan-state must be "succeeded" after a successful apply.
+	ps := string(secret.Data[planapi.PlanStateKey])
+	if ps != string(planapi.PlanStateSucceeded) {
+		t.Errorf("plan-state should be %q after successful apply, got %q", planapi.PlanStateSucceeded, ps)
+	} else {
+		t.Logf("plan-state: %s", ps)
 	}
 
 	t.Log("deleting cluster and waiting for cleanup")
