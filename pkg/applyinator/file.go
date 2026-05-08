@@ -8,13 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/sirupsen/logrus"
 )
 
 const defaultDirectoryPermissions os.FileMode = 0755
 const defaultFilePermissions os.FileMode = 0600
 
-func writeBase64ContentToFile(file File) error {
+func writeBase64ContentToFile(file planapi.File) error {
 	content, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
 		return err
@@ -53,7 +54,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 	return reconcileFilePermissions(path, uid, gid, perm)
 }
 
-func createDirectory(file File) error {
+func createDirectory(file planapi.File) error {
 	if !file.Directory {
 		return fmt.Errorf("%s was not a directory", file.Path)
 	}
@@ -76,7 +77,7 @@ func createDirectory(file File) error {
 	return reconcileFilePermissions(file.Path, file.UID, file.GID, fileMode)
 }
 
-func removeFile(file File) error {
+func removeFile(file planapi.File) error {
 	if file.Directory {
 		logrus.Debugf("[Applyinator] Removing directory %s", file.Path)
 		if err := os.RemoveAll(file.Path); err != nil && !os.IsNotExist(err) {

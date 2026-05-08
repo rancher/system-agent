@@ -41,6 +41,7 @@ replace (
 require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260413094914-0404acf59a23
 	github.com/rancher/system-agent v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1

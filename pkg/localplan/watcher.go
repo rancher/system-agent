@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/prober"
 	"github.com/sirupsen/logrus"
@@ -28,10 +29,10 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 
 // stdout and stderr are both base64, gzipped
 type NodePlanPosition struct {
-	AppliedChecksum string                        `json:"appliedChecksum,omitempty"`
-	Output          []byte                        `json:"output,omitempty"`
-	ProbeStatus     map[string]prober.ProbeStatus `json:"probeStatus,omitempty"`
-	PeriodicOutput  []byte                        `json:"periodicOutput,omitempty"`
+	AppliedChecksum string                         `json:"appliedChecksum,omitempty"`
+	Output          []byte                         `json:"output,omitempty"`
+	ProbeStatus     map[string]planapi.ProbeStatus `json:"probeStatus,omitempty"`
+	PeriodicOutput  []byte                         `json:"periodicOutput,omitempty"`
 }
 
 type watcher struct {
@@ -128,7 +129,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 		}
 
 		if probeStatuses == nil {
-			probeStatuses = make(map[string]prober.ProbeStatus)
+			probeStatuses = make(map[string]planapi.ProbeStatus)
 		}
 
 		input := applyinator.ApplyInput{
@@ -150,7 +151,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 
 		for probeName, probe := range cp.Plan.Probes {
 			wg.Add(1)
-			go func(probeName string, probe prober.Probe, wg *sync.WaitGroup) {
+			go func(probeName string, probe planapi.Probe, wg *sync.WaitGroup) {
 				defer wg.Done()
 				logrus.Debugf("[local] (%s) running probe", probeName)
 				mu.Lock()
@@ -159,7 +160,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 				mu.Unlock()
 				if !ok {
 					logrus.Debugf("[local] (%s) probe status was not present in map, initializing", probeName)
-					probeStatus = prober.ProbeStatus{}
+					probeStatus = planapi.ProbeStatus{}
 				}
 				if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
 					logrus.Errorf("error running probe %s: %v", probeName, err)
@@ -246,7 +247,7 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 
 // Returns true if the plan needs to be applied, false if not
 // needsApplication, probeStatus, error
-func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]prober.ProbeStatus, error) {
+func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]planapi.ProbeStatus, error) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
 		logrus.Debugf("[local] Plan checksum (%s) matched", computedChecksum)

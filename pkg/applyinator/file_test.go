@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+
+	planapi "github.com/rancher/rancher/pkg/plan"
 )
 
 func TestWriteContentToFile(t *testing.T) {
@@ -19,8 +21,8 @@ func TestWriteContentToFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	getFile := func(path string, permissions string, content string) File {
-		return File{
+	getFile := func(path string, permissions string, content string) planapi.File {
+		return planapi.File{
 			Content:     content,
 			UID:         -1,
 			GID:         -1,
@@ -156,8 +158,8 @@ func TestCreateDirectory(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	getFile := func(path string, permissions string) File {
-		return File{
+	getFile := func(path string, permissions string) planapi.File {
+		return planapi.File{
 			Directory:   true,
 			UID:         -1,
 			GID:         -1,
@@ -310,8 +312,8 @@ func TestFileActionDelete(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	getFile := func(path string, isDir bool) File {
-		return File{
+	getFile := func(path string, isDir bool) planapi.File {
+		return planapi.File{
 			Path:      filepath.Join(tempDir, path),
 			Directory: isDir,
 			Action:    deleteFileAction,

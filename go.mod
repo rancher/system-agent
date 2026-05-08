@@ -47,6 +47,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.2.6
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260413094914-0404acf59a23
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
 	github.com/rancher/wrangler/v3 v3.4.0
 	github.com/sirupsen/logrus v1.9.3

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/rancher/system-agent/pkg/applyinator"
+	planapi "github.com/rancher/rancher/pkg/plan"
 )
 
 // DecodeOutput decodes a gzip-compressed output,
@@ -107,7 +107,7 @@ func GetOutputMap(encoded []byte) (map[string]string, error) {
 
 // DecodePeriodicOutput decodes the gzip-compressed periodic output and returns
 // a map of instruction names to their PeriodicInstructionOutput structs.
-func DecodePeriodicOutput(encoded []byte) (map[string]applyinator.PeriodicInstructionOutput, error) {
+func DecodePeriodicOutput(encoded []byte) (map[string]planapi.PeriodicInstructionOutput, error) {
 	if len(encoded) == 0 {
 		return nil, nil
 	}
@@ -123,7 +123,7 @@ func DecodePeriodicOutput(encoded []byte) (map[string]applyinator.PeriodicInstru
 		return nil, err
 	}
 
-	var outputMap map[string]applyinator.PeriodicInstructionOutput
+	var outputMap map[string]planapi.PeriodicInstructionOutput
 	if err := json.Unmarshal(gzipResult, &outputMap); err != nil {
 		return nil, err
 	}

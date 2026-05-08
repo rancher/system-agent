@@ -20,20 +20,19 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"github.com/rancher/system-agent/pkg/applyinator"
-	"github.com/rancher/system-agent/pkg/prober"
+	planapi "github.com/rancher/rancher/pkg/plan"
 )
 
 // PlanBuilder provides a fluent API for constructing applyinator plans.
 type PlanBuilder struct {
-	plan applyinator.Plan
+	plan planapi.Plan
 }
 
 // NewPlan creates a new PlanBuilder.
 func NewPlan() *PlanBuilder {
 	return &PlanBuilder{
-		plan: applyinator.Plan{
-			Probes: make(map[string]prober.Probe),
+		plan: planapi.Plan{
+			Probes: make(map[string]planapi.Probe),
 		},
 	}
 }
@@ -41,7 +40,7 @@ func NewPlan() *PlanBuilder {
 // WithFile adds a file creation operation to the plan.
 // The content is provided as plain text and will be base64-encoded automatically.
 func (b *PlanBuilder) WithFile(path, content, permissions string) *PlanBuilder {
-	b.plan.Files = append(b.plan.Files, applyinator.File{
+	b.plan.Files = append(b.plan.Files, planapi.File{
 		Path:        path,
 		Content:     base64.StdEncoding.EncodeToString([]byte(content)),
 		Permissions: permissions,
@@ -51,7 +50,7 @@ func (b *PlanBuilder) WithFile(path, content, permissions string) *PlanBuilder {
 
 // WithDirectory adds a directory creation operation to the plan.
 func (b *PlanBuilder) WithDirectory(path string) *PlanBuilder {
-	b.plan.Files = append(b.plan.Files, applyinator.File{
+	b.plan.Files = append(b.plan.Files, planapi.File{
 		Path:      path,
 		Directory: true,
 	})
@@ -60,7 +59,7 @@ func (b *PlanBuilder) WithDirectory(path string) *PlanBuilder {
 
 // WithDeleteFile adds a file deletion operation to the plan.
 func (b *PlanBuilder) WithDeleteFile(path string) *PlanBuilder {
-	b.plan.Files = append(b.plan.Files, applyinator.File{
+	b.plan.Files = append(b.plan.Files, planapi.File{
 		Path:   path,
 		Action: "delete",
 	})
@@ -69,8 +68,8 @@ func (b *PlanBuilder) WithDeleteFile(path string) *PlanBuilder {
 
 // WithInstruction adds a one-time instruction to the plan.
 func (b *PlanBuilder) WithInstruction(name, command string, args []string, saveOutput bool) *PlanBuilder {
-	b.plan.OneTimeInstructions = append(b.plan.OneTimeInstructions, applyinator.OneTimeInstruction{
-		CommonInstruction: applyinator.CommonInstruction{
+	b.plan.OneTimeInstructions = append(b.plan.OneTimeInstructions, planapi.OneTimeInstruction{
+		CommonInstruction: planapi.CommonInstruction{
 			Name:    name,
 			Command: command,
 			Args:    args,
@@ -82,8 +81,8 @@ func (b *PlanBuilder) WithInstruction(name, command string, args []string, saveO
 
 // WithInstructionEnv adds a one-time instruction with environment variables.
 func (b *PlanBuilder) WithInstructionEnv(name, command string, args, env []string, saveOutput bool) *PlanBuilder {
-	b.plan.OneTimeInstructions = append(b.plan.OneTimeInstructions, applyinator.OneTimeInstruction{
-		CommonInstruction: applyinator.CommonInstruction{
+	b.plan.OneTimeInstructions = append(b.plan.OneTimeInstructions, planapi.OneTimeInstruction{
+		CommonInstruction: planapi.CommonInstruction{
 			Name:    name,
 			Command: command,
 			Args:    args,
@@ -96,8 +95,8 @@ func (b *PlanBuilder) WithInstructionEnv(name, command string, args, env []strin
 
 // WithPeriodicInstruction adds a periodic instruction to the plan.
 func (b *PlanBuilder) WithPeriodicInstruction(name, command string, args []string, periodSeconds int) *PlanBuilder {
-	b.plan.PeriodicInstructions = append(b.plan.PeriodicInstructions, applyinator.PeriodicInstruction{
-		CommonInstruction: applyinator.CommonInstruction{
+	b.plan.PeriodicInstructions = append(b.plan.PeriodicInstructions, planapi.PeriodicInstruction{
+		CommonInstruction: planapi.CommonInstruction{
 			Name:    name,
 			Command: command,
 			Args:    args,
@@ -109,8 +108,8 @@ func (b *PlanBuilder) WithPeriodicInstruction(name, command string, args []strin
 
 // WithPeriodicInstructionSaveStderr adds a periodic instruction with saveStderrOutput to the plan.
 func (b *PlanBuilder) WithPeriodicInstructionSaveStderr(name, command string, args []string, periodSeconds int, saveStderrOutput bool) *PlanBuilder {
-	b.plan.PeriodicInstructions = append(b.plan.PeriodicInstructions, applyinator.PeriodicInstruction{
-		CommonInstruction: applyinator.CommonInstruction{
+	b.plan.PeriodicInstructions = append(b.plan.PeriodicInstructions, planapi.PeriodicInstruction{
+		CommonInstruction: planapi.CommonInstruction{
 			Name:    name,
 			Command: command,
 			Args:    args,
@@ -123,9 +122,9 @@ func (b *PlanBuilder) WithPeriodicInstructionSaveStderr(name, command string, ar
 
 // WithProbe adds an HTTP probe to the plan.
 func (b *PlanBuilder) WithProbe(name, url string, insecure bool) *PlanBuilder {
-	b.plan.Probes[name] = prober.Probe{
+	b.plan.Probes[name] = planapi.Probe{
 		Name:             name,
-		HTTPGetAction:    prober.HTTPGetAction{URL: url, Insecure: insecure},
+		HTTPGetAction:    planapi.HTTPGetAction{URL: url, Insecure: insecure},
 		TimeoutSeconds:   5,
 		SuccessThreshold: 1,
 		FailureThreshold: 3,
@@ -135,9 +134,9 @@ func (b *PlanBuilder) WithProbe(name, url string, insecure bool) *PlanBuilder {
 
 // WithProbeCustomThresholds adds an HTTP probe with custom thresholds and initial delay.
 func (b *PlanBuilder) WithProbeCustomThresholds(name, url string, insecure bool, successThreshold, failureThreshold, initialDelaySeconds, timeoutSeconds int) *PlanBuilder {
-	b.plan.Probes[name] = prober.Probe{
+	b.plan.Probes[name] = planapi.Probe{
 		Name:                name,
-		HTTPGetAction:       prober.HTTPGetAction{URL: url, Insecure: insecure},
+		HTTPGetAction:       planapi.HTTPGetAction{URL: url, Insecure: insecure},
 		InitialDelaySeconds: initialDelaySeconds,
 		TimeoutSeconds:      timeoutSeconds,
 		SuccessThreshold:    successThreshold,
