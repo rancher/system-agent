@@ -1,0 +1,68 @@
+#!/bin/bash
+# stream-logs: runs in the background during integration tests to collect
+# cluster-wide k8s events and per-pod system-agent journal logs into
+# STREAM_ARTIFACT_DIR.  Diagnostic output from this script itself goes to
+# STREAM_LOG rather than stdout so it does not pollute the test output.
+#
+# Required env:
+#   ARTIFACT_DIR        parent artifact directory
+#   STREAM_ARTIFACT_DIR directory to write streams into (must already exist)
+#   STREAM_LOG          path to write this script's own diagnostic output
+
+set -uo pipefail
+
+: "${ARTIFACT_DIR:?ARTIFACT_DIR must be set}"
+: "${STREAM_ARTIFACT_DIR:?STREAM_ARTIFACT_DIR must be set}"
+: "${STREAM_LOG:?STREAM_LOG must be set}"
+
+_slog() { echo "[$(date -u +'%H:%M:%S')] [stream-logs] $*" >> "$STREAM_LOG"; }
+
+# Pre-create artifact files so they always appear in the upload even if
+# stream-logs exits early.
+touch "$STREAM_ARTIFACT_DIR/events.log"
+
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+waited=0
+
+# Wait for Rancher's health endpoint — this is the same signal provisioning-tests
+# uses before running go test, so once it's up both k3s and Rancher are ready.
+_slog "waiting for Rancher health endpoint (up to 30m)"
+while true; do
+    result=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8080/ping 2>&1)
+    if [ "$result" = "200" ]; then break; fi
+    waited=$((waited + 5))
+    if [ "$waited" -ge 1800 ]; then
+        _slog "Rancher not healthy after 30m, giving up (last http_code: $result)"
+        exit 1
+    fi
+    sleep 5
+done
+_slog "Rancher healthy after ${waited}s — k3s API is ready"
+
+# Cluster-wide events like image pull errors, scheduling failures, probes, OOM, etc.
+# Dump existing events first so nothing that happened before we connected is lost,
+# then watch for new ones.
+kubectl --kubeconfig "$KUBECONFIG" get events -A \
+    -o 'custom-columns=TIME:.lastTimestamp,NS:.involvedObject.namespace,KIND:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MESSAGE:.message' \
+    2>/dev/null >> "$STREAM_ARTIFACT_DIR/events.log"
+kubectl --kubeconfig "$KUBECONFIG" get events -A --watch-only \
+    -o 'custom-columns=TIME:.lastTimestamp,NS:.involvedObject.namespace,KIND:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MESSAGE:.message' \
+    2>/dev/null >> "$STREAM_ARTIFACT_DIR/events.log" &
+
+# Stream journalctl from each PodMachine pod into its own file as pods appear.
+while true; do
+    for pod in $(kubectl --kubeconfig "$KUBECONFIG" get pods -A -l rke.cattle.io/machine=true \
+        -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+        ns="${pod%%/*}"
+        name="${pod##*/}"
+        marker="$STREAM_ARTIFACT_DIR/.sa-stream-${ns}-${name}"
+        if [ ! -f "$marker" ]; then
+            touch "$marker"
+            _slog "starting journal stream for pod ${ns}/${name}"
+            kubectl --kubeconfig "$KUBECONFIG" -n "$ns" exec "$name" -- \
+                journalctl -u rancher-system-agent -f --no-pager 2>/dev/null \
+                >> "$STREAM_ARTIFACT_DIR/system-agent/${ns}-${name}.log" &
+        fi
+    done
+    sleep 10
+done

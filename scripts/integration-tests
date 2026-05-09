@@ -66,53 +66,27 @@ ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
-STREAM_ARTIFACT_DIR=${STREAM_ARTIFACT_DIR:-/tmp/system-agent-streams}
+export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}
+export STREAM_ARTIFACT_DIR=${STREAM_ARTIFACT_DIR:-${ARTIFACT_DIR}/streams}
+export STREAM_LOG="$ARTIFACT_DIR/stream_logs.log"
+
 rm -rf "$STREAM_ARTIFACT_DIR"
 mkdir -p "$STREAM_ARTIFACT_DIR/system-agent"
+mkdir -p "$ARTIFACT_DIR"
 
-stream_logs() {
-    set +x
-    local KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    local waited=0
-
-    while [ ! -f "$KUBECONFIG" ]; do
-        sleep 5
-        waited=$((waited + 5))
-        if [ "$waited" -ge 600 ]; then echo "[stream_logs] kubeconfig not found after 10m, giving up"; return; fi
-    done
-    while ! kubectl --kubeconfig "$KUBECONFIG" version --short >/dev/null 2>&1; do
-        sleep 5
-        waited=$((waited + 5))
-        if [ "$waited" -ge 900 ]; then echo "[stream_logs] API server not ready after 15m, giving up"; return; fi
-    done
-
-    # Cluster-wide events — image pull errors, scheduling, probes, OOM, etc.
-    kubectl --kubeconfig "$KUBECONFIG" get events -A --watch-only \
-        -o 'custom-columns=TIME:.lastTimestamp,NS:.involvedObject.namespace,KIND:.involvedObject.kind,NAME:.involvedObject.name,REASON:.reason,MESSAGE:.message' \
-        2>/dev/null | sed -u 's/^/[events] /' >> "$STREAM_ARTIFACT_DIR/events.log" &
-
-    # System-agent logs from PodMachine pods as they appear.
-    while true; do
-        for pod in $(kubectl --kubeconfig "$KUBECONFIG" get pods -A -l rke.cattle.io/machine=true \
-            -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
-            ns="${pod%%/*}"
-            name="${pod##*/}"
-            marker="$STREAM_ARTIFACT_DIR/.sa-stream-${ns}-${name}"
-            if [ ! -f "$marker" ]; then
-                touch "$marker"
-                kubectl --kubeconfig "$KUBECONFIG" -n "$ns" exec "$name" -- \
-                    journalctl -u rancher-system-agent -f --no-pager 2>/dev/null \
-                    | sed -u "s/^/[system-agent ${name}] /" >> "$STREAM_ARTIFACT_DIR/system-agent/${ns}-${name}.log" &
-            fi
-        done
-        sleep 10
-    done
-}
-
-stream_logs &
+# Start background log collection.
+"${SYSTEM_AGENT_DIR}/scripts/stream-logs" &
 STREAM_PID=$!
-trap 'kill -- -${STREAM_PID} 2>/dev/null || true; wait ${STREAM_PID} 2>/dev/null || true' EXIT
+trap 'kill ${STREAM_PID} 2>/dev/null || true; wait ${STREAM_PID} 2>/dev/null || true' EXIT
 
+# Run provisioning-tests.
 echo "=== Starting provisioning-tests at $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
 set -o pipefail
-./scripts/provisioning-tests 2>&1 | awk '{ printf "[%s] %s\n", strftime("%H:%M:%S", systime()), $0; fflush() }'
+./scripts/provisioning-tests 2>&1 | \
+    awk 'BEGIN{ts=""} {
+        t = strftime("%H:%M:%S", systime())
+        if (t != ts) { ts = t; prefix = "[" t "] " } else { prefix = "          " }
+        printf "%s%s\n", prefix, $0
+        fflush()
+    }' | tee "$ARTIFACT_DIR/test-output.log"
+echo "=== provisioning-tests finished at $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
