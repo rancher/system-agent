@@ -200,11 +200,11 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		logrus.Infof("[Applyinator] Applying one-time instructions for plan with checksum %s", input.CalculatedPlan.Checksum)
 		executionOutputs := map[string][]byte{}
 		if len(input.ExistingOneTimeOutput) > 0 {
-			objectBuffer, err := generateByteBufferFromBytes(input.ExistingOneTimeOutput)
+			objectBuffer, err := GenerateByteBufferFromBytes(input.ExistingOneTimeOutput)
 			if err != nil {
 				return output, err
 			}
-			if err := json.Unmarshal(objectBuffer.Bytes(), &executionOutputs); err != nil {
+			if err := json.Unmarshal(objectBuffer, &executionOutputs); err != nil {
 				return output, err
 			}
 		}
@@ -237,7 +237,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			return output, err
 		}
 
-		oneTimeApplyOutput, err := gzipByteSlice(marshalledExecutionOutputs)
+		oneTimeApplyOutput, err := GzipByteSlice(marshalledExecutionOutputs)
 		if err != nil {
 			return output, err
 		}
@@ -247,11 +247,11 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 
 	periodicOutputs := map[string]planapi.PeriodicInstructionOutput{}
 	if len(input.ExistingPeriodicOutput) > 0 {
-		objectBuffer, err := generateByteBufferFromBytes(input.ExistingPeriodicOutput)
+		objectBuffer, err := GenerateByteBufferFromBytes(input.ExistingPeriodicOutput)
 		if err != nil {
 			return output, err
 		}
-		if err := json.Unmarshal(objectBuffer.Bytes(), &periodicOutputs); err != nil {
+		if err := json.Unmarshal(objectBuffer, &periodicOutputs); err != nil {
 			return output, err
 		}
 	}
@@ -343,7 +343,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	if err != nil {
 		return output, err
 	}
-	periodicApplyOutput, err := gzipByteSlice(marshalledExecutionOutputs)
+	periodicApplyOutput, err := GzipByteSlice(marshalledExecutionOutputs)
 	if err != nil {
 		return output, err
 	}
@@ -352,7 +352,8 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	return output, nil
 }
 
-func gzipByteSlice(input []byte) ([]byte, error) {
+// GzipByteSlice compresses input using gzip and returns the compressed bytes.
+func GzipByteSlice(input []byte) ([]byte, error) {
 	var gzOutput bytes.Buffer
 
 	gzWriter := gzip.NewWriter(&gzOutput)
@@ -367,9 +368,9 @@ func gzipByteSlice(input []byte) ([]byte, error) {
 	return gzOutput.Bytes(), nil
 }
 
-func generateByteBufferFromBytes(input []byte) (*bytes.Buffer, error) {
-	buffer := bytes.NewBuffer(input)
-	gzReader, err := gzip.NewReader(buffer)
+// GenerateByteBufferFromBytes decompresses gzip-compressed input and returns the raw bytes.
+func GenerateByteBufferFromBytes(input []byte) ([]byte, error) {
+	gzReader, err := gzip.NewReader(bytes.NewBuffer(input))
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +380,7 @@ func generateByteBufferFromBytes(input []byte) (*bytes.Buffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &objectBuffer, nil
+	return objectBuffer.Bytes(), nil
 }
 
 func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
