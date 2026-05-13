@@ -55,6 +55,16 @@ func UpdatePlanSecret(ctx context.Context, cl client.Client, namespace, name str
 	return cl.Update(ctx, secret)
 }
 
+// UpdateSecretData replaces the entire Data map of an existing Secret with the provided data.
+func UpdateSecretData(ctx context.Context, cl client.Client, namespace, name string, data map[string][]byte) error {
+	secret := &corev1.Secret{}
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+		return err
+	}
+	secret.Data = data
+	return cl.Update(ctx, secret)
+}
+
 // GetSecret retrieves a Secret by namespace and name.
 func GetSecret(ctx context.Context, cl client.Client, namespace, name string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}

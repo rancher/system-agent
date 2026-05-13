@@ -63,8 +63,8 @@ jobs:
           sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
       - name: Pre-pull container images
         env:
-          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.14-head
-          RANCHER_IMAGE: rancher/rancher:v2.14-head
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head
+          RANCHER_IMAGE: rancher/rancher:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head
         run: |
           sudo docker pull "$RANCHER_IMAGE" &
           sudo docker pull "$CATTLE_AGENT_IMAGE" &
@@ -75,9 +75,15 @@ jobs:
         if: always()
         run: |
           mkdir -p _artifacts
+          sudo chown -R "$(id -u):$(id -g)" _artifacts 2>/dev/null || true
           [ -f /tmp/rancher.log ] && cp /tmp/rancher.log _artifacts/rancher.log || true
-          [ -n "$RANCHER_DIR" ] && [ -f "$RANCHER_DIR/build/testdata/k3s.log" ] && cp "$RANCHER_DIR/build/testdata/k3s.log" _artifacts/k3s.log || true
-          [ -d /tmp/system-agent-streams ] && cp -R /tmp/system-agent-streams _artifacts/system-agent-streams || true
+          K3S_LOG=""
+          if [ -n "$RANCHER_DIR" ] && [ -f "$RANCHER_DIR/build/testdata/k3s.log" ]; then
+            K3S_LOG="$RANCHER_DIR/build/testdata/k3s.log"
+          else
+            K3S_LOG=$(find /var/tmp -name k3s.log -path "*/testdata/k3s.log" 2>/dev/null | head -1)
+          fi
+          [ -n "$K3S_LOG" ] && cp "$K3S_LOG" _artifacts/k3s.log || true
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

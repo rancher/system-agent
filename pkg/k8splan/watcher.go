@@ -222,45 +222,74 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			}
 			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
 
-			if secretChecksumData, ok := secret.Data[AppliedChecksumKey]; ok {
-				secretChecksum := string(secretChecksumData)
-				logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
-				if secretChecksum == cp.Checksum {
-					logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
-					needsApplied = false
-				}
-			}
+			// currentPlanState is non-empty when Rancher supports plan-state.
+			// If absent, fall back to checksum-based logic for backward compatibility.
+			currentPlanState := planapi.PlanState(secret.Data[planapi.PlanStateKey])
 
-			if !hasRunOnce {
-				logrus.Infof("Detected first start, force-applying one-time instruction set")
-				needsApplied = true
-				hasRunOnce = true
-				secret.Data[AppliedChecksumKey] = []byte("")
-			}
-
-			// Check to see if we've exceeded our failure count threshold
-			var maxFailureThreshold int
-			if rawMaxFailureThreshold, ok := secret.Data[MaxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
-				// max failure threshold is defined. parse and compare
-				maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
-				if err != nil {
-					logrus.Errorf("error parsing max-failures: %s: %v", string(rawMaxFailureThreshold), err)
-					maxFailureThreshold = -1
-				} else {
-					logrus.Tracef("[K8s] Parsed max failure value of %d and setting as maxFailureThreshold", maxFailureThreshold)
-				}
-			} else {
-				maxFailureThreshold = -1
-			}
-
+			// Parse failureCount unconditionally — needed for OneTimeInstructionAttempts in both flows.
 			wasFailedPlan := false
 			var failureCount int
-			if rawFailureCount, ok := secret.Data[FailureCountKey]; ok {
-				failureCount, err = strconv.Atoi(string(rawFailureCount))
-				if err != nil {
-					logrus.Errorf("[K8s] Error while parsing raw failure count: %v", err)
-					failureCount = 0
+			planAttempt := 1
+			if rawFailureCount, ok := secret.Data[FailureCountKey]; ok && len(rawFailureCount) > 0 {
+				if fc, parseErr := strconv.Atoi(string(rawFailureCount)); parseErr == nil {
+					failureCount = fc
 				}
+				planAttempt = failureCount + 1
+			}
+
+			if currentPlanState != "" {
+				// New flow: plan-state is the authoritative source of truth.
+				switch currentPlanState {
+				case planapi.PlanStatePending:
+					// Orchestrator delivered new plan content; apply it.
+					logrus.Infof("[K8s] plan-state is %q; applying new plan content", currentPlanState)
+					needsApplied = true
+					planAttempt = 1 // fresh execution for each new plan delivery
+				case planapi.PlanStateInProgress:
+					// Agent crashed mid-apply before writing the outcome; re-execute from beginning.
+					logrus.Infof("[K8s] plan-state is %q on startup; re-executing plan (crash recovery)", currentPlanState)
+					needsApplied = true
+				default:
+					// succeeded, failed, cancelled: terminal state — wait for orchestrator to deliver new plan.
+					logrus.Debugf("[K8s] plan-state is %q (terminal); not applying", currentPlanState)
+					needsApplied = false
+				}
+				if !hasRunOnce {
+					hasRunOnce = true
+				}
+			} else {
+				// Backward compatibility: old checksum-based needsApplied decision.
+				if secretChecksumData, ok := secret.Data[AppliedChecksumKey]; ok {
+					secretChecksum := string(secretChecksumData)
+					logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
+					if secretChecksum == cp.Checksum {
+						logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
+						needsApplied = false
+					}
+				}
+
+				if !hasRunOnce {
+					logrus.Infof("Detected first start, force-applying one-time instruction set")
+					needsApplied = true
+					hasRunOnce = true
+					secret.Data[AppliedChecksumKey] = []byte("")
+				}
+
+				// Check to see if we've exceeded our failure count threshold
+				var maxFailureThreshold int
+				if rawMaxFailureThreshold, ok := secret.Data[MaxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
+					// max failure threshold is defined. parse and compare
+					maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
+					if err != nil {
+						logrus.Errorf("error parsing max-failures: %s: %v", string(rawMaxFailureThreshold), err)
+						maxFailureThreshold = -1
+					} else {
+						logrus.Tracef("[K8s] Parsed max failure value of %d and setting as maxFailureThreshold", maxFailureThreshold)
+					}
+				} else {
+					maxFailureThreshold = -1
+				}
+
 				if failureCount != 0 {
 					if rFC, ok := secret.Data[FailedChecksumKey]; ok {
 						if string(rFC) == cp.Checksum {
@@ -280,11 +309,11 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 						}
 					}
 				}
-			}
 
-			if w.lastAppliedResourceVersion == secret.ResourceVersion && !wasFailedPlan {
-				logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
-				needsApplied = false
+				if w.lastAppliedResourceVersion == secret.ResourceVersion && !wasFailedPlan {
+					logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
+					needsApplied = false
+				}
 			}
 
 			var output []byte
@@ -303,13 +332,27 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 
 			periodicOutput := secret.Data[AppliedPeriodicOutputKey]
 
+			// Transition pending -> in-progress before executing so the state is durable
+			// in the event of a crash. On restart the agent will see in-progress and re-execute.
+			if currentPlanState == planapi.PlanStatePending && needsApplied {
+				secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateInProgress)
+				secret.Data[planapi.PlanRevisionKey] = incrementCount(secret.Data[planapi.PlanRevisionKey])
+				// Commit to the API server now, before Apply runs. This makes the transition
+				// durable: if the agent crashes mid-apply, the next startup sees in-progress
+				// and re-executes from the beginning.
+				var inProgressErr error
+				if secret, inProgressErr = w.updateSecret(core, secret); inProgressErr != nil {
+					return nil, fmt.Errorf("[K8s] failed to commit plan-state:%s to API server: %w", planapi.PlanStateInProgress, inProgressErr)
+				}
+			}
+
 			input := applyinator.ApplyInput{
 				CalculatedPlan:             cp,
 				ReconcileFiles:             needsApplied,
 				ExistingOneTimeOutput:      output,
 				ExistingPeriodicOutput:     periodicOutput,
 				RunOneTimeInstructions:     needsApplied,
-				OneTimeInstructionAttempts: failureCount + 1,
+				OneTimeInstructionAttempts: planAttempt,
 			}
 
 			applyOutput, err := w.applyinator.Apply(ctx, input)
@@ -331,6 +374,11 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 					secret.Data[FailedOutputKey] = output
 					secret.Data[SuccessCountKey] = []byte("0")
 					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
+					if currentPlanState != "" {
+						// In the new flow the agent reports failure immediately; the orchestrator
+						// decides whether to retry by resetting plan-state to pending.
+						secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateFailed)
+					}
 				}
 			} else {
 				// secret.Data should always have already been initialized because otherwise we would have failed out above.
@@ -344,6 +392,9 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 				if needsApplied {
 					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
 					secret.Data[SuccessCountKey] = incrementCount(secret.Data[SuccessCountKey])
+					if currentPlanState != "" {
+						secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateSucceeded)
+					}
 				}
 			}
 
@@ -413,6 +464,8 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Se
 							latestSecret.Data[LastApplyTimeKey] = secret.Data[LastApplyTimeKey]
 							latestSecret.Data[AppliedChecksumKey] = secret.Data[AppliedChecksumKey]
 							latestSecret.Data[AppliedOutputKey] = secret.Data[AppliedOutputKey]
+							latestSecret.Data[planapi.PlanStateKey] = secret.Data[planapi.PlanStateKey]
+							latestSecret.Data[planapi.PlanRevisionKey] = secret.Data[planapi.PlanRevisionKey]
 							secret = latestSecret
 							latestSecretUpdateAttempted = true
 							return true

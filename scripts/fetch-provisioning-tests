@@ -8,7 +8,7 @@ pushd "$TMP_DIR"
 mkdir -p rancher
 
 GIT_URL=${GIT_URL:-https://github.com/rancher/rancher.git}
-GIT_BRANCH=${GIT_BRANCH:-release/v2.14}
+GIT_BRANCH=${GIT_BRANCH:-main}
 
 git clone --depth 1 -b $GIT_BRANCH $GIT_URL ./rancher
 
@@ -22,7 +22,7 @@ fi
 mkdir -p "$RANCHER_DIR/bin"
 
 # Extract the rancher binary from the container image.
-RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.14-head}
+RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head}
 docker pull "$RANCHER_IMAGE"
 container_id=$(docker create "$RANCHER_IMAGE")
 docker cp "$container_id":/usr/bin/rancher "$RANCHER_DIR/bin/rancher"
