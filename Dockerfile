@@ -18,7 +18,7 @@
 # This Dockerfile replaces Dockerfile.dapper for containerized builds
 
 ARG BCI_VERSION=15.7
-ARG GOLANG_VERSION=1.25
+ARG GOLANG_VERSION=1.26
 ARG builder_image=registry.suse.com/bci/golang:${GOLANG_VERSION}
 
 # =============================================================================
@@ -97,11 +97,11 @@ CMD ["rancher-system-agent"]
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
 # renovate-local: kubectl-amd64
-ARG KUBECTL_VERSION=v1.34.1
-# renovate-local: kubectl-arm64=v1.34.1
-ENV KUBECTL_SUM_arm64=420e6110e3ba7ee5a3927b5af868d18df17aae36b720529ffa4e9e945aa95450
-# renovate-local: kubectl-amd64=v1.34.1
-ENV KUBECTL_SUM_amd64=7721f265e18709862655affba5343e85e1980639395d5754473dafaadcaa69e3
+ARG KUBECTL_VERSION=v1.36.0
+# renovate-local: kubectl-arm64=v1.36.0
+ENV KUBECTL_SUM_arm64=123d8c8844f46b1244c547fffb3c17180c0c26dac9890589fe7e67763298748e
+# renovate-local: kubectl-amd64=v1.36.0
+ENV KUBECTL_SUM_amd64=9f9d9c44a7b5264515ac9da5991584e2395bd50662e651132337e7b4d0c56f8f
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
