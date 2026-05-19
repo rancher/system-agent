@@ -99,9 +99,9 @@ FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 # renovate-local: kubectl-amd64
 ARG KUBECTL_VERSION=v1.36.0
 # renovate-local: kubectl-arm64=v1.36.0
-ENV KUBECTL_SUM_arm64=123d8c8844f46b1244c547fffb3c17180c0c26dac9890589fe7e67763298748e
+ENV KUBECTL_SUM_arm64=9f9d9c44a7b5264515ac9da5991584e2395bd50662e651132337e7b4d0c56f8f
 # renovate-local: kubectl-amd64=v1.36.0
-ENV KUBECTL_SUM_amd64=9f9d9c44a7b5264515ac9da5991584e2395bd50662e651132337e7b4d0c56f8f
+ENV KUBECTL_SUM_amd64=123d8c8844f46b1244c547fffb3c17180c0c26dac9890589fe7e67763298748e
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
