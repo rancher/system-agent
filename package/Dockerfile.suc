@@ -1,4 +1,4 @@
-ARG IMG_VERSION=15.6
+ARG IMG_VERSION=15.7
 
 FROM registry.suse.com/bci/bci-micro:${IMG_VERSION} AS final
 
@@ -14,12 +14,12 @@ RUN zypper refresh && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
-ARG KUBECTL_VERSION=v1.34.1
+ARG KUBECTL_VERSION=v1.34.2
 
-# https://dl.k8s.io/release/v1.34.1/bin/linux/arm64/kubectl.sha256
-ENV KUBECTL_SUM_arm64=420e6110e3ba7ee5a3927b5af868d18df17aae36b720529ffa4e9e945aa95450
-# https://dl.k8s.io/release/v1.34.1/bin/linux/amd64/kubectl.sha256
-ENV KUBECTL_SUM_amd64=7721f265e18709862655affba5343e85e1980639395d5754473dafaadcaa69e3
+# https://dl.k8s.io/release/v1.34.2/bin/linux/arm64/kubectl.sha256
+ENV KUBECTL_SUM_arm64=95df604e914941f3172a93fa8feeb1a1a50f4011dfbe0c01e01b660afc8f9b85
+# https://dl.k8s.io/release/v1.34.2/bin/linux/amd64/kubectl.sha256
+ENV KUBECTL_SUM_amd64=9591f3d75e1581f3f7392e6ad119aab2f28ae7d6c6e083dc5d22469667f27253
 
 RUN zypper in -y curl openssl patterns-base-fips
 
