@@ -39,8 +39,8 @@ replace (
 )
 
 require (
-	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/ginkgo/v2 v2.31.0
+	github.com/onsi/gomega v1.42.0
 	github.com/rancher/rancher/pkg/plan v0.0.0-20260508124826-0b6b24d9811e
 	github.com/rancher/system-agent v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.36.0
@@ -101,7 +101,7 @@ require (
 	github.com/google/go-containerregistry v0.20.2 // indirect
 	github.com/google/go-github/v82 v82.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
+	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
