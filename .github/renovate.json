@@ -4,7 +4,8 @@
   ],
   "baseBranchPatterns": [
       "$default",
-      "/^release\\/.*/"
+      "release/v2.13",
+      "release/v2.14"
   ],
   "prHourlyLimit": 2
 }
