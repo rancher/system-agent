@@ -1,6 +1,6 @@
 module github.com/rancher/system-agent
 
-go 1.19
+go 1.25.0
 
 replace (
 	k8s.io/api => k8s.io/api v0.24.2
@@ -39,7 +39,7 @@ require (
 	github.com/rancher/wrangler v1.1.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/urfave/cli/v2 v2.3.0
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
+	golang.org/x/sync v0.21.0
 	k8s.io/api v0.25.4
 	k8s.io/apimachinery v0.25.4
 	k8s.io/client-go v0.25.4
