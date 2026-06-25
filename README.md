@@ -20,13 +20,15 @@ Note that only the **minor** versions are aligned — patch versions are increme
 
 The `main` branch is used to cut releases for the most current minor release line. For previous release lines, dedicated branches are created following the pattern `release/v0.<minor>` (e.g., `release/v0.14`).
 
+Note that `renovate.json` hardcodes the branches targeted by Renovate. New branches should be added to this configuration file (and deprecated ones removed).
+
 ## Building
 
 `make`
 
 ### Cross Compiling
 
-You can also 
+You can also
 
 `CROSS=true make` if you want cross-compiled binaries for Darwin/Windows.
 
@@ -37,6 +39,7 @@ First, configure the agent by looking at the `examples/configuration` folder, th
 `./bin/rancher-system-agent`
 
 ## License
+
 Copyright (c) 2021 [Rancher Labs, Inc.](http://rancher.com)
 
 Licensed under the Apache License, Version 2.0 (the "License");
