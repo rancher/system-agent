@@ -97,11 +97,11 @@ CMD ["rancher-system-agent"]
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
 # renovate-local: kubectl-amd64
-ARG KUBECTL_VERSION=v1.36.1
-# renovate-local: kubectl-arm64=v1.36.1
-ENV KUBECTL_SUM_arm64=59f7ee8e477fae658447607dc3c8790ac17a1b016c01c622c12070e969e2d4e7
-# renovate-local: kubectl-amd64=v1.36.1
-ENV KUBECTL_SUM_amd64=629d3f410e09bf49b64ae7079f7f0bda1191efed311f7d37fdbab0ad5b0ec2b7
+ARG KUBECTL_VERSION=v1.36.2
+# renovate-local: kubectl-arm64=v1.36.2
+ENV KUBECTL_SUM_arm64=c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e
+# renovate-local: kubectl-amd64=v1.36.2
+ENV KUBECTL_SUM_amd64=1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
