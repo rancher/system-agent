@@ -1,7 +1,7 @@
 FROM registry.suse.com/bci/bci-micro:15.7 AS final
 
 # Temporary build stage image
-FROM registry.suse.com/bci/bci-base:15.7 AS builder
+FROM registry.suse.com/bci/bci-base:16.1 AS builder
 
 # Install system packages using builder image that has zypper
 COPY --from=final / /chroot/
