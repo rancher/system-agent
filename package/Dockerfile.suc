@@ -1,4 +1,4 @@
-ARG IMG_VERSION=15.7
+ARG IMG_VERSION=16.1
 
 FROM registry.suse.com/bci/bci-micro:${IMG_VERSION} AS final
 
