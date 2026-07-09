@@ -1,6 +1,6 @@
 module github.com/rancher/system-agent
 
-go 1.24.13
+go 1.25.0
 
 replace (
 	// replace those modules from go.opentelemetry.io to eliminate CVEs
@@ -49,7 +49,7 @@ require (
 	github.com/rancher/wrangler/v3 v3.3.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.5
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.22.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
 	k8s.io/client-go v0.34.1
