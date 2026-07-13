@@ -51,7 +51,7 @@ require (
 	github.com/rancher/wrangler/v3 v3.4.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.5
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.22.0
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
 	k8s.io/client-go v0.35.1
