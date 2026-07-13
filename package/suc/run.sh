@@ -45,14 +45,26 @@ export CATTLE_AGENT_UNINSTALL_LOCAL=true
 export CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent
 export CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent-uninstall.sh
 if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
-  for line in $(grep -v '^#' /host/etc/systemd/system/rancher-system-agent.env); do
+  while IFS= read -r line; do
+    case "$line" in
+      '#'*|'') continue ;;
+    esac
     var=${line%%=*}
-    val=${line##*=}
+    val=${line#*=}
+    # only handle well-formed shell identifiers (guards the eval below)
+    case "$var" in
+      ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*) continue ;;
+    esac
+    # skip proxy vars: Rancher delivers them declaratively via the SUC plan env,
+    # so resurrecting them from the old file would defeat deletion (SURE-6828).
+    case "$var" in
+      HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy) continue ;;
+    esac
     eval v=\"\$$var\"
     if [ -z "$v" ]; then
       export "$var=$val"
     fi
-  done
+  done < /host/etc/systemd/system/rancher-system-agent.env
 fi
 
 RUN_SCRIPT=${TMPDIR}/install.sh
