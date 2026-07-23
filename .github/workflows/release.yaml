@@ -19,7 +19,7 @@ jobs:
       contents: write # needed for creating the GH release
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Create draft GitHub release
         env:
@@ -44,12 +44,12 @@ jobs:
             tag-suffix: "linux-arm64"
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Read Vault secrets
-        uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # main
+        uses: rancher-eio/read-vault-secrets@7282bf97898cd1c16c89f837e0bb442e6d384c89 # main
         with:
           secrets: |
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
@@ -62,7 +62,7 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/rancher-prime-stg-registry/credentials password | PRIME_STG_REGISTRY_PASSWORD
 
       - name: Publish main image to DockerHub and Prime Staging
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}
@@ -83,7 +83,7 @@ jobs:
 
       - name: Publish main image to Prime Prod
         if: ${{ !contains(github.ref_name, '-rc') }}
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}
@@ -100,7 +100,7 @@ jobs:
           prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
 
       - name: Publish SUC image to DockerHub and Prime Staging
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}-suc
@@ -121,7 +121,7 @@ jobs:
 
       - name: Publish SUC image to Prime Prod
         if: ${{ !contains(github.ref_name, '-rc') }}
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-${{ matrix.tag-suffix }}-suc
@@ -147,10 +147,10 @@ jobs:
       - release
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Read Vault secrets
-        uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # main
+        uses: rancher-eio/read-vault-secrets@7282bf97898cd1c16c89f837e0bb442e6d384c89 # main
         with:
           secrets: |
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
@@ -163,7 +163,7 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/rancher-prime-stg-registry/credentials password | PRIME_STG_REGISTRY_PASSWORD
 
       - name: Publish main manifest to DockerHub and Prime Staging
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}
@@ -183,7 +183,7 @@ jobs:
 
       - name: Publish main manifest to Prime Prod
         if: ${{ !contains(github.ref_name, '-rc') }}
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}
@@ -199,7 +199,7 @@ jobs:
           prime-password: ${{ env.PRIME_REGISTRY_PASSWORD }}
 
       - name: Publish SUC manifest to DockerHub and Prime Staging
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-suc
@@ -219,7 +219,7 @@ jobs:
 
       - name: Publish SUC manifest to Prime Prod
         if: ${{ !contains(github.ref_name, '-rc') }}
-        uses: rancher/ecm-distro-tools/actions/publish-image@10ab39987d39be83da6a252c1c3b540e496e0287 # master
+        uses: rancher/ecm-distro-tools/actions/publish-image@616d48cee9244666a3fa09ee33bbed4fdd78ebe7 # master
         with:
           image: "system-agent"
           tag: ${{ github.ref_name }}-suc
@@ -246,7 +246,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
