@@ -805,13 +805,13 @@ retrieve_connection_info() {
                 if ! "${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent" validate-connection "${TEMP_CONNECTION_INFO}" 2>&1; then
                     i=$((i + 1))
                     error "Downloaded connection info failed validation. Sleeping for 5 seconds and trying again"
-                    rm -f "${TEMP_CONNECTION_INFO}"
                     sleep 5
                     continue
                 fi
 
                 # Move temp file to final location
                 mv "${TEMP_CONNECTION_INFO}" "${CATTLE_AGENT_VAR_DIR}/rancher2_connection_info.json"
+                rm -f "${TEMP_CONNECTION_INFO}"
 
                 info "Successfully downloaded and validated Rancher connection information"
                 umask "${UMASK}"
@@ -819,8 +819,8 @@ retrieve_connection_info() {
                 ;;
             *)
                 i=$((i + 1))
-                error "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again"
-                rm -f "${TEMP_CONNECTION_INFO}"
+                # urge the user to check the temp file rather than printing direct to stdout/journal
+                error "$RESPONSE received while downloading Rancher connection information. Sleeping for 5 seconds and trying again. Check $TEMP_CONNECTION_INFO for response"
                 sleep 5
                 continue
                 ;;
