@@ -160,7 +160,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	if a.appliedPlanDir != "" {
 		logrus.Debugf("[Applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
 		if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
-			logrus.Errorf("error creawting applied plan directory: %v", err)
+			logrus.Errorf("error creating applied plan directory: %v", err)
 		}
 		if err := a.writePlanToDisk(now, &input.CalculatedPlan); err != nil {
 			logrus.Errorf("error writing applied plan to disk: %v", err)
