@@ -2,23 +2,26 @@
 
 `rancher-system-agent` is a daemon designed to run on a system and apply "plans" to the system. `rancher-system-agent` can support both local and remote plans, and was built to be integrated with the Rancher2 project for provisioning next-generation, CAPI driven clusters.
 
-## Versioning
+## Branching and Versioning
 
-Starting after v0.3.16, `system-agent` releases are aligned with Rancher minor release lines. The minor version of `system-agent` corresponds to the minor version of the Rancher release it is intended for:
+* `main` is the primary development branch and always contains the latest changes.
+* Tags from `main` are consumed by Rancher's `main` branch.
+* Each Rancher release line has a corresponding `release/vX.Y` branch, created from `main`.
+* Release branches only receive bug fixes and security patches.
+* Release branch tags increment only the patch suffix (`.x`).
+* Release candidates (RCs) may also be created from release branches before a stable release.
+* Release candidates (RCs) tag format is `vX.Y.Z-rc.M` where `M` is incremented for each new RC.
 
-| system-agent version | Rancher version |
-|----------------------|-----------------|
-| v0.3.x               | Legacy (independent versioning) |
-| v0.14.x              | Rancher v2.14.x |
-| v0.15.x              | Rancher v2.15.x |
+Starting with releases after `v0.3.16`, system-agent minor versions are aligned with Rancher minor release lines:
 
-v0.3.16 is the last release following the old versioning schema.
+| System-agent Branch | Rancher Release Line | Tag Format |
+|---------------------|----------------------|------------|
+| `main`              | `main`               | `vX.Y.Z`   |
+| `release/v2.15`     | `v2.15`              | `v0.15.x`  |
+| `release/v2.14`     | `v2.14`              | `v0.14.x`  |
+| `release/v2.13`     | `v2.13`              | `v0.13.x`  |
 
-Note that only the **minor** versions are aligned — patch versions are incremented independently as needed. For example, Rancher v2.14.6 may reference system-agent v0.14.2.
-
-### Branches
-
-The `main` branch is used to cut releases for the most current minor release line. For previous release lines, dedicated branches are created following the pattern `release/v0.<minor>` (e.g., `release/v0.14`).
+Note: The `v0.3.x` release line uses the legacy versioning scheme and is not aligned with Rancher release lines. v0.3.16 is the final release in that series.
 
 ## Building
 
@@ -37,7 +40,7 @@ First, configure the agent by looking at the `examples/configuration` folder, th
 `./bin/rancher-system-agent`
 
 ## License
-Copyright (c) 2021 [Rancher Labs, Inc.](http://rancher.com)
+Copyright (c) 2026 [Rancher Labs, Inc.](http://rancher.com)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
