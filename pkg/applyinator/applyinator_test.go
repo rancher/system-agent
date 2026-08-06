@@ -2,8 +2,10 @@ package applyinator
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -126,6 +128,128 @@ func TestAppliedPlanRetentionPolicy(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(appliedPlanDir, kept)); err != nil {
 			t.Errorf("expected %s to survive, stat err: %v", kept, err)
 		}
+	}
+}
+
+func TestExecuteCapturesStdoutStderrAndExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		combinedOutput bool
+		script         string
+		wantExitCode   int
+	}{
+		{
+			name:           "separate streams, success",
+			combinedOutput: false,
+			script:         "echo out-line; echo err-line 1>&2; exit 0",
+			wantExitCode:   0,
+		},
+		{
+			name:           "separate streams, failure",
+			combinedOutput: false,
+			script:         "echo out-line; echo err-line 1>&2; exit 7",
+			wantExitCode:   7,
+		},
+		{
+			name:           "combined streams merge stdout and stderr",
+			combinedOutput: true,
+			script:         "echo out-line; echo err-line 1>&2; exit 0",
+			wantExitCode:   0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := NewApplyinator(t.TempDir(), false, "", "", nil)
+			instruction := planapi.CommonInstruction{
+				Command: "sh",
+				Args:    []string{"-c", tc.script},
+			}
+
+			stdout, stderr, exitCode, err := a.execute(context.Background(), "test", t.TempDir(), instruction, tc.combinedOutput, 1)
+			if exitCode != tc.wantExitCode {
+				t.Errorf("expected exit code %d, got %d (err: %v)", tc.wantExitCode, exitCode, err)
+			}
+			if tc.wantExitCode == 0 && err != nil {
+				t.Errorf("expected no error on success, got %v", err)
+			}
+			if tc.wantExitCode != 0 && err == nil {
+				t.Error("expected the wait error to be surfaced on a non-zero exit, got nil")
+			}
+
+			if tc.combinedOutput {
+				if !strings.Contains(string(stdout), "out-line") || !strings.Contains(string(stdout), "err-line") {
+					t.Errorf("expected combined output to contain both streams, got stdout=%q stderr=%q", stdout, stderr)
+				}
+				if !bytes.Equal(stdout, stderr) {
+					t.Errorf("expected combined mode to return identical stdout/stderr, got stdout=%q stderr=%q", stdout, stderr)
+				}
+			} else {
+				if !strings.Contains(string(stdout), "out-line") {
+					t.Errorf("expected stdout to contain %q, got %q", "out-line", stdout)
+				}
+				if !strings.Contains(string(stderr), "err-line") {
+					t.Errorf("expected stderr to contain %q, got %q", "err-line", stderr)
+				}
+			}
+		})
+	}
+}
+
+func TestExecuteInjectsEnvironmentVariables(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	executionDir := t.TempDir()
+	instruction := planapi.CommonInstruction{
+		Command: "sh",
+		Args:    []string{"-c", `echo "pwd=$CATTLE_AGENT_EXECUTION_PWD attempt=$CATTLE_AGENT_ATTEMPT_NUMBER foo=$FOO"`},
+		Env:     []string{"FOO=bar"},
+	}
+
+	stdout, _, exitCode, err := a.execute(context.Background(), "test", executionDir, instruction, false, 5)
+	if err != nil || exitCode != 0 {
+		t.Fatalf("unexpected failure: exitCode=%d err=%v", exitCode, err)
+	}
+
+	got := string(stdout)
+	for _, want := range []string{"pwd=" + executionDir, "attempt=5", "foo=bar"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected output to contain %q, got %q", want, got)
+		}
+	}
+}
+
+func TestExecuteDefaultsToRunShInExecutionDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	executionDir := t.TempDir()
+	if err := os.WriteFile(executionDir+"/run.sh", []byte("#!/bin/sh\necho ran-default\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	instruction := planapi.CommonInstruction{} // no Command set
+
+	stdout, _, exitCode, err := a.execute(context.Background(), "test", executionDir, instruction, false, 1)
+	if err != nil || exitCode != 0 {
+		t.Fatalf("unexpected failure: exitCode=%d err=%v", exitCode, err)
+	}
+	if !strings.Contains(string(stdout), "ran-default") {
+		t.Errorf("expected default run.sh to execute, got stdout=%q", stdout)
 	}
 }
 

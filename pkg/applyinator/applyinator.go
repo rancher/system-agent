@@ -454,7 +454,11 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction planapi.CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
 		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)
-		if err := createDirectory(planapi.File{Directory: true, Path: executionDir}); err != nil {
+		// UID/GID -1 means "don't change ownership" (a no-op chown). Without this, the directory
+		// defaults to UID/GID 0 (root) — harmless in production, where the agent always runs as
+		// root, but it makes this code unusable from a non-root test process (os.Chown to a
+		// different owner than the caller returns "operation not permitted").
+		if err := createDirectory(planapi.File{Directory: true, Path: executionDir, UID: -1, GID: -1}); err != nil {
 			logrus.Errorf("error while creating empty working directory: %v", err)
 			return nil, nil, -1, err
 		}
@@ -497,27 +501,33 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	defer stderr.Close()
 
 	var (
-		eg              = errgroup.Group{}
-		stdoutWriteLock *sync.Mutex
-		stderrWriteLock *sync.Mutex
-		stdoutBuffer    bytes.Buffer
-		stderrBuffer    bytes.Buffer
+		eg           = errgroup.Group{}
+		stdoutBuffer bytes.Buffer
+		stderrBuffer bytes.Buffer
 	)
 
+	stdoutTarget := &stdoutBuffer
+	stderrTarget := &stderrBuffer
+	stdoutLock := &sync.Mutex{}
+	stderrLock := stdoutLock
+
 	if combinedOutput {
-		stderrBuffer = stdoutBuffer
-		stdoutWriteLock = &sync.Mutex{}
-		stderrWriteLock = stdoutWriteLock
+		// Share one buffer (and therefore the one lock already assigned above) so stdout and
+		// stderr genuinely interleave into a single combined result. Previously this assigned
+		// stderrBuffer = stdoutBuffer, which copies an empty bytes.Buffer by value: the two
+		// goroutines below still wrote into two independent buffers, so combinedOutput silently
+		// did nothing, and one-time instructions (which call execute with combinedOutput=true and
+		// only keep the first return value) never captured stderr in SaveOutput results.
+		stderrTarget = stdoutTarget
 	} else {
-		stdoutWriteLock = &sync.Mutex{}
-		stderrWriteLock = &sync.Mutex{}
+		stderrLock = &sync.Mutex{}
 	}
 
 	eg.Go(func() error {
-		return streamLogs("["+prefix+":stdout]", &stdoutBuffer, stdout, stdoutWriteLock)
+		return streamLogs("["+prefix+":stdout]", stdoutTarget, stdout, stdoutLock)
 	})
 	eg.Go(func() error {
-		return streamLogs("["+prefix+":stderr]", &stderrBuffer, stderr, stderrWriteLock)
+		return streamLogs("["+prefix+":stderr]", stderrTarget, stderr, stderrLock)
 	})
 
 	if err := cmd.Start(); err != nil {
@@ -527,15 +537,16 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	// Wait for I/O to complete before calling cmd.Wait() because cmd.Wait() will close the I/O pipes.
 	_ = eg.Wait()
 	exitCode := 0
-	if err := cmd.Wait(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		if ee, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = ee.ExitCode()
 		} else {
 			exitCode = -1
 		}
 	}
-	logrus.Infof("[Applyinator] Command %s %v finished with err: %v and exit code: %d", instruction.Command, instruction.Args, err, exitCode)
-	return stdoutBuffer.Bytes(), stderrBuffer.Bytes(), exitCode, err
+	logrus.Infof("[Applyinator] Command %s %v finished with err: %v and exit code: %d", instruction.Command, instruction.Args, waitErr, exitCode)
+	return stdoutBuffer.Bytes(), stderrTarget.Bytes(), exitCode, waitErr
 }
 
 // streamLogs accepts a prefix, outputBuffer, reader, and buffer lock and will scan input from the reader and write it
