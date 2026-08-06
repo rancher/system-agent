@@ -95,7 +95,7 @@ func parseUnixTimeOrZero(label, s string) (t time.Time, ok bool) {
 	}
 	parsed, err := time.Parse(time.UnixDate, s)
 	if err != nil {
-		logrus.Errorf("error parsing %s %q: %v", label, s, err)
+		logrus.Errorf("[applyinator] Error parsing %s %q: %v", label, s, err)
 		return time.Time{}, false
 	}
 	return parsed, true
@@ -164,12 +164,12 @@ func reconcileFiles(files []planapi.File) error {
 				return err
 			}
 		} else if file.Directory {
-			logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
+			logrus.Debugf("[applyinator] Creating directory %s", file.Path)
 			if err := createDirectory(file); err != nil {
 				return err
 			}
 		} else {
-			logrus.Debugf("[Applyinator] Writing file %s", file.Path)
+			logrus.Debugf("[applyinator] Writing file %s", file.Path)
 			if err := writeBase64ContentToFile(file); err != nil {
 				return err
 			}
@@ -188,7 +188,7 @@ func instructionExecutionDir(baseDir, checksum string, index int) (dir, prefix s
 // runOneTimeInstructions executes a plan's one-time instructions in order, stopping at the first
 // failure, and returns the updated (gzip+JSON encoded) saved-output map.
 func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
-	logrus.Infof("[Applyinator] Applying one-time instructions for plan with checksum %s", cp.Checksum)
+	logrus.Infof("[applyinator] Applying one-time instructions for plan with checksum %s", cp.Checksum)
 	executionOutputs := map[string][]byte{}
 	if err := decodeGzipJSON(existingOutput, &executionOutputs); err != nil {
 		return nil, false, err
@@ -196,15 +196,15 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 
 	oneTimeApplySucceeded := true
 	for index, instruction := range cp.Plan.OneTimeInstructions {
-		logrus.Debugf("[Applyinator] Executing instruction %d attempt %d for plan %s", index, attempts, cp.Checksum)
+		logrus.Debugf("[applyinator] Executing instruction %d attempt %d for plan %s", index, attempts, cp.Checksum)
 		instructionDir, prefix := instructionExecutionDir(executionDir, cp.Checksum, index)
 		executeOutput, _, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, true, attempts)
 		if err != nil || exitCode != 0 {
-			logrus.Errorf("error executing instruction %d: %v", index, err)
+			logrus.Errorf("[applyinator] Error executing instruction %d: %v", index, err)
 			oneTimeApplySucceeded = false
 		}
 		if instruction.Name == "" && instruction.SaveOutput {
-			logrus.Errorf("instruction does not have a name set, cannot save output data")
+			logrus.Errorf("[applyinator] Instruction does not have a name set, cannot save output data")
 		} else if instruction.SaveOutput {
 			executionOutputs[instruction.Name] = executeOutput
 		}
@@ -234,14 +234,14 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 	periodicApplySucceeded := true
 	for index, instruction := range cp.Plan.PeriodicInstructions {
 		if instruction.Name == "" {
-			logrus.Errorf("periodic instruction %d did not have name, unable to run", index)
+			logrus.Errorf("[applyinator] Periodic instruction %d did not have name, unable to run", index)
 			continue
 		}
 
 		prev := periodicOutputs[instruction.Name]
 		due, failures := periodicInstructionDue(now, prev, instruction.PeriodSeconds, ranOneTime)
 		if !due {
-			logrus.Debugf("[Applyinator] Not running periodic instruction %s; not yet due", instruction.Name)
+			logrus.Debugf("[applyinator] Not running periodic instruction %s; not yet due", instruction.Name)
 			continue
 		}
 
@@ -250,7 +250,7 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 			previousRunTime = prev.LastSuccessfulRunTime
 		}
 
-		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
+		logrus.Debugf("[applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
 		instructionDir, prefix := instructionExecutionDir(executionDir, cp.Checksum, index)
 		stdout, stderr, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, false, failures+1)
 		if err != nil || exitCode != 0 {
@@ -309,7 +309,7 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	// docs/superpowers/specs/2026-08-05-applyinator-refactor-design.md.
 	if _, err := os.Stat(applyinatorActiveInterlockFile); err == nil {
 		if err := os.Remove(applyinatorActiveInterlockFile); err != nil {
-			logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+			logrus.Errorf("[applyinator] Unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 		}
 	}
 
@@ -329,17 +329,17 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 			return noop, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", t.Add(restartPendingTimeout).Sub(now).String())
 		}
 		if err := os.Remove(restartPendingInterlockFilePath); err != nil {
-			logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+			logrus.Errorf("[applyinator] Error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
 		}
 	}
 
 	if err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
-		logrus.Errorf("unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+		logrus.Errorf("[applyinator] Unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 	}
 
 	return func() {
 		if err := os.Remove(applyinatorActiveInterlockFilePath); err != nil {
-			logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+			logrus.Errorf("[applyinator] Unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 		}
 	}, nil
 }
@@ -349,14 +349,14 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 // the updated one-time and periodic outputs (gzip+JSON encoded) alongside their success flags. Notably,
 // ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false.
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
-	logrus.Debugf("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
-	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
+	logrus.Debugf("[applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
+	logrus.Tracef("[applyinator] Applying plan - attempting to get lock")
 	output := ApplyOutput{
 		OneTimeOutput:  input.ExistingOneTimeOutput,
 		PeriodicOutput: input.ExistingPeriodicOutput,
 	}
 	a.mu.Lock()
-	logrus.Tracef("[Applyinator] Applying plan - lock achieved")
+	logrus.Tracef("[applyinator] Applying plan - lock achieved")
 	defer a.mu.Unlock()
 	now := time.Now()
 	nowString := now.Format(applyinatorDateCodeLayout)
@@ -368,18 +368,18 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	defer cleanupInterlock()
 
 	executionDir := filepath.Join(a.workDir, nowString)
-	logrus.Tracef("[Applyinator] Applying calculated node plan contents %v", input.CalculatedPlan.Checksum)
-	logrus.Tracef("[Applyinator] Using %s as execution directory", executionDir)
+	logrus.Tracef("[applyinator] Applying calculated node plan contents %v", input.CalculatedPlan.Checksum)
+	logrus.Tracef("[applyinator] Using %s as execution directory", executionDir)
 	if a.appliedPlanDir != "" {
-		logrus.Debugf("[Applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
+		logrus.Debugf("[applyinator] Writing applied calculated plan contents to historical plan directory %s", a.appliedPlanDir)
 		if err := os.MkdirAll(a.appliedPlanDir, 0700); err != nil {
-			logrus.Errorf("error creating applied plan directory: %v", err)
+			logrus.Errorf("[applyinator] Error creating applied plan directory: %v", err)
 		}
 		if err := a.writePlanToDisk(now, &input.CalculatedPlan); err != nil {
-			logrus.Errorf("error writing applied plan to disk: %v", err)
+			logrus.Errorf("[applyinator] Error writing applied plan to disk: %v", err)
 		}
 		if err := a.appliedPlanRetentionPolicy(planRetentionPolicyCount); err != nil {
-			logrus.Errorf("error while applying plan retention policy: %v", err)
+			logrus.Errorf("[applyinator] Error while applying plan retention policy: %v", err)
 		}
 	}
 
@@ -390,7 +390,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	}
 
 	if !a.preserveWorkDir {
-		logrus.Debugf("[Applyinator] Cleaning working directory before applying %s", a.workDir)
+		logrus.Debugf("[applyinator] Cleaning working directory before applying %s", a.workDir)
 		if err := os.RemoveAll(a.workDir); err != nil {
 			return output, err
 		}
@@ -421,7 +421,7 @@ func gzipByteSlice(input []byte) ([]byte, error) {
 	gzWriter := gzip.NewWriter(&gzOutput)
 
 	if _, err := gzWriter.Write(input); err != nil {
-		logrus.Errorf("error writing gzipped byte slice: %v", err)
+		logrus.Errorf("[applyinator] Error writing gzipped byte slice: %v", err)
 	}
 
 	if err := gzWriter.Close(); err != nil {
@@ -462,7 +462,7 @@ func (a *Applyinator) appliedPlanRetentionPolicy(retention int) error {
 	delCount := len(planFiles) - retention
 	for _, df := range planFiles[:delCount] {
 		historicalPlanFile := filepath.Join(a.appliedPlanDir, df.Name())
-		logrus.Infof("[Applyinator] Removing historical applied plan (retention policy count: %d) %s", retention, historicalPlanFile)
+		logrus.Infof("[applyinator] Removing historical applied plan (retention policy count: %d) %s", retention, historicalPlanFile)
 		if err := os.Remove(historicalPlanFile); err != nil {
 			return err
 		}
@@ -506,7 +506,7 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 			return err
 		}
 		if bytes.Equal(existingFileContent, anpString) {
-			logrus.Debugf("[Applyinator] Not writing applied plan to file %s as the last file written (%s) had identical contents", file, planFiles[0].Name())
+			logrus.Debugf("[applyinator] Not writing applied plan to file %s as the last file written (%s) had identical contents", file, planFiles[0].Name())
 			return nil
 		}
 	}
@@ -516,19 +516,19 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction planapi.CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
-		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)
+		logrus.Infof("[applyinator] No image provided, creating empty working directory %s", executionDir)
 		// UID/GID -1 means "don't change ownership" (a no-op chown). Without this, the directory
 		// defaults to UID/GID 0 (root) — harmless in production, where the agent always runs as
 		// root, but it makes this code unusable from a non-root test process (os.Chown to a
 		// different owner than the caller returns "operation not permitted").
 		if err := createDirectory(planapi.File{Directory: true, Path: executionDir, UID: -1, GID: -1}); err != nil {
-			logrus.Errorf("error while creating empty working directory: %v", err)
+			logrus.Errorf("[applyinator] Error while creating empty working directory: %v", err)
 			return nil, nil, -1, err
 		}
 	} else {
-		logrus.Infof("[Applyinator] Extracting image %s to directory %s", instruction.Image, executionDir)
+		logrus.Infof("[applyinator] Extracting image %s to directory %s", instruction.Image, executionDir)
 		if err := a.imageUtil.Stage(executionDir, instruction.Image); err != nil {
-			logrus.Errorf("error while staging: %v", err)
+			logrus.Errorf("[applyinator] Error while staging: %v", err)
 			return nil, nil, -1, err
 		}
 	}
@@ -536,12 +536,12 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	command := instruction.Command
 
 	if command == "" {
-		logrus.Debugf("[Applyinator] Command was not specified, defaulting to %s%s", executionDir, defaultCommand)
+		logrus.Debugf("[applyinator] Command was not specified, defaulting to %s%s", executionDir, defaultCommand)
 		command = executionDir + defaultCommand
 	}
 
 	cmd := exec.CommandContext(ctx, command, instruction.Args...)
-	logrus.Infof("[Applyinator] Running command: %s %v", instruction.Command, instruction.Args)
+	logrus.Infof("[applyinator] Running command: %s %v", instruction.Command, instruction.Args)
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, instruction.Env...)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", cattleAgentExecutionPwdEnvKey, executionDir))
@@ -551,14 +551,14 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		logrus.Errorf("error setting up stdout pipe: %v", err)
+		logrus.Errorf("[applyinator] Error setting up stdout pipe: %v", err)
 		return nil, nil, -1, err
 	}
 	defer stdout.Close()
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		logrus.Errorf("error setting up stderr pipe: %v", err)
+		logrus.Errorf("[applyinator] Error setting up stderr pipe: %v", err)
 		return nil, nil, -1, err
 	}
 	defer stderr.Close()
@@ -604,11 +604,9 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	if waitErr != nil {
 		if ee, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = ee.ExitCode()
-		} else {
-			exitCode = -1
 		}
 	}
-	logrus.Infof("[Applyinator] Command %s %v finished with err: %v and exit code: %d", instruction.Command, instruction.Args, waitErr, exitCode)
+	logrus.Infof("[applyinator] Command %s %v finished with err: %v and exit code: %d", instruction.Command, instruction.Args, waitErr, exitCode)
 	return stdoutTarget.Bytes(), stderrTarget.Bytes(), exitCode, waitErr
 }
 
