@@ -3,6 +3,8 @@ package applyinator
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -293,5 +295,210 @@ func TestWritePlanToDisk(t *testing.T) {
 	}
 	if len(third) != 2 {
 		t.Fatalf("expected different-content write to create a new file, got %d files", len(third))
+	}
+}
+
+func decodeOneTimeOutputs(t *testing.T, gz []byte) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	if len(gz) == 0 {
+		return out
+	}
+	buf, err := generateByteBufferFromBytes(gz)
+	if err != nil {
+		t.Fatalf("failed to gunzip one-time outputs: %v", err)
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("failed to unmarshal one-time outputs: %v", err)
+	}
+	return out
+}
+
+func TestApplyOneTimeAndPeriodicSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{
+				CommonInstruction: planapi.CommonInstruction{
+					Name:    "onetime",
+					Command: "sh",
+					Args:    []string{"-c", "echo onetime-ok"},
+				},
+				SaveOutput: true,
+			},
+		},
+		PeriodicInstructions: []planapi.PeriodicInstruction{
+			{
+				CommonInstruction: planapi.CommonInstruction{
+					Name:    "periodic",
+					Command: "sh",
+					Args:    []string{"-c", "echo periodic-ok"},
+				},
+			},
+		},
+	}
+
+	output, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum1"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		ReconcileFiles:             true,
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if !output.OneTimeApplySucceeded {
+		t.Error("expected one-time instructions to succeed")
+	}
+	if !output.PeriodicApplySucceeded {
+		t.Error("expected periodic instructions to succeed")
+	}
+
+	outputs := decodeOneTimeOutputs(t, output.OneTimeOutput)
+	if !strings.Contains(string(outputs["onetime"]), "onetime-ok") {
+		t.Errorf("expected onetime output to contain %q, got %q", "onetime-ok", outputs["onetime"])
+	}
+}
+
+func TestApplyOneTimeFailureStopsSubsequentInstructions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	workDir := t.TempDir()
+	markerPath := filepath.Join(workDir, "should-not-exist")
+	a := newTestApplyinator(t, workDir, false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{
+				CommonInstruction: planapi.CommonInstruction{
+					Name:    "failing",
+					Command: "sh",
+					Args:    []string{"-c", "exit 1"},
+				},
+			},
+			{
+				CommonInstruction: planapi.CommonInstruction{
+					Name:    "should-not-run",
+					Command: "sh",
+					Args:    []string{"-c", "touch " + markerPath},
+				},
+			},
+		},
+	}
+
+	output, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum2"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if output.OneTimeApplySucceeded {
+		t.Error("expected one-time instructions to fail")
+	}
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Errorf("expected second instruction to never run, but marker file exists (stat err: %v)", err)
+	}
+}
+
+func TestApplyReconcileFilesFalseSkipsWrites(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	filesDir := t.TempDir()
+	filePath := filepath.Join(filesDir, "config.txt")
+
+	a := newTestApplyinator(t, workDir, false, "", "")
+	plan := planapi.Plan{
+		Files: []planapi.File{
+			{
+				Path:    filePath,
+				Content: base64.StdEncoding.EncodeToString([]byte("hello")),
+				UID:     -1,
+				GID:     -1,
+			},
+		},
+	}
+
+	if _, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan: CalculatedPlan{Plan: plan, Checksum: "checksum3"},
+		ReconcileFiles: false,
+	}); err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Errorf("expected file to not be written when ReconcileFiles is false (stat err: %v)", err)
+	}
+}
+
+func TestApplyPreserveWorkDirectory(t *testing.T) {
+	testCases := []struct {
+		name            string
+		preserveWorkDir bool
+		expectSurvives  bool
+	}{
+		{name: "wipes work dir by default", preserveWorkDir: false, expectSurvives: false},
+		{name: "preserves work dir when configured", preserveWorkDir: true, expectSurvives: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := t.TempDir()
+			markerPath := filepath.Join(workDir, "pre-existing-marker")
+			if err := os.WriteFile(markerPath, []byte("marker"), 0600); err != nil {
+				t.Fatal(err)
+			}
+
+			a := newTestApplyinator(t, workDir, tc.preserveWorkDir, "", "")
+			if _, err := a.Apply(context.Background(), ApplyInput{
+				CalculatedPlan: CalculatedPlan{Plan: planapi.Plan{}, Checksum: "checksum4"},
+			}); err != nil {
+				t.Fatalf("Apply returned error: %v", err)
+			}
+
+			_, statErr := os.Stat(markerPath)
+			survived := statErr == nil
+			if survived != tc.expectSurvives {
+				t.Errorf("expected marker survival = %v, got %v (stat err: %v)", tc.expectSurvives, survived, statErr)
+			}
+		})
+	}
+}
+
+func TestApplyWritesAppliedPlanToDisk(t *testing.T) {
+	t.Parallel()
+
+	appliedPlanDir := t.TempDir()
+	a := newTestApplyinator(t, "", false, appliedPlanDir, "")
+
+	if _, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan: CalculatedPlan{Plan: planapi.Plan{}, Checksum: "checksum5"},
+	}); err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+
+	entries, err := os.ReadDir(appliedPlanDir)
+	if err != nil {
+		t.Fatalf("failed to read applied plan dir: %v", err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), appliedPlanFileSuffix) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a %s file in %s, found entries: %v", appliedPlanFileSuffix, appliedPlanDir, entries)
 	}
 }
