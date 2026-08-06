@@ -34,31 +34,20 @@ type Utility struct {
 	agentRegistriesFile           string
 }
 
+// firstNonEmpty returns v if it is non-empty, otherwise def.
+func firstNonEmpty(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
+}
+
 func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProviderBinDir, agentRegistriesFile string) *Utility {
-	var u Utility
-
-	if imagesDir != "" {
-		u.imagesDir = imagesDir
-	} else {
-		u.imagesDir = defaultImagesDir
-	}
-
-	if imageCredentialProviderConfig != "" {
-		u.imageCredentialProviderConfig = imageCredentialProviderConfig
-	} else {
-		u.imageCredentialProviderConfig = defaultImageCredentialProviderConfig
-	}
-
-	if imageCredentialProviderBinDir != "" {
-		u.imageCredentialProviderBinDir = imageCredentialProviderBinDir
-	} else {
-		u.imageCredentialProviderBinDir = defaultImageCredentialProviderBinDir
-	}
-
-	if agentRegistriesFile != "" {
-		u.agentRegistriesFile = agentRegistriesFile
-	} else {
-		u.agentRegistriesFile = defaultAgentRegistriesFile
+	u := Utility{
+		imagesDir:                     firstNonEmpty(imagesDir, defaultImagesDir),
+		imageCredentialProviderConfig: firstNonEmpty(imageCredentialProviderConfig, defaultImageCredentialProviderConfig),
+		imageCredentialProviderBinDir: firstNonEmpty(imageCredentialProviderBinDir, defaultImageCredentialProviderBinDir),
+		agentRegistriesFile:           firstNonEmpty(agentRegistriesFile, defaultAgentRegistriesFile),
 	}
 
 	logrus.Debugf("Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
@@ -126,14 +115,15 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 }
 
 func (u *Utility) findRegistriesYaml() string {
-	if _, err := os.Stat(u.agentRegistriesFile); err == nil {
-		return u.agentRegistriesFile
-	}
-	if _, err := os.Stat(rke2RegistriesFile); err == nil {
-		return rke2RegistriesFile
-	}
-	if _, err := os.Stat(k3sRegistriesFile); err == nil {
-		return k3sRegistriesFile
+	return findFirstExisting(u.agentRegistriesFile, rke2RegistriesFile, k3sRegistriesFile)
+}
+
+// findFirstExisting returns the first path in candidates that exists on disk, or "" if none do.
+func findFirstExisting(candidates ...string) string {
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	return ""
 }
