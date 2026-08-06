@@ -1,13 +1,26 @@
 package k8splan
 
 import (
+	"context"
+	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 )
+
+// pemEncodeCert PEM-encodes a DER certificate, for constructing rest.Config.TLSClientConfig.CAData
+// in tests.
+func pemEncodeCert(t *testing.T, der []byte) []byte {
+	t.Helper()
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
 
 type fakeDecoder struct {
 	decode func(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error)
@@ -64,6 +77,44 @@ func TestUnstructuredDecoderFallsBackWhenNotRegistered(t *testing.T) {
 	}
 	if !sawFallback {
 		t.Error("expected the fallback decode path to run")
+	}
+}
+
+func TestValidateKCSucceedsWithTrustedCA(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	caPEM := pemEncodeCert(t, server.Certificate().Raw)
+	cfg := &rest.Config{
+		Host:            server.URL,
+		TLSClientConfig: rest.TLSClientConfig{CAData: caPEM},
+	}
+
+	if err := validateKC(context.Background(), cfg); err != nil {
+		t.Fatalf("validateKC returned error: %v", err)
+	}
+}
+
+func TestValidateKCFailsWithUntrustedCA(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &rest.Config{Host: server.URL} // no CAData: falls back to system roots, which don't trust the test server's cert
+
+	err := validateKC(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected an error connecting with an untrusted certificate, got nil")
+	}
+	if !strings.Contains(err.Error(), "x509") {
+		t.Errorf("expected an x509 trust error, got: %v", err)
 	}
 }
 
