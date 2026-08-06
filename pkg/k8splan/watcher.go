@@ -125,17 +125,17 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 	}
 
 	if strictVerify && len(kc.CAData) == 0 {
-		logrus.Fatal("CA Data in provided kubeconfig was empty while strict verify was enabled. Aborting startup.")
+		logrus.Fatal("[k8splan] CA data in provided kubeconfig was empty while strict verify was enabled, aborting startup")
 	}
 
 	if err := connectWithCAFallback(ctx, kc, strictVerify); err != nil {
-		logrus.Fatalf("%v", err)
+		logrus.Fatalf("[k8splan] %v", err)
 		return
 	}
 
 	clientFactory, err := client.NewSharedClientFactory(kc, nil)
 	if err != nil {
-		logrus.Fatalf("error while instantiating new shared client factory: %v", err)
+		logrus.Fatalf("[k8splan] Error while instantiating new shared client factory: %v", err)
 		return
 	}
 
@@ -190,7 +190,7 @@ func (w *watcher) updateSecret(sc corecontrollers.SecretController, secret *core
 							return false
 						}
 						if ck.Checksum == string(secret.Data[AppliedChecksumKey]) {
-							logrus.Debugf("[K8s] secret %s/%s resource version changed from %s to %s but plan checksum still matches, updating latest secret", secret.Namespace, secret.Name, secret.ResourceVersion, latestSecret.ResourceVersion)
+							logrus.Debugf("[k8splan] Secret %s/%s resource version changed from %s to %s but plan checksum still matches, updating latest secret", secret.Namespace, secret.Name, secret.ResourceVersion, latestSecret.ResourceVersion)
 							// we can go ahead copy the relevant data out of the "old" secret and return true to let it update the secret.
 							for _, key := range secretConflictMergeKeys {
 								latestSecret.Data[key] = secret.Data[key]
@@ -211,8 +211,8 @@ func (w *watcher) updateSecret(sc corecontrollers.SecretController, secret *core
 			return err
 		})
 	if err == nil {
-		logrus.Infof("[K8s] updated plan secret %s/%s with feedback", secret.Namespace, secret.Name)
-		logrus.Debugf("[K8s] updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
+		logrus.Infof("[k8splan] Updated plan secret %s/%s with feedback", secret.Namespace, secret.Name)
+		logrus.Debugf("[k8splan] Updating lastAppliedResourceVersion to %s", resultingSecret.ResourceVersion)
 		if w.secretUID == "" {
 			w.secretUID = string(resultingSecret.UID)
 		}
@@ -275,7 +275,7 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 func connectWithCAFallback(ctx context.Context, kc *rest.Config, strictVerify bool) error {
 	if err := validateKC(ctx, kc); err != nil {
 		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 && !strictVerify {
-			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
+			logrus.Infof("[k8splan] Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
 			kc.CAData = nil // nullify the provided CA data
 			if err := validateKC(ctx, kc); err != nil {
 				return fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %w", err)

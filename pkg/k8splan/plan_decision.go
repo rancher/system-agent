@@ -19,7 +19,7 @@ func parseLastApplyTime(data map[string][]byte, currentTime time.Time) time.Time
 	}
 	parsed, err := time.Parse(time.UnixDate, string(rawLAT))
 	if err != nil {
-		logrus.Errorf("[K8s] error parsing last apply time %s, using current time", string(rawLAT))
+		logrus.Errorf("[k8splan] Error parsing last apply time %s, using current time", string(rawLAT))
 		return currentTime
 	}
 	return parsed
@@ -34,7 +34,7 @@ func parseProbePeriodOverride(data map[string][]byte, current time.Duration) tim
 	}
 	parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod)))
 	if err != nil {
-		logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
+		logrus.Errorf("[k8splan] Error parsing duration %ss, using default", string(rawPeriod))
 		return current
 	}
 	return parsedPeriod
@@ -49,7 +49,7 @@ func parseProbeStatuses(data map[string][]byte) map[string]planapi.ProbeStatus {
 	}
 	var probeStatuses map[string]planapi.ProbeStatus
 	if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
-		logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
+		logrus.Errorf("[k8splan] Error while parsing probe statuses: %v", err)
 		return make(map[string]planapi.ProbeStatus)
 	}
 	return probeStatuses
