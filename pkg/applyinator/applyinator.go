@@ -151,10 +151,6 @@ func reconcileFiles(files []planapi.File) error {
 	return nil
 }
 
-// checkInterlock enforces the interlock directory protocol used by install.sh during an agent
-// upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
-// is ignored and removed. On success it returns a cleanup func that must be deferred by the
-// caller to remove the applyinator-active file once the apply completes.
 // runOneTimeInstructions executes a plan's one-time instructions in order, stopping at the first
 // failure, and returns the updated (gzip+JSON encoded) saved-output map.
 func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
@@ -201,6 +197,10 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 	return output, oneTimeApplySucceeded, nil
 }
 
+// checkInterlock enforces the interlock directory protocol used by install.sh during an agent
+// upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
+// is ignored and removed. On success it returns a cleanup func that must be deferred by the
+// caller to remove the applyinator-active file once the apply completes.
 func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	noop := func() {}
 	if a.interlockDir == "" {
