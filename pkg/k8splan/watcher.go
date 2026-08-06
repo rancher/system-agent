@@ -110,18 +110,9 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 		logrus.Fatal("CA Data in provided kubeconfig was empty while strict verify was enabled. Aborting startup.")
 	}
 
-	if err := validateKC(ctx, kc); err != nil {
-		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 && !strictVerify {
-			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
-			kc.CAData = nil // nullify the provided CA data
-			if err := validateKC(ctx, kc); err != nil {
-				logrus.Fatalf("error while connecting to Kubernetes cluster with nullified CA data: %v", err)
-				return
-			}
-		} else {
-			logrus.Fatalf("error while connecting to Kubernetes cluster: %v", err)
-			return
-		}
+	if err := connectWithCAFallback(ctx, kc, strictVerify); err != nil {
+		logrus.Fatalf("%v", err)
+		return
 	}
 
 	clientFactory, err := client.NewSharedClientFactory(kc, nil)
@@ -538,6 +529,24 @@ func validateKC(ctx context.Context, config *rest.Config) error {
 	}
 	_, err = rest.Get().AbsPath("/version").Do(ctx).Raw()
 	return err
+}
+
+// connectWithCAFallback validates connectivity to the Kubernetes API server described by kc,
+// retrying once without CA data if the initial attempt fails with an unknown-authority error and
+// strictVerify does not forbid it.
+func connectWithCAFallback(ctx context.Context, kc *rest.Config, strictVerify bool) error {
+	if err := validateKC(ctx, kc); err != nil {
+		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") && len(kc.CAData) != 0 && !strictVerify {
+			logrus.Infof("Initial connection to Kubernetes cluster failed with error %v, removing CA data and trying again", err)
+			kc.CAData = nil // nullify the provided CA data
+			if err := validateKC(ctx, kc); err != nil {
+				return fmt.Errorf("error while connecting to Kubernetes cluster with nullified CA data: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("error while connecting to Kubernetes cluster: %w", err)
+	}
+	return nil
 }
 
 type unstructuredNegotiator struct {
