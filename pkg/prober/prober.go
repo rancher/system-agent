@@ -17,10 +17,10 @@ import (
 )
 
 func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool) error {
-	logrus.Tracef("Running probe %+v", probe)
+	logrus.Tracef("[prober] Running probe %+v", probe)
 	if initial {
 		initialDelayDuration := time.Duration(probe.InitialDelaySeconds) * time.Second
-		logrus.Debugf("[Probe: %s] Sleeping for %.0f seconds before running probe", probe.Name, initialDelayDuration.Seconds())
+		logrus.Debugf("[prober] Probe %s sleeping for %.0f seconds before running", probe.Name, initialDelayDuration.Seconds())
 		time.Sleep(initialDelayDuration)
 	}
 
@@ -33,7 +33,7 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 		if probe.HTTPGetAction.ClientCert != "" && probe.HTTPGetAction.ClientKey != "" {
 			clientCert, err := tls.LoadX509KeyPair(probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey)
 			if err != nil {
-				logrus.Errorf("error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
+				logrus.Errorf("[prober] Error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
 			} else {
 				tlsConfig.Certificates = []tls.Certificate{clientCert}
 			}
@@ -42,17 +42,17 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 		caCertPool, err := GetSystemCertPool(probe.Name)
 		if err != nil || caCertPool == nil {
 			caCertPool = x509.NewCertPool()
-			logrus.Errorf("error loading system cert pool for probe (%s): %v", probe.Name, err)
+			logrus.Errorf("[prober] Error loading system cert pool for probe %s: %v", probe.Name, err)
 		}
 
 		if probe.HTTPGetAction.CACert != "" {
-			logrus.Debugf("[DoProbe] adding CA certificate [%s] for probe (%s)", probe.HTTPGetAction.CACert, probe.Name)
+			logrus.Debugf("[prober] Adding CA certificate %s for probe %s", probe.HTTPGetAction.CACert, probe.Name)
 			caCert, err := os.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
-				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
+				logrus.Errorf("[prober] Error loading CA cert %s for probe %s: %v", probe.HTTPGetAction.CACert, probe.Name, err)
 			}
 			if !caCertPool.AppendCertsFromPEM(caCert) {
-				logrus.Errorf("error while appending ca cert to pool for probe %s", probe.Name)
+				logrus.Errorf("[prober] Error while appending CA cert to pool for probe %s", probe.Name)
 			}
 		}
 
@@ -71,24 +71,24 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 	}
 
 	probeDuration := time.Duration(probe.TimeoutSeconds) * time.Second
-	logrus.Tracef("[Probe: %s] timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
+	logrus.Tracef("[prober] Probe %s timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
 
 	probeResult, output, err := k8sProber.Probe(probeRequest, probeDuration)
 	if err != nil {
-		logrus.Errorf("error while running probe (%s): %v", probe.Name, err)
+		logrus.Errorf("[prober] Error while running probe %s: %v", probe.Name, err)
 		return err
 	}
 
-	logrus.Debugf("[Probe: %s] output was %s", probe.Name, output)
+	logrus.Debugf("[prober] Probe %s output was %s", probe.Name, output)
 
 	successThreshold := resolveThreshold(probe.SuccessThreshold, defaultSuccessThreshold)
 	failureThreshold := resolveThreshold(probe.FailureThreshold, defaultFailureThreshold)
 
 	succeeded := probeResult == k8sprobe.Success
 	if succeeded {
-		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
+		logrus.Debugf("[prober] Probe %s succeeded", probe.Name)
 	} else {
-		logrus.Debugf("[Probe: %s] failed", probe.Name)
+		logrus.Debugf("[prober] Probe %s failed", probe.Name)
 	}
 	applyProbeResult(probeStatus, succeeded, successThreshold, failureThreshold)
 
@@ -101,10 +101,10 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
 		caCertPool = x509.NewCertPool()
-		logrus.Errorf("[GetSystemCertPool] error loading system cert pool for probe (%s): %v", probeName, err)
+		logrus.Errorf("[prober] Error loading system cert pool for probe %s: %v", probeName, err)
 	}
 	if caCertPool == nil {
-		return nil, fmt.Errorf("[GetSystemCertPool] x509 returned a nil certpool for probe (%s)", probeName)
+		return nil, fmt.Errorf("x509 returned a nil certpool for probe %s", probeName)
 	}
 	return caCertPool, nil
 }
