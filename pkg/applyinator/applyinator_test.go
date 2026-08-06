@@ -502,3 +502,95 @@ func TestApplyWritesAppliedPlanToDisk(t *testing.T) {
 		t.Errorf("expected a %s file in %s, found entries: %v", appliedPlanFileSuffix, appliedPlanDir, entries)
 	}
 }
+
+func TestCheckInterlock(t *testing.T) {
+	t.Run("no interlock directory configured", func(t *testing.T) {
+		t.Parallel()
+		a := newTestApplyinator(t, "", false, "", "")
+		cleanup, err := a.checkInterlock(time.Now())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		cleanup()
+	})
+
+	t.Run("no existing interlock files", func(t *testing.T) {
+		t.Parallel()
+		interlockDir := t.TempDir()
+		a := newTestApplyinator(t, "", false, "", interlockDir)
+
+		cleanup, err := a.checkInterlock(time.Now())
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		activePath := filepath.Join(interlockDir, applyinatorActiveInterlockFile)
+		if _, err := os.Stat(activePath); err != nil {
+			t.Fatalf("expected active interlock file to exist: %v", err)
+		}
+		cleanup()
+		if _, err := os.Stat(activePath); !os.IsNotExist(err) {
+			t.Fatalf("expected active interlock file to be removed after cleanup, stat err: %v", err)
+		}
+	})
+
+	t.Run("restart pending with unparsable timestamp blocks and seeds first-observed time", func(t *testing.T) {
+		t.Parallel()
+		interlockDir := t.TempDir()
+		restartPendingPath := filepath.Join(interlockDir, restartPendingInterlockFile)
+		if err := os.WriteFile(restartPendingPath, []byte("not-a-timestamp"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		a := newTestApplyinator(t, "", false, "", interlockDir)
+
+		_, err := a.checkInterlock(time.Now())
+		if err == nil {
+			t.Fatal("expected error while restart is pending, got nil")
+		}
+		contents, err := os.ReadFile(restartPendingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := time.Parse(time.UnixDate, string(contents)); err != nil {
+			t.Fatalf("expected file to be rewritten with a parsable first-observed time, got %q", contents)
+		}
+	})
+
+	t.Run("restart pending within timeout blocks", func(t *testing.T) {
+		t.Parallel()
+		interlockDir := t.TempDir()
+		now := time.Now()
+		restartPendingPath := filepath.Join(interlockDir, restartPendingInterlockFile)
+		if err := os.WriteFile(restartPendingPath, []byte(now.Add(-1*time.Minute).Format(time.UnixDate)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		a := newTestApplyinator(t, "", false, "", interlockDir)
+
+		_, err := a.checkInterlock(now)
+		if err == nil {
+			t.Fatal("expected error while restart pending timeout has not elapsed, got nil")
+		}
+		if _, err := os.Stat(restartPendingPath); err != nil {
+			t.Fatalf("expected restart pending file to remain, stat err: %v", err)
+		}
+	})
+
+	t.Run("restart pending past timeout is cleared and apply proceeds", func(t *testing.T) {
+		t.Parallel()
+		interlockDir := t.TempDir()
+		now := time.Now()
+		restartPendingPath := filepath.Join(interlockDir, restartPendingInterlockFile)
+		if err := os.WriteFile(restartPendingPath, []byte(now.Add(-6*time.Minute).Format(time.UnixDate)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		a := newTestApplyinator(t, "", false, "", interlockDir)
+
+		cleanup, err := a.checkInterlock(now)
+		if err != nil {
+			t.Fatalf("expected no error once restart pending timeout has elapsed, got %v", err)
+		}
+		if _, err := os.Stat(restartPendingPath); !os.IsNotExist(err) {
+			t.Fatalf("expected restart pending file to be removed, stat err: %v", err)
+		}
+		cleanup()
+	})
+}

@@ -87,6 +87,60 @@ type ApplyInput struct {
 	ExistingPeriodicOutput     []byte
 }
 
+// checkInterlock enforces the interlock directory protocol used by install.sh during an agent
+// upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
+// is ignored and removed. On success it returns a cleanup func that must be deferred by the
+// caller to remove the applyinator-active file once the apply completes.
+func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
+	noop := func() {}
+	if a.interlockDir == "" {
+		return noop, nil
+	}
+
+	nowUnixTimeString := now.Format(time.UnixDate)
+	restartPendingInterlockFilePath := filepath.Join(a.interlockDir, restartPendingInterlockFile)
+	applyinatorActiveInterlockFilePath := filepath.Join(a.interlockDir, applyinatorActiveInterlockFile)
+
+	// NOTE: this checks/removes a bare relative filename, not applyinatorActiveInterlockFilePath —
+	// a pre-existing bug preserved intentionally. See the "Risks / edge cases" section of
+	// docs/superpowers/specs/2026-08-05-applyinator-refactor-design.md.
+	if _, err := os.Stat(applyinatorActiveInterlockFile); err == nil {
+		if err := os.Remove(applyinatorActiveInterlockFile); err != nil {
+			logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+		}
+	}
+
+	if _, err := os.Stat(restartPendingInterlockFilePath); err == nil {
+		fileContents, err := os.ReadFile(restartPendingInterlockFilePath)
+		if err != nil {
+			return noop, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
+		}
+		t, err := time.Parse(time.UnixDate, string(fileContents))
+		if err != nil {
+			if err := os.WriteFile(restartPendingInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+				return noop, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
+			}
+			return noop, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", restartPendingTimeout.String())
+		}
+		if now.Before(t.Add(restartPendingTimeout)) {
+			return noop, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", t.Add(restartPendingTimeout).Sub(now).String())
+		}
+		if err := os.Remove(restartPendingInterlockFilePath); err != nil {
+			logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+		}
+	}
+
+	if err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+		logrus.Errorf("unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+	}
+
+	return func() {
+		if err := os.Remove(applyinatorActiveInterlockFilePath); err != nil {
+			logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
+		}
+	}, nil
+}
+
 // Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
 // entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
