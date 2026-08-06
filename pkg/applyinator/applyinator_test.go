@@ -646,6 +646,50 @@ func TestReconcileFiles(t *testing.T) {
 	}
 }
 
+func TestRunOneTimeInstructionsStopsAtFirstFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	executionDir := t.TempDir()
+	cp := CalculatedPlan{
+		Checksum: "checksum-onetime",
+		Plan: planapi.Plan{
+			OneTimeInstructions: []planapi.OneTimeInstruction{
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "echo ok-output"}},
+					SaveOutput:        true,
+				},
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "fails", Command: "sh", Args: []string{"-c", "exit 1"}},
+				},
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "never-runs", Command: "sh", Args: []string{"-c", "echo should-not-appear"}},
+					SaveOutput:        true,
+				},
+			},
+		},
+	}
+
+	output, succeeded, err := a.runOneTimeInstructions(context.Background(), executionDir, cp, nil, 1)
+	if err != nil {
+		t.Fatalf("runOneTimeInstructions returned error: %v", err)
+	}
+	if succeeded {
+		t.Error("expected succeeded=false because the second instruction failed")
+	}
+
+	outputs := decodeOneTimeOutputs(t, output)
+	if !strings.Contains(string(outputs["ok"]), "ok-output") {
+		t.Errorf("expected saved output for %q to contain %q, got %q", "ok", "ok-output", outputs["ok"])
+	}
+	if _, ran := outputs["never-runs"]; ran {
+		t.Error("expected the third instruction to never run")
+	}
+}
+
 func TestPeriodicInstructionDue(t *testing.T) {
 	t.Parallel()
 

@@ -155,6 +155,52 @@ func reconcileFiles(files []planapi.File) error {
 // upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
 // is ignored and removed. On success it returns a cleanup func that must be deferred by the
 // caller to remove the applyinator-active file once the apply completes.
+// runOneTimeInstructions executes a plan's one-time instructions in order, stopping at the first
+// failure, and returns the updated (gzip+JSON encoded) saved-output map.
+func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
+	logrus.Infof("[Applyinator] Applying one-time instructions for plan with checksum %s", cp.Checksum)
+	executionOutputs := map[string][]byte{}
+	if len(existingOutput) > 0 {
+		objectBuffer, err := generateByteBufferFromBytes(existingOutput)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := json.Unmarshal(objectBuffer.Bytes(), &executionOutputs); err != nil {
+			return nil, false, err
+		}
+	}
+
+	oneTimeApplySucceeded := true
+	for index, instruction := range cp.Plan.OneTimeInstructions {
+		logrus.Debugf("[Applyinator] Executing instruction %d attempt %d for plan %s", index, attempts, cp.Checksum)
+		prefix := cp.Checksum + "_" + strconv.Itoa(index)
+		instructionDir := filepath.Join(executionDir, prefix)
+		executeOutput, _, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, true, attempts)
+		if err != nil || exitCode != 0 {
+			logrus.Errorf("error executing instruction %d: %v", index, err)
+			oneTimeApplySucceeded = false
+		}
+		if instruction.Name == "" && instruction.SaveOutput {
+			logrus.Errorf("instruction does not have a name set, cannot save output data")
+		} else if instruction.SaveOutput {
+			executionOutputs[instruction.Name] = executeOutput
+		}
+		if !oneTimeApplySucceeded {
+			break
+		}
+	}
+
+	marshalled, err := json.Marshal(executionOutputs)
+	if err != nil {
+		return nil, false, err
+	}
+	output, err := gzipByteSlice(marshalled)
+	if err != nil {
+		return nil, false, err
+	}
+	return output, oneTimeApplySucceeded, nil
+}
+
 func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	noop := func() {}
 	if a.interlockDir == "" {
