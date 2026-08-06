@@ -751,6 +751,33 @@ func TestPeriodicInstructionDue(t *testing.T) {
 			periodSeconds: 600,
 			wantDue:       true,
 		},
+		{
+			name: "failure cooldown defaults to 1s when Failures is zero but LastFailedRunTime is set",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-5 * time.Second).Format(time.UnixDate),
+				Failures:          0,
+			},
+			wantDue:      false,
+			wantFailures: 0,
+		},
+		{
+			name: "failures stays zero when LastFailedRunTime is empty even if Failures is set",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: "",
+				Failures:          3,
+			},
+			wantDue:      true,
+			wantFailures: 0,
+		},
+		{
+			name: "unparsable last failed run time is treated as no history but Failures is still carried",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: "not-a-time",
+				Failures:          5,
+			},
+			wantDue:      true,
+			wantFailures: 5,
+		},
 	}
 
 	for _, tc := range testCases {
