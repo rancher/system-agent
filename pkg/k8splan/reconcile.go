@@ -32,7 +32,9 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	lastApplyTime := parseLastApplyTime(secret.Data, currentTime)
 	w.probePeriod = parseProbePeriodOverride(secret.Data, w.probePeriod)
 	logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
-	needsApplied := true // needsApplied indicates whether the one-time instructions should be run
+	// needsApplied indicates whether the one-time instructions should be run. It is always set by
+	// decidePlanStateAction or decideChecksumFlowAction below before being read.
+	var needsApplied bool
 
 	uidChanged := w.secretUID != "" && w.secretUID != string(secret.UID)
 	rvIsOlder := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion)

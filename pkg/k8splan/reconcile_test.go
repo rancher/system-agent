@@ -146,6 +146,169 @@ func TestReconcileSecretScenarios(t *testing.T) {
 	}
 }
 
+func TestReconcileSecretNilSecretIsANoOp(t *testing.T) {
+	t.Parallel()
+
+	// No EXPECT() calls configured: a nil secret must return before touching the Kubernetes API.
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+
+	w := newTestWatcher(t, true, "")
+	result, err := w.reconcileSecret(context.Background(), sc, nil, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected a nil result for a nil secret, got %+v", result)
+	}
+}
+
+func TestReconcileSecretNoPlanDataEnqueuesAndReturns(t *testing.T) {
+	t.Parallel()
+
+	sc := newMockSecretController(t)
+	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
+
+	w := newTestWatcher(t, true, "42")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data:       map[string][]byte{},
+	}
+
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected the secret to be returned unchanged, got nil")
+	}
+}
+
+func TestReconcileSecretInvalidPlanJSONReturnsError(t *testing.T) {
+	t.Parallel()
+
+	// No EXPECT() calls configured: a CalculatePlan failure must return before any API call.
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+
+	w := newTestWatcher(t, true, "42")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data:       map[string][]byte{PlanKey: []byte("not valid json")},
+	}
+
+	if _, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second); err == nil {
+		t.Fatal("expected an error for unparsable plan JSON, got nil")
+	}
+}
+
+func TestReconcileSecretPlanStateFirstObservationSetsHasRunOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	planBytes, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "true"}}, SaveOutput: true},
+		},
+	})
+
+	sc := newMockSecretController(t)
+	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
+
+	w := newTestWatcher(t, false, "42") // hasRunOnce starts false, unlike the other plan-state cases
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data: map[string][]byte{
+			PlanKey:              planBytes,
+			planapi.PlanStateKey: []byte(planapi.PlanStateSucceeded),
+		},
+	}
+
+	if _, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second); err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if !w.hasRunOnce {
+		t.Error("expected hasRunOnce to become true after observing any plan-state, even a terminal one")
+	}
+}
+
+func TestReconcileSecretPendingCommitFailurePropagatesError(t *testing.T) {
+	t.Parallel()
+
+	planBytes, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "true"}}, SaveOutput: true},
+		},
+	})
+
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+	// A non-conflict Update error on the pending -> in-progress commit propagates immediately;
+	// the retry/merge machinery in updateSecret only special-cases conflicts, and
+	// retry.DefaultBackoff also retries plain errors, so this mock keeps returning the same
+	// error until the backoff is exhausted and the original error surfaces.
+	sc.EXPECT().Update(gomock.Any()).Return(nil, errors.New("etcd is unavailable")).AnyTimes()
+
+	w := newTestWatcher(t, true, "42")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data: map[string][]byte{
+			PlanKey:              planBytes,
+			planapi.PlanStateKey: []byte(planapi.PlanStatePending),
+		},
+	}
+
+	if _, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second); err == nil {
+		t.Fatal("expected an error when the pending -> in-progress commit fails, got nil")
+	}
+}
+
+func TestReconcileSecretSteadyStateSkipsUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	planBytes, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "true"}}, SaveOutput: true},
+		},
+	})
+
+	w := newTestWatcher(t, false, "")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data:       map[string][]byte{PlanKey: planBytes},
+	}
+
+	// First reconcile force-applies (first start) and establishes steady-state secret data —
+	// exact gzip-encoded byte values (periodic output, one-time output) are an implementation
+	// detail of Applyinator, not hand-computed here.
+	sc1 := newMockSecretController(t)
+	sc1.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
+	settled, err := w.reconcileSecret(context.Background(), sc1, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("first reconcileSecret returned error: %v", err)
+	}
+
+	// Second reconcile against the exact same (now steady-state) data and an unchanged resource
+	// version: nothing should differ, so reconcileSecret must skip the Update call entirely. No
+	// Update EXPECT() is configured on this mock, so an unexpected call fails the test.
+	ctrl := gomock.NewController(t)
+	sc2 := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+	sc2.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
+
+	result, err := w.reconcileSecret(context.Background(), sc2, settled.DeepCopy(), 30*time.Second)
+	if err != nil {
+		t.Fatalf("second reconcileSecret returned error: %v", err)
+	}
+	if result.ResourceVersion != settled.ResourceVersion {
+		t.Errorf("expected the unchanged secret to be returned as-is, got resource version %q", result.ResourceVersion)
+	}
+}
+
 func TestReconcileSecretFailureCooldownActive(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
