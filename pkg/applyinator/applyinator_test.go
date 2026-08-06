@@ -594,3 +594,54 @@ func TestCheckInterlock(t *testing.T) {
 		cleanup()
 	})
 }
+
+func TestReconcileFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "written.txt")
+	dirPath := filepath.Join(dir, "created-dir")
+	deletedPath := filepath.Join(dir, "to-delete.txt")
+	if err := os.WriteFile(deletedPath, []byte("gone soon"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []planapi.File{
+		{
+			Path:    filePath,
+			Content: base64.StdEncoding.EncodeToString([]byte("hello")),
+			UID:     -1,
+			GID:     -1,
+		},
+		{
+			Path:      dirPath,
+			Directory: true,
+			UID:       -1,
+			GID:       -1,
+		},
+		{
+			Path:   deletedPath,
+			Action: deleteFileAction,
+		},
+	}
+
+	if err := reconcileFiles(files); err != nil {
+		t.Fatalf("reconcileFiles returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("expected file to be written: %v", err)
+	}
+	if string(content) != "hello" {
+		t.Errorf("expected file content %q, got %q", "hello", content)
+	}
+
+	if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
+		t.Errorf("expected directory to be created at %s: %v", dirPath, err)
+	}
+
+	if _, err := os.Stat(deletedPath); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be deleted, stat err: %v", deletedPath, err)
+	}
+}

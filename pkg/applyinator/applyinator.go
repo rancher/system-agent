@@ -87,6 +87,29 @@ type ApplyInput struct {
 	ExistingPeriodicOutput     []byte
 }
 
+// reconcileFiles applies a plan's Files: writing regular files, creating directories, and
+// deleting anything marked with the delete action.
+func reconcileFiles(files []planapi.File) error {
+	for _, file := range files {
+		if file.Action == deleteFileAction {
+			if err := removeFile(file); err != nil {
+				return err
+			}
+		} else if file.Directory {
+			logrus.Debugf("[Applyinator] Creating directory %s", file.Path)
+			if err := createDirectory(file); err != nil {
+				return err
+			}
+		} else {
+			logrus.Debugf("[Applyinator] Writing file %s", file.Path)
+			if err := writeBase64ContentToFile(file); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // checkInterlock enforces the interlock directory protocol used by install.sh during an agent
 // upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
 // is ignored and removed. On success it returns a cleanup func that must be deferred by the
