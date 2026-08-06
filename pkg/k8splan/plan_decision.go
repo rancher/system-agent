@@ -69,6 +69,31 @@ func parseFailureCount(data map[string][]byte) (failureCount, planAttempt int) {
 	return failureCount, failureCount + 1
 }
 
+// planStateResult is the outcome of evaluating the plan-state flow (the flow used when the
+// orchestrator writes plan-state — see the currentPlanState != "" branch in reconcileSecret).
+//
+// This is the seam the pause/cancel design's gate() function will later replace or extend with
+// cancelled/paused/progress-checkpoint handling; it deliberately does not implement any of that.
+type planStateResult struct {
+	NeedsApplied bool
+	// ResetPlanAttempt is true only for PlanStatePending: a freshly delivered plan always starts
+	// its one-time instructions at attempt 1, regardless of any prior failure count.
+	ResetPlanAttempt bool
+}
+
+// decidePlanStateAction mirrors the plan-state switch: pending and in-progress both require
+// (re-)execution, every other state (including states not yet known to this build) is terminal.
+func decidePlanStateAction(state planapi.PlanState) planStateResult {
+	switch state {
+	case planapi.PlanStatePending:
+		return planStateResult{NeedsApplied: true, ResetPlanAttempt: true}
+	case planapi.PlanStateInProgress:
+		return planStateResult{NeedsApplied: true}
+	default:
+		return planStateResult{NeedsApplied: false}
+	}
+}
+
 // selectExistingOutput picks the existing one-time-instruction output to carry into the next
 // apply: the failed output when the plan previously failed, the applied output otherwise. Returns
 // an empty (non-nil) slice when the relevant key is absent.

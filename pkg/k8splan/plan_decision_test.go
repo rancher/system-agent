@@ -128,6 +128,32 @@ func TestParseFailureCount(t *testing.T) {
 	}
 }
 
+func TestDecidePlanStateAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state planapi.PlanState
+		want  planStateResult
+	}{
+		{name: "pending applies and resets attempt", state: planapi.PlanStatePending, want: planStateResult{NeedsApplied: true, ResetPlanAttempt: true}},
+		{name: "in-progress re-executes without resetting attempt", state: planapi.PlanStateInProgress, want: planStateResult{NeedsApplied: true, ResetPlanAttempt: false}},
+		{name: "succeeded is terminal", state: planapi.PlanStateSucceeded, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
+		{name: "failed is terminal", state: planapi.PlanStateFailed, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
+		{name: "cancelled is terminal", state: planapi.PlanStateCancelled, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
+		{name: "unknown state is treated as terminal", state: planapi.PlanState("some-future-state"), want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := decidePlanStateAction(tt.state); got != tt.want {
+				t.Errorf("decidePlanStateAction(%q) = %+v, want %+v", tt.state, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSelectExistingOutput(t *testing.T) {
 	t.Parallel()
 
