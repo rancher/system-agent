@@ -3,12 +3,9 @@ package k8splan
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +17,6 @@ import (
 	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/system-agent/pkg/applyinator"
 	"github.com/rancher/system-agent/pkg/config"
-	"github.com/rancher/system-agent/pkg/prober"
 	corecontrollers "github.com/rancher/wrangler/v3/pkg/generated/controllers/core/v1"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -82,6 +78,12 @@ type watcher struct {
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
 	secretUID                  string
+	// hasRunOnce and probePeriod are mutated by reconcileSecret and must persist across calls —
+	// they used to be local variables in start(), captured by reference by the OnChange closure.
+	// probePeriod is deliberately sticky: once a Secret specifies probe-period-seconds, that
+	// value is used as the default for subsequent Secrets too, unless overridden again.
+	hasRunOnce  bool
+	probePeriod time.Duration
 }
 
 func toInt(resourceVersion string) int {
@@ -133,7 +135,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 		DefaultWorkers:     1,
 	})
 	core := corecontrollers.New(controllerFactory)
-	probePeriod, err := time.ParseDuration(enqueueAfterDuration)
+	w.probePeriod, err = time.ParseDuration(enqueueAfterDuration)
 	if err != nil {
 		panic(err)
 	}
@@ -143,280 +145,8 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 		panic(err)
 	}
 
-	hasRunOnce := false
-
 	core.Secret().OnChange(ctx, "secret-watch", func(_ string, secret *corev1.Secret) (*corev1.Secret, error) {
-		if secret == nil {
-			logrus.Debugf("[K8s] received nil secret (object deleted from cache), skipping")
-			return nil, nil
-		}
-		originalSecret := secret.DeepCopy()
-		secret = secret.DeepCopy()
-
-		var lastApplyTime, currentTime time.Time
-
-		currentTime = time.Now()
-
-		if rawLAT, ok := secret.Data[LastApplyTimeKey]; ok {
-			lastApplyTime, err = time.Parse(time.UnixDate, string(rawLAT))
-			if err != nil {
-				logrus.Errorf("[K8s] error parsing last apply time %s, using current time", string(rawLAT))
-				lastApplyTime = currentTime
-			}
-		} else {
-			lastApplyTime = currentTime
-		}
-
-		if rawPeriod, ok := secret.Data[ProbePeriodKey]; ok {
-			if parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod))); err != nil {
-				logrus.Errorf("[K8s] error parsing duration %ss, using default", string(rawPeriod))
-			} else {
-				probePeriod = parsedPeriod
-			}
-		}
-		logrus.Debugf("[K8s] Processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
-		needsApplied := true // needsApplied indicates whether the one-time instructions should be run
-
-		uidChanged := w.secretUID != "" && w.secretUID != string(secret.UID)
-		rvIsOlder := toInt(w.lastAppliedResourceVersion) > toInt(secret.ResourceVersion)
-
-		switch {
-		case uidChanged:
-			// Secret was deleted and recreated with a new UID; reset state so the new secret is force-applied.
-			logrus.Infof("[K8s] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state", secret.UID, w.secretUID)
-			w.secretUID = ""
-			w.lastAppliedResourceVersion = ""
-			hasRunOnce = false
-		case rvIsOlder:
-			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			return secret, errors.New("secret received was too old")
-		}
-
-		if planData, ok := secret.Data[PlanKey]; ok {
-			logrus.Tracef("[K8s] Byte data: %v", planData)
-			logrus.Tracef("[K8s] Plan string was %s", string(planData))
-
-			var probeStatuses map[string]planapi.ProbeStatus
-			// retrieve existing probe statuses from the secret if they exist
-			if rawProbeStatusByteData, ok := secret.Data[ProbeStatusesKey]; ok {
-				if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
-					logrus.Errorf("[K8s] error while parsing probe statuses: %v", err)
-					probeStatuses = make(map[string]planapi.ProbeStatus, 0)
-				}
-			} else {
-				probeStatuses = make(map[string]planapi.ProbeStatus, 0)
-			}
-			// calculate the checksum of the plan from the provided data
-			cp, err := applyinator.CalculatePlan(planData)
-			if err != nil {
-				return secret, err
-			}
-			logrus.Tracef("[K8s] Calculated checksum to be %s", cp.Checksum)
-
-			// currentPlanState is non-empty when Rancher supports plan-state.
-			// If absent, fall back to checksum-based logic for backward compatibility.
-			currentPlanState := planapi.PlanState(secret.Data[planapi.PlanStateKey])
-
-			// Parse failureCount unconditionally — needed for OneTimeInstructionAttempts in both flows.
-			wasFailedPlan := false
-			var failureCount int
-			planAttempt := 1
-			if rawFailureCount, ok := secret.Data[FailureCountKey]; ok && len(rawFailureCount) > 0 {
-				if fc, parseErr := strconv.Atoi(string(rawFailureCount)); parseErr == nil {
-					failureCount = fc
-				}
-				planAttempt = failureCount + 1
-			}
-
-			if currentPlanState != "" {
-				// New flow: plan-state is the authoritative source of truth.
-				switch currentPlanState {
-				case planapi.PlanStatePending:
-					// Orchestrator delivered new plan content; apply it.
-					logrus.Infof("[K8s] plan-state is %q; applying new plan content", currentPlanState)
-					needsApplied = true
-					planAttempt = 1 // fresh execution for each new plan delivery
-				case planapi.PlanStateInProgress:
-					// Agent crashed mid-apply before writing the outcome; re-execute from beginning.
-					logrus.Infof("[K8s] plan-state is %q on startup; re-executing plan (crash recovery)", currentPlanState)
-					needsApplied = true
-				default:
-					// succeeded, failed, cancelled: terminal state — wait for orchestrator to deliver new plan.
-					logrus.Debugf("[K8s] plan-state is %q (terminal); not applying", currentPlanState)
-					needsApplied = false
-				}
-				if !hasRunOnce {
-					hasRunOnce = true
-				}
-			} else {
-				// Backward compatibility: old checksum-based needsApplied decision.
-				if secretChecksumData, ok := secret.Data[AppliedChecksumKey]; ok {
-					secretChecksum := string(secretChecksumData)
-					logrus.Tracef("[K8s] Remote plan had an applied checksum value of %s", secretChecksum)
-					if secretChecksum == cp.Checksum {
-						logrus.Debugf("[K8s] Applied checksum was the same as the plan from remote. Not applying.")
-						needsApplied = false
-					}
-				}
-
-				if !hasRunOnce {
-					logrus.Infof("Detected first start, force-applying one-time instruction set")
-					needsApplied = true
-					hasRunOnce = true
-					secret.Data[AppliedChecksumKey] = []byte("")
-				}
-
-				// Check to see if we've exceeded our failure count threshold
-				var maxFailureThreshold int
-				if rawMaxFailureThreshold, ok := secret.Data[MaxFailuresKey]; ok && len(rawMaxFailureThreshold) > 0 {
-					// max failure threshold is defined. parse and compare
-					maxFailureThreshold, err = strconv.Atoi(string(rawMaxFailureThreshold))
-					if err != nil {
-						logrus.Errorf("error parsing max-failures: %s: %v", string(rawMaxFailureThreshold), err)
-						maxFailureThreshold = -1
-					} else {
-						logrus.Tracef("[K8s] Parsed max failure value of %d and setting as maxFailureThreshold", maxFailureThreshold)
-					}
-				} else {
-					maxFailureThreshold = -1
-				}
-
-				if failureCount != 0 {
-					if rFC, ok := secret.Data[FailedChecksumKey]; ok {
-						if string(rFC) == cp.Checksum {
-							logrus.Debugf("[K8s] Plan appears to have failed before, failure count was %d", failureCount)
-							wasFailedPlan = true
-							if failureCount >= maxFailureThreshold && maxFailureThreshold != -1 {
-								logrus.Errorf("[K8s] Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", cp.Checksum, failureCount, maxFailureThreshold)
-								needsApplied = false
-							} else {
-								if !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)) {
-									logrus.Debugf("[K8s] %f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds())
-									needsApplied = false
-								}
-							}
-						} else {
-							logrus.Errorf("[K8s] Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", cp.Checksum, string(rFC))
-						}
-					}
-				}
-
-				if w.lastAppliedResourceVersion == secret.ResourceVersion && !wasFailedPlan {
-					logrus.Debugf("[K8s] last applied resource version (%s) did not change. running probes, skipping apply.", w.lastAppliedResourceVersion)
-					needsApplied = false
-				}
-			}
-
-			var output []byte
-
-			if wasFailedPlan {
-				output, ok = secret.Data[FailedOutputKey]
-				if !ok {
-					output = []byte{}
-				}
-			} else {
-				output, ok = secret.Data[AppliedOutputKey]
-				if !ok {
-					output = []byte{}
-				}
-			}
-
-			periodicOutput := secret.Data[AppliedPeriodicOutputKey]
-
-			// Transition pending -> in-progress before executing so the state is durable
-			// in the event of a crash. On restart the agent will see in-progress and re-execute.
-			if currentPlanState == planapi.PlanStatePending && needsApplied {
-				secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateInProgress)
-				secret.Data[planapi.PlanRevisionKey] = incrementCount(secret.Data[planapi.PlanRevisionKey])
-				// Commit to the API server now, before Apply runs. This makes the transition
-				// durable: if the agent crashes mid-apply, the next startup sees in-progress
-				// and re-executes from the beginning.
-				var inProgressErr error
-				if secret, inProgressErr = w.updateSecret(core, secret); inProgressErr != nil {
-					return nil, fmt.Errorf("[K8s] failed to commit plan-state:%s to API server: %w", planapi.PlanStateInProgress, inProgressErr)
-				}
-			}
-
-			input := applyinator.ApplyInput{
-				CalculatedPlan:             cp,
-				ReconcileFiles:             needsApplied,
-				ExistingOneTimeOutput:      output,
-				ExistingPeriodicOutput:     periodicOutput,
-				RunOneTimeInstructions:     needsApplied,
-				OneTimeInstructionAttempts: planAttempt,
-			}
-
-			applyOutput, err := w.applyinator.Apply(ctx, input)
-			if err != nil {
-				return secret, fmt.Errorf("error encountered when running apply: %w", err)
-			}
-
-			output = applyOutput.OneTimeOutput
-			periodicOutput = applyOutput.PeriodicOutput
-
-			secret.Data[AppliedPeriodicOutputKey] = periodicOutput
-
-			if (needsApplied && !applyOutput.OneTimeApplySucceeded) || (!needsApplied && wasFailedPlan) {
-				logrus.Debugf("[K8s] one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", cp.Checksum)
-				// Update the corresponding counts/outputs
-				secret.Data[FailedChecksumKey] = []byte(cp.Checksum)
-				if needsApplied {
-					secret.Data[FailureCountKey] = incrementCount(secret.Data[FailureCountKey])
-					secret.Data[FailedOutputKey] = output
-					secret.Data[SuccessCountKey] = []byte("0")
-					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
-					if currentPlanState != "" {
-						// In the new flow the agent reports failure immediately; the orchestrator
-						// decides whether to retry by resetting plan-state to pending.
-						secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateFailed)
-					}
-				}
-			} else {
-				// secret.Data should always have already been initialized because otherwise we would have failed out above.
-				logrus.Debugf("[K8s] writing an applied checksum value of %s to the remote plan", cp.Checksum)
-				secret.Data[AppliedChecksumKey] = []byte(cp.Checksum)
-				secret.Data[AppliedOutputKey] = output
-				// On a successful application, we should blank out the corresponding failure keys.
-				secret.Data[FailureCountKey] = []byte("0")
-				secret.Data[FailedOutputKey] = []byte{}
-				secret.Data[FailedChecksumKey] = []byte{}
-				if needsApplied {
-					secret.Data[LastApplyTimeKey] = []byte(currentTime.Format(time.UnixDate))
-					secret.Data[SuccessCountKey] = incrementCount(secret.Data[SuccessCountKey])
-					if currentPlanState != "" {
-						secret.Data[planapi.PlanStateKey] = []byte(planapi.PlanStateSucceeded)
-					}
-				}
-			}
-
-			prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)
-
-			marshalledProbeStatus, err := json.Marshal(probeStatuses)
-			if err != nil {
-				logrus.Errorf("error while marshalling probe statuses: %v", err)
-			} else {
-				secret.Data[ProbeStatusesKey] = marshalledProbeStatus
-			}
-
-			if applyOutput.OneTimeApplySucceeded == needsApplied {
-				// If the one-time instructions were successfully applied, we should enqueue the secret for the period of a probe to attempt to guarantee timeliness on probe reactivity.
-				logrus.Debugf("[K8s] Enqueueing after %f seconds", probePeriod.Seconds())
-				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-			}
-
-			if reflect.DeepEqual(originalSecret.Data, secret.Data) && reflect.DeepEqual(originalSecret.StringData, secret.StringData) {
-				logrus.Debugf("[K8s] secret data/string-data did not change, not updating secret")
-				return originalSecret, nil
-			}
-			secret, err = w.updateSecret(core, secret)
-			if err != nil {
-				logrus.Fatalf("[K8s] encountered an error while attempting to update the secret: %v", err)
-				return nil, nil
-			}
-			return secret, nil
-		}
-		core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
-		return secret, nil
+		return w.reconcileSecret(ctx, core.Secret(), secret, cooldownPeriod)
 	})
 
 	if err := controllerFactory.Start(ctx, 1); err != nil {
@@ -425,7 +155,7 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 }
 
 // updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict and the new plan doesn't match the plan being applied in the current iteration, it will discontinue.
-func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Secret) (*corev1.Secret, error) {
+func (w *watcher) updateSecret(sc corecontrollers.SecretController, secret *corev1.Secret) (*corev1.Secret, error) {
 	var resultingSecret *corev1.Secret
 	var latestSecretUpdateAttempted bool
 	err := retry.OnError(retry.DefaultBackoff,
@@ -435,7 +165,7 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Se
 					return false
 				}
 				// If we get a conflict, we can retrieve the latest secret and compare plan data to see if the plan changed.
-				latestSecret, getErr := core.Secret().Get(secret.Namespace, secret.Name, metav1.GetOptions{})
+				latestSecret, getErr := sc.Get(secret.Namespace, secret.Name, metav1.GetOptions{})
 				if getErr == nil {
 					// if the get error is nil, then we can go ahead and compare secrets and try again.
 					if pd, ok := latestSecret.Data[PlanKey]; ok {
@@ -469,7 +199,7 @@ func (w *watcher) updateSecret(core corecontrollers.Interface, secret *corev1.Se
 		},
 		func() error {
 			var err error
-			resultingSecret, err = core.Secret().Update(secret)
+			resultingSecret, err = sc.Update(secret)
 			return err
 		})
 	if err == nil {
