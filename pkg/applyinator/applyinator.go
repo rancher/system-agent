@@ -87,31 +87,58 @@ type ApplyInput struct {
 	ExistingPeriodicOutput     []byte
 }
 
+// parseUnixTimeOrZero parses s using time.UnixDate. ok is false when s is empty or unparsable —
+// callers should treat that as "no recorded time," not an error.
+func parseUnixTimeOrZero(label, s string) (t time.Time, ok bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.UnixDate, s)
+	if err != nil {
+		logrus.Errorf("error parsing %s %q: %v", label, s, err)
+		return time.Time{}, false
+	}
+	return parsed, true
+}
+
+// decodeGzipJSON gunzips data and unmarshals the result into out. A no-op when data is empty.
+func decodeGzipJSON(data []byte, out any) error {
+	if len(data) == 0 {
+		return nil
+	}
+	objectBuffer, err := generateByteBufferFromBytes(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(objectBuffer.Bytes(), out)
+}
+
+// encodeGzipJSON marshals v to JSON and gzips the result.
+func encodeGzipJSON(v any) ([]byte, error) {
+	marshalled, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return gzipByteSlice(marshalled)
+}
+
 // periodicInstructionDue decides whether a periodic instruction should run now, given the
 // previously recorded output for that instruction. An unset or unparsable last-run timestamp is
 // treated as "no history" (always due). forced (the one-time instructions ran this cycle) bypasses
 // both the period and the failure cooldown.
 func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutput, periodSeconds int, forced bool) (due bool, failures int) {
-	if prev.LastSuccessfulRunTime != "" {
-		t, err := time.Parse(time.UnixDate, prev.LastSuccessfulRunTime)
-		if err != nil {
-			logrus.Errorf("error encountered during parsing of last successful run time: %v", err)
-		} else {
-			effectivePeriod := periodSeconds
-			if effectivePeriod == 0 {
-				effectivePeriod = 600
-			}
-			if now.Before(t.Add(time.Second*time.Duration(effectivePeriod))) && !forced {
-				return false, failures
-			}
+	if t, ok := parseUnixTimeOrZero("last successful run time", prev.LastSuccessfulRunTime); ok {
+		effectivePeriod := periodSeconds
+		if effectivePeriod == 0 {
+			effectivePeriod = 600
+		}
+		if now.Before(t.Add(time.Second*time.Duration(effectivePeriod))) && !forced {
+			return false, failures
 		}
 	}
 
 	if prev.LastFailedRunTime != "" {
-		t, err := time.Parse(time.UnixDate, prev.LastFailedRunTime)
-		if err != nil {
-			logrus.Errorf("error encountered during parsing of last failed time: %+v", err)
-		} else {
+		if t, ok := parseUnixTimeOrZero("last failed run time", prev.LastFailedRunTime); ok {
 			failures = prev.Failures
 			failureCooldown := failures
 			if failureCooldown > 6 {
@@ -156,14 +183,8 @@ func reconcileFiles(files []planapi.File) error {
 func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
 	logrus.Infof("[Applyinator] Applying one-time instructions for plan with checksum %s", cp.Checksum)
 	executionOutputs := map[string][]byte{}
-	if len(existingOutput) > 0 {
-		objectBuffer, err := generateByteBufferFromBytes(existingOutput)
-		if err != nil {
-			return nil, false, err
-		}
-		if err := json.Unmarshal(objectBuffer.Bytes(), &executionOutputs); err != nil {
-			return nil, false, err
-		}
+	if err := decodeGzipJSON(existingOutput, &executionOutputs); err != nil {
+		return nil, false, err
 	}
 
 	oneTimeApplySucceeded := true
@@ -186,11 +207,7 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 		}
 	}
 
-	marshalled, err := json.Marshal(executionOutputs)
-	if err != nil {
-		return nil, false, err
-	}
-	output, err := gzipByteSlice(marshalled)
+	output, err := encodeGzipJSON(executionOutputs)
 	if err != nil {
 		return nil, false, err
 	}
@@ -204,14 +221,8 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 	nowUnixTimeString := now.Format(time.UnixDate)
 
 	periodicOutputs := map[string]planapi.PeriodicInstructionOutput{}
-	if len(existingOutput) > 0 {
-		objectBuffer, err := generateByteBufferFromBytes(existingOutput)
-		if err != nil {
-			return nil, false, err
-		}
-		if err := json.Unmarshal(objectBuffer.Bytes(), &periodicOutputs); err != nil {
-			return nil, false, err
-		}
+	if err := decodeGzipJSON(existingOutput, &periodicOutputs); err != nil {
+		return nil, false, err
 	}
 
 	periodicApplySucceeded := true
@@ -229,10 +240,8 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 		}
 
 		previousRunTime := ""
-		if prev.LastSuccessfulRunTime != "" {
-			if _, err := time.Parse(time.UnixDate, prev.LastSuccessfulRunTime); err == nil {
-				previousRunTime = prev.LastSuccessfulRunTime
-			}
+		if _, ok := parseUnixTimeOrZero("last successful run time", prev.LastSuccessfulRunTime); ok {
+			previousRunTime = prev.LastSuccessfulRunTime
 		}
 
 		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
@@ -269,11 +278,7 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 		}
 	}
 
-	marshalled, err := json.Marshal(periodicOutputs)
-	if err != nil {
-		return nil, false, err
-	}
-	output, err := gzipByteSlice(marshalled)
+	output, err := encodeGzipJSON(periodicOutputs)
 	if err != nil {
 		return nil, false, err
 	}
