@@ -942,3 +942,50 @@ func TestRunPeriodicInstructionsRunsWhenDue(t *testing.T) {
 		t.Error("expected LastSuccessfulRunTime to be set after a successful run")
 	}
 }
+
+func TestResolvePermissions(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		perm     string
+		def      os.FileMode
+		expected os.FileMode
+		wantErr  bool
+	}{
+		{name: "empty uses default", perm: "", def: 0644, expected: 0644},
+		{name: "valid octal", perm: "0755", def: 0644, expected: 0755},
+		{name: "invalid octal", perm: "not-octal", def: 0644, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := resolvePermissions(tc.perm, tc.def)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.expected {
+				t.Errorf("expected %v, got %v", tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestInstructionExecutionDir(t *testing.T) {
+	t.Parallel()
+
+	dir, prefix := instructionExecutionDir("/work/20260101-000000", "abc123", 2)
+	if want := "abc123_2"; prefix != want {
+		t.Errorf("expected prefix %q, got %q", want, prefix)
+	}
+	if want := filepath.Join("/work/20260101-000000", "abc123_2"); dir != want {
+		t.Errorf("expected dir %q, got %q", want, dir)
+	}
+}

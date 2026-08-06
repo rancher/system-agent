@@ -178,6 +178,13 @@ func reconcileFiles(files []planapi.File) error {
 	return nil
 }
 
+// instructionExecutionDir returns the per-instruction execution directory and its log-line prefix,
+// both derived from the plan checksum and the instruction's index within its list.
+func instructionExecutionDir(baseDir, checksum string, index int) (dir, prefix string) {
+	prefix = checksum + "_" + strconv.Itoa(index)
+	return filepath.Join(baseDir, prefix), prefix
+}
+
 // runOneTimeInstructions executes a plan's one-time instructions in order, stopping at the first
 // failure, and returns the updated (gzip+JSON encoded) saved-output map.
 func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
@@ -190,8 +197,7 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 	oneTimeApplySucceeded := true
 	for index, instruction := range cp.Plan.OneTimeInstructions {
 		logrus.Debugf("[Applyinator] Executing instruction %d attempt %d for plan %s", index, attempts, cp.Checksum)
-		prefix := cp.Checksum + "_" + strconv.Itoa(index)
-		instructionDir := filepath.Join(executionDir, prefix)
+		instructionDir, prefix := instructionExecutionDir(executionDir, cp.Checksum, index)
 		executeOutput, _, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, true, attempts)
 		if err != nil || exitCode != 0 {
 			logrus.Errorf("error executing instruction %d: %v", index, err)
@@ -245,8 +251,7 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 		}
 
 		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
-		prefix := cp.Checksum + "_" + strconv.Itoa(index)
-		instructionDir := filepath.Join(executionDir, prefix)
+		instructionDir, prefix := instructionExecutionDir(executionDir, cp.Checksum, index)
 		stdout, stderr, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, false, failures+1)
 		if err != nil || exitCode != 0 {
 			periodicApplySucceeded = false

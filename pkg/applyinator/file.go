@@ -15,21 +15,25 @@ import (
 const defaultDirectoryPermissions os.FileMode = 0755
 const defaultFilePermissions os.FileMode = 0600
 
+// resolvePermissions returns def when perm is empty, otherwise parses perm as an octal file mode.
+func resolvePermissions(perm string, def os.FileMode) (os.FileMode, error) {
+	if perm == "" {
+		return def, nil
+	}
+	return parsePerm(perm)
+}
+
 func writeBase64ContentToFile(file planapi.File) error {
 	content, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
 		return err
 	}
-	var fileMode os.FileMode
 	if file.Permissions == "" {
 		logrus.Debugf("[Applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
-		fileMode = defaultFilePermissions
-	} else {
-		parsedPerm, err := parsePerm(file.Permissions)
-		if err != nil {
-			return err
-		}
-		fileMode = parsedPerm
+	}
+	fileMode, err := resolvePermissions(file.Permissions, defaultFilePermissions)
+	if err != nil {
+		return err
 	}
 	return writeContentToFile(file.Path, file.UID, file.GID, fileMode, content)
 }
@@ -58,16 +62,12 @@ func createDirectory(file planapi.File) error {
 	if !file.Directory {
 		return fmt.Errorf("%s was not a directory", file.Path)
 	}
-	var fileMode os.FileMode
 	if file.Permissions == "" {
 		logrus.Debugf("[Applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
-		fileMode = defaultDirectoryPermissions
-	} else {
-		parsedPerm, err := parsePerm(file.Permissions)
-		if err != nil {
-			return err
-		}
-		fileMode = parsedPerm
+	}
+	fileMode, err := resolvePermissions(file.Permissions, defaultDirectoryPermissions)
+	if err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(file.Path, fileMode); err != nil {
