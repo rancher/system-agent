@@ -28,15 +28,15 @@ SKIP_RESOURCE_CLEANUP=true make test-e2e
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `E2E_IMAGE_NAME` | System-agent image name | `rancher/system-agent` |
-| `E2E_IMAGE_TAG` | Image tag to test | `e2e-test` |
-| `E2E_KIND_CLUSTER_NAME` | Kind cluster name | `system-agent-e2e` |
-| `SKIP_RESOURCE_CLEANUP` | Preserve cluster after tests | `false` |
-| `GINKGO_LABEL_FILTER` | Ginkgo label filter | `short` |
-| `GINKGO_NODES` | Parallel test nodes | `1` |
-| `GINKGO_TIMEOUT` | Overall test timeout | `30m` |
+| Variable                | Description                  | Default                |
+|-------------------------|------------------------------|------------------------|
+| `E2E_IMAGE_NAME`        | System-agent image name      | `rancher/system-agent` |
+| `E2E_IMAGE_TAG`         | Image tag to test            | `e2e-test`             |
+| `E2E_KIND_CLUSTER_NAME` | Kind cluster name            | `system-agent-e2e`     |
+| `SKIP_RESOURCE_CLEANUP` | Preserve cluster after tests | `false`                |
+| `GINKGO_LABEL_FILTER`   | Ginkgo label filter          | `short`                |
+| `GINKGO_NODES`          | Parallel test nodes          | `1`                    |
+| `GINKGO_TIMEOUT`        | Overall test timeout         | `30m`                  |
 
 ### Test Labels
 
