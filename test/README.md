@@ -2,9 +2,33 @@
 
 ## Overview
 
-The e2e test suite validates system-agent functionality in a real Kubernetes environment. Tests create a Kind cluster, deploy the system-agent as a DaemonSet, and verify various agent capabilities.
+The e2e test suite validates system-agent functionality in a real Kubernetes environment. Tests create a Kind cluster, deploy the system-agent as a DaemonSet, and verify various agent capabilities against a real plan Secret — no mocked filesystem or exec calls.
+
+**Scope note:** every spec here exercises **remote mode only** (a plan delivered via a watched Kubernetes Secret, `pkg/k8splan`). Local, file-based plan mode (`pkg/localplan`, `.plan` files on disk) has no e2e coverage today — see "Known Coverage Gaps" below.
 
 See also: [integration/README.md](integration/README.md) for the v2prov-based integration test suite.
+
+### Directory layout
+
+```
+test/
+├── e2e/
+│   ├── suites/remote-plan/   # the one Ginkgo suite: TestRemotePlan, all specs
+│   ├── data/manifests/       # embedded YAML: namespace/RBAC, agent config, agent DaemonSet, HTTP test server
+│   ├── const.go              # embedded manifests + env var name constants
+│   └── helpers.go            # E2EConfig (env var loading), scheme setup, shared parallel-proc data
+├── framework/                 # reusable spec helpers (no Ginkgo specs live here)
+│   ├── const.go               # namespace/label/timeout constants, ShortTestLabel/FullTestLabel
+│   ├── cluster.go             # kubectl wrappers (apply, wait-for-ready, exec, logs, HTTP test server lifecycle)
+│   ├── plan.go                # PlanBuilder fluent API for constructing plan JSON
+│   ├── secret.go              # plan Secret CRUD + polling/Eventually helpers
+│   ├── decode.go               # gzip+base64+JSON decoding of applied-output/periodic-output fields
+│   └── template.go            # `${VAR}` template rendering for the embedded manifests
+├── testenv/                    # Kind cluster + agent lifecycle (used only by suite_test.go)
+│   ├── setup.go                # SetupTestCluster (Kind + image load + RBAC), DeployRemoteAgent (SA token, kubeconfig, DaemonSet)
+│   └── cleanup.go              # CleanupTestCluster (tears down the Kind cluster)
+└── integration/                 # separate, non-Ginkgo suite — see integration/README.md
+```
 
 ## Running Tests
 
@@ -28,15 +52,19 @@ SKIP_RESOURCE_CLEANUP=true make test-e2e
 
 ### Environment Variables
 
-| Variable                | Description                  | Default                |
-|-------------------------|------------------------------|------------------------|
-| `E2E_IMAGE_NAME`        | System-agent image name      | `rancher/system-agent` |
-| `E2E_IMAGE_TAG`         | Image tag to test            | `e2e-test`             |
-| `E2E_KIND_CLUSTER_NAME` | Kind cluster name            | `system-agent-e2e`     |
-| `SKIP_RESOURCE_CLEANUP` | Preserve cluster after tests | `false`                |
-| `GINKGO_LABEL_FILTER`   | Ginkgo label filter          | `short`                |
-| `GINKGO_NODES`          | Parallel test nodes          | `1`                    |
-| `GINKGO_TIMEOUT`        | Overall test timeout         | `30m`                  |
+| Variable                        | Description                                     | Default                                            |
+|---------------------------------|-------------------------------------------------|----------------------------------------------------|
+| `E2E_IMAGE_NAME`                | System-agent image name                         | `rancher/system-agent`                             |
+| `E2E_IMAGE_TAG`                 | Image tag to test                               | `e2e-test`                                         |
+| `E2E_KIND_CLUSTER_NAME`         | Kind cluster name                               | `system-agent-e2e`                                 |
+| `USE_EXISTING_CLUSTER`          | Skip Kind cluster creation, use current context | `false`                                            |
+| `SKIP_RESOURCE_CLEANUP`         | Preserve cluster after tests                    | `false`                                            |
+| `E2E_ARTIFACTS`                 | Output directory for Ginkgo artifacts/JUnit XML | `_artifacts` (repo root: `$(ROOT_DIR)/_artifacts`) |
+| `GINKGO_LABEL_FILTER`           | Ginkgo label filter                             | `short`                                            |
+| `GINKGO_NODES`                  | Parallel test nodes                             | `1`                                                |
+| `GINKGO_TIMEOUT`                | Overall test timeout                            | `30m`                                              |
+| `GINKGO_POLL_PROGRESS_AFTER`    | Start printing progress reports after this long | `10m`                                              |
+| `GINKGO_POLL_PROGRESS_INTERVAL` | Interval between progress reports               | `1m`                                               |
 
 ### Test Labels
 
@@ -44,3 +72,12 @@ Tests are categorized with labels for selective execution:
 
 - `short`: Quick tests for CI
 - `long`: Extended tests that take longer to run(nightly)
+
+## Known Coverage Gaps
+
+Not covered by this suite today — worth keeping in mind when triaging a production issue that "should have been caught by e2e":
+
+- **Local plan mode** (`pkg/localplan`, `.plan` files on disk) has no e2e coverage. Every spec here only exercises remote mode (`pkg/k8splan`, plan delivered via a watched Secret). Local mode currently has unit-test coverage only.
+- **TLS/mTLS and client-certificate probes** (`pkg/prober`) aren't exercised — `probes_test.go` only covers plain HTTP probes against the in-cluster test server.
+- **Malformed/invalid plan JSON** isn't tested at this layer (only via unit tests in `pkg/applyinator`).
+- **Agent restart / crash recovery** is only covered by the separate, heavier `test/integration` suite (`Test_SystemAgent_ForceApplyOnRestart`, `_CrashRecovery`), not by this Kind-based e2e suite.
