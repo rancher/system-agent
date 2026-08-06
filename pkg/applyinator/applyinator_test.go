@@ -837,3 +837,108 @@ func TestPeriodicInstructionDue(t *testing.T) {
 		})
 	}
 }
+
+func encodeExistingPeriodicOutput(t *testing.T, outputs map[string]planapi.PeriodicInstructionOutput) []byte {
+	t.Helper()
+	marshalled, err := json.Marshal(outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzipByteSlice(marshalled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gz
+}
+
+func decodePeriodicOutputs(t *testing.T, gz []byte) map[string]planapi.PeriodicInstructionOutput {
+	t.Helper()
+	out := map[string]planapi.PeriodicInstructionOutput{}
+	if len(gz) == 0 {
+		return out
+	}
+	buf, err := generateByteBufferFromBytes(gz)
+	if err != nil {
+		t.Fatalf("failed to gunzip periodic outputs: %v", err)
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("failed to unmarshal periodic outputs: %v", err)
+	}
+	return out
+}
+
+func TestRunPeriodicInstructionsSkipsWhenNotDue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	executionDir := t.TempDir()
+	now := time.Now()
+	cp := CalculatedPlan{
+		Checksum: "checksum-periodic",
+		Plan: planapi.Plan{
+			PeriodicInstructions: []planapi.PeriodicInstruction{
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "steady", Command: "sh", Args: []string{"-c", "echo ran"}},
+					PeriodSeconds:     600,
+				},
+			},
+		},
+	}
+
+	existing := encodeExistingPeriodicOutput(t, map[string]planapi.PeriodicInstructionOutput{
+		"steady": {Name: "steady", LastSuccessfulRunTime: now.Add(-1 * time.Second).Format(time.UnixDate)},
+	})
+
+	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
+	if err != nil {
+		t.Fatalf("runPeriodicInstructions returned error: %v", err)
+	}
+	if !succeeded {
+		t.Error("expected succeeded=true when nothing ran")
+	}
+
+	outputs := decodePeriodicOutputs(t, output)
+	if got := outputs["steady"].LastSuccessfulRunTime; got != now.Add(-1*time.Second).Format(time.UnixDate) {
+		t.Errorf("expected last successful run time to be untouched, got %q", got)
+	}
+}
+
+func TestRunPeriodicInstructionsRunsWhenDue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	executionDir := t.TempDir()
+	cp := CalculatedPlan{
+		Checksum: "checksum-periodic-2",
+		Plan: planapi.Plan{
+			PeriodicInstructions: []planapi.PeriodicInstruction{
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "first-run", Command: "sh", Args: []string{"-c", "echo hello-periodic"}},
+				},
+			},
+		},
+	}
+
+	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, nil, false, time.Now())
+	if err != nil {
+		t.Fatalf("runPeriodicInstructions returned error: %v", err)
+	}
+	if !succeeded {
+		t.Error("expected succeeded=true")
+	}
+
+	outputs := decodePeriodicOutputs(t, output)
+	got := outputs["first-run"]
+	if !strings.Contains(string(got.Stdout), "hello-periodic") {
+		t.Errorf("expected stdout to contain %q, got %q", "hello-periodic", got.Stdout)
+	}
+	if got.LastSuccessfulRunTime == "" {
+		t.Error("expected LastSuccessfulRunTime to be set after a successful run")
+	}
+}

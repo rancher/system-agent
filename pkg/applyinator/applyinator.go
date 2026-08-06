@@ -197,6 +197,89 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 	return output, oneTimeApplySucceeded, nil
 }
 
+// runPeriodicInstructions executes each due periodic instruction and returns the updated
+// (gzip+JSON encoded) periodic-output map. ranOneTime forces every instruction to run regardless
+// of its period/failure cooldown, matching the one-time-instructions-just-ran semantics.
+func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, ranOneTime bool, now time.Time) ([]byte, bool, error) {
+	nowUnixTimeString := now.Format(time.UnixDate)
+
+	periodicOutputs := map[string]planapi.PeriodicInstructionOutput{}
+	if len(existingOutput) > 0 {
+		objectBuffer, err := generateByteBufferFromBytes(existingOutput)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := json.Unmarshal(objectBuffer.Bytes(), &periodicOutputs); err != nil {
+			return nil, false, err
+		}
+	}
+
+	periodicApplySucceeded := true
+	for index, instruction := range cp.Plan.PeriodicInstructions {
+		if instruction.Name == "" {
+			logrus.Errorf("periodic instruction %d did not have name, unable to run", index)
+			continue
+		}
+
+		prev := periodicOutputs[instruction.Name]
+		due, failures := periodicInstructionDue(now, prev, instruction.PeriodSeconds, ranOneTime)
+		if !due {
+			logrus.Debugf("[Applyinator] Not running periodic instruction %s; not yet due", instruction.Name)
+			continue
+		}
+
+		previousRunTime := ""
+		if prev.LastSuccessfulRunTime != "" {
+			if _, err := time.Parse(time.UnixDate, prev.LastSuccessfulRunTime); err == nil {
+				previousRunTime = prev.LastSuccessfulRunTime
+			}
+		}
+
+		logrus.Debugf("[Applyinator] Executing periodic instruction %d for plan %s", index, cp.Checksum)
+		prefix := cp.Checksum + "_" + strconv.Itoa(index)
+		instructionDir := filepath.Join(executionDir, prefix)
+		stdout, stderr, exitCode, err := a.execute(ctx, prefix, instructionDir, instruction.CommonInstruction, false, failures+1)
+		if err != nil || exitCode != 0 {
+			periodicApplySucceeded = false
+		}
+
+		lsrt := nowUnixTimeString
+		lastFailureTime := ""
+		if exitCode != 0 {
+			lsrt = previousRunTime
+			lastFailureTime = nowUnixTimeString
+			failures++
+		} else {
+			failures = 0
+		}
+		if !instruction.SaveStderrOutput {
+			stderr = []byte{}
+		}
+		periodicOutputs[instruction.Name] = planapi.PeriodicInstructionOutput{
+			Name:                  instruction.Name,
+			Stdout:                stdout,
+			Stderr:                stderr,
+			ExitCode:              exitCode,
+			LastSuccessfulRunTime: lsrt,
+			LastFailedRunTime:     lastFailureTime,
+			Failures:              failures,
+		}
+		if !periodicApplySucceeded {
+			break
+		}
+	}
+
+	marshalled, err := json.Marshal(periodicOutputs)
+	if err != nil {
+		return nil, false, err
+	}
+	output, err := gzipByteSlice(marshalled)
+	if err != nil {
+		return nil, false, err
+	}
+	return output, periodicApplySucceeded, nil
+}
+
 // checkInterlock enforces the interlock directory protocol used by install.sh during an agent
 // upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
 // is ignored and removed. On success it returns a cleanup func that must be deferred by the
