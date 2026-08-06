@@ -64,6 +64,22 @@ const (
 	cooldownTimerDuration = "30s"
 )
 
+// secretConflictMergeKeys are the Secret data keys updateSecret carries over from the write it
+// was attempting into the freshly-fetched secret, when retrying after an Update conflict.
+var secretConflictMergeKeys = []string{
+	ProbeStatusesKey,
+	AppliedPeriodicOutputKey,
+	FailedChecksumKey,
+	FailureCountKey,
+	FailedOutputKey,
+	SuccessCountKey,
+	LastApplyTimeKey,
+	AppliedChecksumKey,
+	AppliedOutputKey,
+	planapi.PlanStateKey,
+	planapi.PlanRevisionKey,
+}
+
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo, strictVerify bool) {
 	w := &watcher{
 		connInfo:    connInfo,
@@ -176,17 +192,9 @@ func (w *watcher) updateSecret(sc corecontrollers.SecretController, secret *core
 						if ck.Checksum == string(secret.Data[AppliedChecksumKey]) {
 							logrus.Debugf("[K8s] secret %s/%s resource version changed from %s to %s but plan checksum still matches, updating latest secret", secret.Namespace, secret.Name, secret.ResourceVersion, latestSecret.ResourceVersion)
 							// we can go ahead copy the relevant data out of the "old" secret and return true to let it update the secret.
-							latestSecret.Data[ProbeStatusesKey] = secret.Data[ProbeStatusesKey]
-							latestSecret.Data[AppliedPeriodicOutputKey] = secret.Data[AppliedPeriodicOutputKey]
-							latestSecret.Data[FailedChecksumKey] = secret.Data[FailedChecksumKey]
-							latestSecret.Data[FailureCountKey] = secret.Data[FailureCountKey]
-							latestSecret.Data[FailedOutputKey] = secret.Data[FailedOutputKey]
-							latestSecret.Data[SuccessCountKey] = secret.Data[SuccessCountKey]
-							latestSecret.Data[LastApplyTimeKey] = secret.Data[LastApplyTimeKey]
-							latestSecret.Data[AppliedChecksumKey] = secret.Data[AppliedChecksumKey]
-							latestSecret.Data[AppliedOutputKey] = secret.Data[AppliedOutputKey]
-							latestSecret.Data[planapi.PlanStateKey] = secret.Data[planapi.PlanStateKey]
-							latestSecret.Data[planapi.PlanRevisionKey] = secret.Data[planapi.PlanRevisionKey]
+							for _, key := range secretConflictMergeKeys {
+								latestSecret.Data[key] = secret.Data[key]
+							}
 							secret = latestSecret
 							latestSecretUpdateAttempted = true
 							return true

@@ -272,6 +272,31 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 	}
 }
 
+func TestParseIntFromBytes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		raw      []byte
+		fallback int
+		want     int
+	}{
+		{name: "nil uses fallback", raw: nil, fallback: -1, want: -1},
+		{name: "empty uses fallback", raw: []byte(""), fallback: -1, want: -1},
+		{name: "valid number", raw: []byte("7"), fallback: -1, want: 7},
+		{name: "unparsable uses fallback", raw: []byte("nope"), fallback: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseIntFromBytes(tt.raw, tt.fallback); got != tt.want {
+				t.Errorf("parseIntFromBytes(%q, %d) = %d, want %d", tt.raw, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSelectExistingOutput(t *testing.T) {
 	t.Parallel()
 

@@ -129,7 +129,6 @@ func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRu
 		clearAppliedChecksum = true
 	}
 
-	// TODO(Task 12): replaced by the shared parseIntFromBytes dedup helper.
 	maxFailureThreshold := parseIntFromBytes(data[MaxFailuresKey], -1)
 
 	if failureCount != 0 {
@@ -156,7 +155,8 @@ func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRu
 	}
 }
 
-// TODO(Task 12): replaced by the shared parseIntFromBytes dedup helper.
+// parseIntFromBytes parses raw as a base-10 integer, returning fallback when raw is empty or
+// unparsable.
 func parseIntFromBytes(raw []byte, fallback int) int {
 	if len(raw) == 0 {
 		return fallback

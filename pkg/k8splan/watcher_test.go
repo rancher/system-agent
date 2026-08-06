@@ -210,6 +210,32 @@ func TestConnectWithCAFallback(t *testing.T) {
 	})
 }
 
+func TestSecretConflictMergeKeysAppliedOnRetry(t *testing.T) {
+	t.Parallel()
+
+	latest := &corev1.Secret{Data: map[string][]byte{"unrelated-key": []byte("keep-me")}}
+	ours := &corev1.Secret{Data: map[string][]byte{}}
+	for _, key := range secretConflictMergeKeys {
+		ours.Data[key] = []byte("from-ours:" + key)
+	}
+
+	for _, key := range secretConflictMergeKeys {
+		latest.Data[key] = ours.Data[key]
+	}
+
+	for _, key := range secretConflictMergeKeys {
+		if string(latest.Data[key]) != "from-ours:"+key {
+			t.Errorf("expected merged key %q to carry the retried value, got %q", key, latest.Data[key])
+		}
+	}
+	if string(latest.Data["unrelated-key"]) != "keep-me" {
+		t.Error("expected a key outside the merge list to be left untouched")
+	}
+	if len(secretConflictMergeKeys) != 11 {
+		t.Errorf("expected 11 merge keys (matching the pre-refactor updateSecret), got %d: %v", len(secretConflictMergeKeys), secretConflictMergeKeys)
+	}
+}
+
 func TestToInt(t *testing.T) {
 	t.Parallel()
 
