@@ -94,6 +94,80 @@ func decidePlanStateAction(state planapi.PlanState) planStateResult {
 	}
 }
 
+// checksumFlowResult is the outcome of evaluating the checksum flow (the backward-compatible flow
+// used when the orchestrator never writes plan-state).
+type checksumFlowResult struct {
+	NeedsApplied bool
+	// WasFailedPlan is true when the plan previously failed with the same checksum being
+	// evaluated now.
+	WasFailedPlan bool
+	// HasRunOnce is the (possibly updated) value the caller should persist for the next call.
+	HasRunOnce bool
+	// ClearAppliedChecksum is true when the caller should reset AppliedChecksumKey to "" before
+	// applying — set only on the very first run, so a subsequent crash-restart is unambiguous.
+	ClearAppliedChecksum bool
+}
+
+// decideChecksumFlowAction mirrors the pre-refactor checksum-flow branch of the OnChange closure.
+// data is the Secret's data map (read-only here); planChecksum is the checksum of the plan
+// currently being evaluated; resourceVersionUnchanged reports whether the Secret's resource
+// version matches the last one this watcher processed.
+func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRunOnce bool, failureCount int, currentTime, lastApplyTime time.Time, cooldownPeriod time.Duration, resourceVersionUnchanged bool) checksumFlowResult {
+	needsApplied := true
+	wasFailedPlan := false
+	clearAppliedChecksum := false
+
+	if secretChecksumData, ok := data[AppliedChecksumKey]; ok {
+		if string(secretChecksumData) == planChecksum {
+			needsApplied = false
+		}
+	}
+
+	if !hasRunOnce {
+		needsApplied = true
+		hasRunOnce = true
+		clearAppliedChecksum = true
+	}
+
+	// TODO(Task 12): replaced by the shared parseIntFromBytes dedup helper.
+	maxFailureThreshold := parseIntFromBytes(data[MaxFailuresKey], -1)
+
+	if failureCount != 0 {
+		if rFC, ok := data[FailedChecksumKey]; ok && string(rFC) == planChecksum {
+			wasFailedPlan = true
+			switch {
+			case failureCount >= maxFailureThreshold && maxFailureThreshold != -1:
+				needsApplied = false
+			case !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)):
+				needsApplied = false
+			}
+		}
+	}
+
+	if resourceVersionUnchanged && !wasFailedPlan {
+		needsApplied = false
+	}
+
+	return checksumFlowResult{
+		NeedsApplied:         needsApplied,
+		WasFailedPlan:        wasFailedPlan,
+		HasRunOnce:           hasRunOnce,
+		ClearAppliedChecksum: clearAppliedChecksum,
+	}
+}
+
+// TODO(Task 12): replaced by the shared parseIntFromBytes dedup helper.
+func parseIntFromBytes(raw []byte, fallback int) int {
+	if len(raw) == 0 {
+		return fallback
+	}
+	n, err := strconv.Atoi(string(raw))
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
 // selectExistingOutput picks the existing one-time-instruction output to carry into the next
 // apply: the failed output when the plan previously failed, the applied output otherwise. Returns
 // an empty (non-nil) slice when the relevant key is absent.

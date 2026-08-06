@@ -154,6 +154,124 @@ func TestDecidePlanStateAction(t *testing.T) {
 	}
 }
 
+func TestDecideChecksumFlowAction(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	cooldown := 30 * time.Second
+
+	tests := []struct {
+		name                     string
+		data                     map[string][]byte
+		planChecksum             string
+		hasRunOnce               bool
+		failureCount             int
+		currentTime              time.Time
+		lastApplyTime            time.Time
+		resourceVersionUnchanged bool
+		want                     checksumFlowResult
+	}{
+		{
+			name:         "first start force-applies and clears applied checksum",
+			data:         map[string][]byte{},
+			planChecksum: "checksum-a",
+			hasRunOnce:   false,
+			currentTime:  now,
+			want:         checksumFlowResult{NeedsApplied: true, HasRunOnce: true, ClearAppliedChecksum: true},
+		},
+		{
+			name:         "checksum matches applied checksum: no-op",
+			data:         map[string][]byte{AppliedChecksumKey: []byte("checksum-a")},
+			planChecksum: "checksum-a",
+			hasRunOnce:   true,
+			currentTime:  now,
+			want:         checksumFlowResult{NeedsApplied: false, HasRunOnce: true},
+		},
+		{
+			name:         "checksum differs from applied checksum: applies",
+			data:         map[string][]byte{AppliedChecksumKey: []byte("checksum-old")},
+			planChecksum: "checksum-a",
+			hasRunOnce:   true,
+			currentTime:  now,
+			want:         checksumFlowResult{NeedsApplied: true, HasRunOnce: true},
+		},
+		{
+			name: "resource version unchanged and not previously failed: skips",
+			data: map[string][]byte{
+				AppliedChecksumKey: []byte("checksum-old"), // differs, so this alone would re-apply...
+			},
+			planChecksum:             "checksum-a",
+			hasRunOnce:               true,
+			currentTime:              now,
+			resourceVersionUnchanged: true, // ...but an unchanged resource version wins
+			want:                     checksumFlowResult{NeedsApplied: false, HasRunOnce: true},
+		},
+		{
+			name: "failed before, cooldown not elapsed: skips",
+			data: map[string][]byte{
+				AppliedChecksumKey: []byte("checksum-old"),
+				FailedChecksumKey:  []byte("checksum-a"),
+			},
+			planChecksum:  "checksum-a",
+			hasRunOnce:    true,
+			failureCount:  1,
+			currentTime:   now,
+			lastApplyTime: now.Add(-10 * time.Second),
+			want:          checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+		},
+		{
+			name: "failed before, cooldown elapsed: re-applies",
+			data: map[string][]byte{
+				AppliedChecksumKey: []byte("checksum-old"),
+				FailedChecksumKey:  []byte("checksum-a"),
+			},
+			planChecksum:  "checksum-a",
+			hasRunOnce:    true,
+			failureCount:  1,
+			currentTime:   now,
+			lastApplyTime: now.Add(-time.Hour),
+			want:          checksumFlowResult{NeedsApplied: true, WasFailedPlan: true, HasRunOnce: true},
+		},
+		{
+			name: "failed before, max failure threshold exceeded: skips regardless of cooldown",
+			data: map[string][]byte{
+				AppliedChecksumKey: []byte("checksum-old"),
+				FailedChecksumKey:  []byte("checksum-a"),
+				MaxFailuresKey:     []byte("3"),
+			},
+			planChecksum:  "checksum-a",
+			hasRunOnce:    true,
+			failureCount:  3,
+			currentTime:   now,
+			lastApplyTime: now.Add(-time.Hour),
+			want:          checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+		},
+		{
+			name: "failed checksum does not match current plan: cooldown does not apply",
+			data: map[string][]byte{
+				AppliedChecksumKey: []byte("checksum-old"),
+				FailedChecksumKey:  []byte("checksum-different"),
+			},
+			planChecksum:  "checksum-a",
+			hasRunOnce:    true,
+			failureCount:  1,
+			currentTime:   now,
+			lastApplyTime: now,
+			want:          checksumFlowResult{NeedsApplied: true, HasRunOnce: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := decideChecksumFlowAction(tt.data, tt.planChecksum, tt.hasRunOnce, tt.failureCount, tt.currentTime, tt.lastApplyTime, cooldown, tt.resourceVersionUnchanged)
+			if got != tt.want {
+				t.Errorf("decideChecksumFlowAction() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSelectExistingOutput(t *testing.T) {
 	t.Parallel()
 
