@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	planapi "github.com/rancher/rancher/pkg/plan"
@@ -65,10 +65,10 @@ func (w *watcher) listFiles(ctx context.Context, force bool) error {
 	var errs []error
 	for _, base := range w.bases {
 		if err := w.listFilesIn(ctx, base, force); err != nil {
-			_ = append(errs, err)
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
@@ -146,33 +146,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 			continue
 		}
 
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for probeName, probe := range cp.Plan.Probes {
-			wg.Add(1)
-			go func(probeName string, probe planapi.Probe, wg *sync.WaitGroup) {
-				defer wg.Done()
-				logrus.Debugf("[local] (%s) running probe", probeName)
-				mu.Lock()
-				logrus.Debugf("[local] (%s) retrieving probe status from map", probeName)
-				probeStatus, ok := probeStatuses[probeName]
-				mu.Unlock()
-				if !ok {
-					logrus.Debugf("[local] (%s) probe status was not present in map, initializing", probeName)
-					probeStatus = planapi.ProbeStatus{}
-				}
-				if err := prober.DoProbe(probe, &probeStatus, needsApplied); err != nil {
-					logrus.Errorf("error running probe %s: %v", probeName, err)
-				}
-				mu.Lock()
-				logrus.Debugf("[local] (%s) writing probe status to map", probeName)
-				probeStatuses[probeName] = probeStatus
-				mu.Unlock()
-			}(probeName, probe, &wg)
-		}
-
-		wg.Wait()
+		prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)
 
 		var npp NodePlanPosition
 		npp.AppliedChecksum = cp.Checksum

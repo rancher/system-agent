@@ -26,7 +26,7 @@ func DoProbes(probes map[string]planapi.Probe, probeStatuses map[string]planapi.
 			}
 			probe.Name = probeName
 			if err := DoProbe(probe, &probeStatus, initial); err != nil {
-				logrus.Errorf("error running probe %s", probeName)
+				logrus.Errorf("error running probe %s: %v", probeName, err)
 			}
 			mu.Lock()
 			logrus.Tracef("[Prober] (%s) writing probe status to map", probeName)
