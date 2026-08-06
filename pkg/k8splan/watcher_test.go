@@ -2,7 +2,70 @@ package k8splan
 
 import (
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+type fakeDecoder struct {
+	decode func(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error)
+}
+
+func (f *fakeDecoder) Decode(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
+	return f.decode(data, defaults, into)
+}
+
+func TestUnstructuredDecoderPassthrough(t *testing.T) {
+	t.Parallel()
+
+	wantObj := &corev1.Secret{}
+	wantGVK := &schema.GroupVersionKind{Kind: "Secret"}
+	inner := &fakeDecoder{
+		decode: func(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
+			return wantObj, wantGVK, nil
+		},
+	}
+
+	d := unstructuredDecoder{Decoder: inner}
+	obj, gvk, err := d.Decode([]byte("{}"), nil, &corev1.Secret{})
+	if err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	if obj != runtime.Object(wantObj) {
+		t.Errorf("expected passthrough object %v, got %v", wantObj, obj)
+	}
+	if gvk != wantGVK {
+		t.Errorf("expected passthrough gvk %v, got %v", wantGVK, gvk)
+	}
+}
+
+func TestUnstructuredDecoderFallsBackWhenNotRegistered(t *testing.T) {
+	t.Parallel()
+
+	var sawFallback bool
+	inner := &fakeDecoder{
+		decode: func(data []byte, defaults *schema.GroupVersionKind, into runtime.Object) (runtime.Object, *schema.GroupVersionKind, error) {
+			if into == nil {
+				return nil, nil, runtime.NewNotRegisteredErrForKind("test", schema.GroupVersionKind{})
+			}
+			sawFallback = true
+			if _, ok := into.(*unstructured.Unstructured); !ok {
+				t.Errorf("expected fallback decode to receive *unstructured.Unstructured, got %T", into)
+			}
+			return into, nil, nil
+		},
+	}
+
+	d := unstructuredDecoder{Decoder: inner}
+	if _, _, err := d.Decode([]byte("{}"), nil, nil); err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	if !sawFallback {
+		t.Error("expected the fallback decode path to run")
+	}
+}
 
 func TestToInt(t *testing.T) {
 	t.Parallel()
