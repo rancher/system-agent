@@ -814,13 +814,13 @@ func TestPeriodicInstructionDue(t *testing.T) {
 			wantFailures: 0,
 		},
 		{
-			name: "unparsable last failed run time is treated as no history but Failures is still carried",
+			name: "unparsable last failed run time is treated as no history, including failures resetting to zero",
 			prev: planapi.PeriodicInstructionOutput{
 				LastFailedRunTime: "not-a-time",
 				Failures:          5,
 			},
 			wantDue:      true,
-			wantFailures: 5,
+			wantFailures: 0,
 		},
 	}
 

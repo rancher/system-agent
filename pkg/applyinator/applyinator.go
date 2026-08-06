@@ -108,11 +108,11 @@ func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutpu
 	}
 
 	if prev.LastFailedRunTime != "" {
-		failures = prev.Failures
 		t, err := time.Parse(time.UnixDate, prev.LastFailedRunTime)
 		if err != nil {
 			logrus.Errorf("error encountered during parsing of last failed time: %+v", err)
 		} else {
+			failures = prev.Failures
 			failureCooldown := failures
 			if failureCooldown > 6 {
 				failureCooldown = 6
