@@ -34,8 +34,9 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 			clientCert, err := tls.LoadX509KeyPair(probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey)
 			if err != nil {
 				logrus.Errorf("error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
+			} else {
+				tlsConfig.Certificates = []tls.Certificate{clientCert}
 			}
-			tlsConfig.Certificates = []tls.Certificate{clientCert}
 		}
 
 		caCertPool, err := GetSystemCertPool(probe.Name)
@@ -80,44 +81,16 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 
 	logrus.Debugf("[Probe: %s] output was %s", probe.Name, output)
 
-	var successThreshold, failureThreshold int
+	successThreshold := resolveThreshold(probe.SuccessThreshold, defaultSuccessThreshold)
+	failureThreshold := resolveThreshold(probe.FailureThreshold, defaultFailureThreshold)
 
-	if probe.SuccessThreshold == 0 {
-		logrus.Tracef("[Probe: %s] Setting success threshold to default", probe.Name)
-		successThreshold = 1
-	} else {
-		logrus.Tracef("[Probe: %s] Setting success threshold to %d", probe.Name, probe.SuccessThreshold)
-		successThreshold = probe.SuccessThreshold
-	}
-
-	if probe.FailureThreshold == 0 {
-		logrus.Tracef("[Probe: %s] Setting failure threshold to default", probe.Name)
-		failureThreshold = 3
-	} else {
-		logrus.Tracef("Setting failure threshold to %d", probe.FailureThreshold)
-		failureThreshold = probe.FailureThreshold
-	}
-
-	switch probeResult {
-	case k8sprobe.Success:
+	succeeded := probeResult == k8sprobe.Success
+	if succeeded {
 		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
-		if probeStatus.SuccessCount < successThreshold {
-			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
-			if probeStatus.SuccessCount >= successThreshold {
-				probeStatus.Healthy = true
-			}
-		}
-		probeStatus.FailureCount = 0
-	default:
+	} else {
 		logrus.Debugf("[Probe: %s] failed", probe.Name)
-		if probeStatus.FailureCount < failureThreshold {
-			probeStatus.FailureCount = probeStatus.FailureCount + 1
-			if probeStatus.FailureCount >= failureThreshold {
-				probeStatus.Healthy = false
-			}
-		}
-		probeStatus.SuccessCount = 0
 	}
+	applyProbeResult(probeStatus, succeeded, successThreshold, failureThreshold)
 
 	return nil
 }
@@ -128,10 +101,10 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
 		caCertPool = x509.NewCertPool()
-		logrus.Errorf("[GetSystemCertPoolUnix] error loading system cert pool for probe (%s): %v", probeName, err)
+		logrus.Errorf("[GetSystemCertPool] error loading system cert pool for probe (%s): %v", probeName, err)
 	}
 	if caCertPool == nil {
-		return nil, fmt.Errorf("[GetSystemCertPoolWindows] x509 returned a nil certpool for probe (%s)", probeName)
+		return nil, fmt.Errorf("[GetSystemCertPool] x509 returned a nil certpool for probe (%s)", probeName)
 	}
 	return caCertPool, nil
 }
