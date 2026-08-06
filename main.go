@@ -29,14 +29,14 @@ func main() {
 	logrus.SetOutput(colorable.NewColorableStdout())
 
 	if os.Getuid() != 0 {
-		logrus.Fatalf("Must be run as root.")
+		logrus.Fatalf("[system-agent] Must be run as root")
 	}
 
 	rawLevel := os.Getenv(cattleLogLevelEnv)
 
 	if rawLevel != "" {
 		if lvl, err := logrus.ParseLevel(os.Getenv(cattleLogLevelEnv)); err != nil {
-			logrus.Fatal(err)
+			logrus.Fatalf("[system-agent] %v", err)
 		} else {
 			logrus.SetLevel(lvl)
 		}
@@ -68,14 +68,14 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		logrus.Fatalf("Validation failed: %v", err)
+		logrus.Fatalf("[system-agent] Validation failed: %v", err)
 	}
 }
 
 func run(_ *cli.Context) error {
 	topContext := signals.SetupSignalContext()
 
-	logrus.Infof("Rancher System Agent version %s is starting", version.FriendlyVersion())
+	logrus.Infof("[system-agent] Rancher System Agent version %s is starting", version.FriendlyVersion())
 
 	configFile := os.Getenv(cattleAgentConfigEnv)
 
@@ -94,13 +94,13 @@ func run(_ *cli.Context) error {
 		return fmt.Errorf("local and/or remote watching must be enabled")
 	}
 
-	logrus.Infof("Using directory %s for work", cf.WorkDir)
+	logrus.Infof("[system-agent] Using directory %s for work", cf.WorkDir)
 
 	imageUtil := image.NewUtility(cf.ImagesDir, cf.ImageCredentialProviderConfig, cf.ImageCredentialProviderBinDir, cf.AgentRegistriesFile)
 	applyinator := applyinator.NewApplyinator(cf.WorkDir, cf.PreserveWorkDir, cf.AppliedPlanDir, cf.InterlockDir, imageUtil)
 
 	if cf.RemoteEnabled {
-		logrus.Infof("Starting remote watch of plans")
+		logrus.Infof("[system-agent] Starting remote watch of plans")
 
 		var connInfo config.ConnectionInfo
 
@@ -120,7 +120,7 @@ func run(_ *cli.Context) error {
 	}
 
 	if cf.LocalEnabled {
-		logrus.Infof("Starting local watch of plans in %s", cf.LocalPlanDir)
+		logrus.Infof("[system-agent] Starting local watch of plans in %s", cf.LocalPlanDir)
 		localplan.WatchFiles(topContext, *applyinator, cf.LocalPlanDir)
 	}
 
@@ -129,7 +129,7 @@ func run(_ *cli.Context) error {
 }
 
 func validateConfig(c *cli.Context) error {
-	logrus.Infof("Rancher System Agent version %s - Configuration Validation", version.FriendlyVersion())
+	logrus.Infof("[system-agent] Rancher System Agent version %s - Configuration Validation", version.FriendlyVersion())
 
 	// Get config file from positional argument or use default
 	configFile := c.Args().First()
@@ -141,7 +141,7 @@ func validateConfig(c *cli.Context) error {
 }
 
 func validateConfigurationFile(configFile string) error {
-	logrus.Infof("Validating configuration file: %s", configFile)
+	logrus.Infof("[system-agent] Validating configuration file: %s", configFile)
 
 	// Check config file exists
 	if _, err := os.Stat(configFile); err != nil {
@@ -150,14 +150,14 @@ func validateConfigurationFile(configFile string) error {
 		}
 		return fmt.Errorf("error accessing configuration file: %w", err)
 	}
-	logrus.Infof("Configuration file exists")
+	logrus.Infof("[system-agent] Configuration file exists")
 
 	// Parse config file
 	var cf config.AgentConfig
 	if err := config.Parse(configFile, &cf); err != nil {
 		return fmt.Errorf("invalid configuration file: %w", err)
 	}
-	logrus.Infof("Configuration file parsed successfully")
+	logrus.Infof("[system-agent] Configuration file parsed successfully")
 
 	// Verify local or remote is enabled
 	if !cf.LocalEnabled && !cf.RemoteEnabled {
@@ -165,10 +165,10 @@ func validateConfigurationFile(configFile string) error {
 	}
 
 	if cf.LocalEnabled {
-		logrus.Infof("Local plan watching is enabled")
+		logrus.Infof("[system-agent] Local plan watching is enabled")
 	}
 	if cf.RemoteEnabled {
-		logrus.Infof("Remote plan watching is enabled")
+		logrus.Infof("[system-agent] Remote plan watching is enabled")
 		if cf.ConnectionInfoFile == "" {
 			return fmt.Errorf("remote watching enabled but connection info file not specified")
 		}
@@ -181,12 +181,12 @@ func validateConfigurationFile(configFile string) error {
 		}
 	}
 
-	logrus.Infof("Configuration validation successful")
+	logrus.Infof("[system-agent] Configuration validation successful")
 	return nil
 }
 
 func validateConnection(c *cli.Context) error {
-	logrus.Infof("Rancher System Agent version %s - Connection Info Validation", version.FriendlyVersion())
+	logrus.Infof("[system-agent] Rancher System Agent version %s - Connection Info Validation", version.FriendlyVersion())
 
 	connectionInfoFile := c.Args().First()
 	if connectionInfoFile == "" {
@@ -197,14 +197,14 @@ func validateConnection(c *cli.Context) error {
 		return err
 	}
 
-	logrus.Infof("Connection info validation successful")
+	logrus.Infof("[system-agent] Connection info validation successful")
 	return nil
 }
 
 func validateConnectionInfoFile(connectionInfoFile string) error {
-	logrus.Infof("Validating remote configuration")
+	logrus.Infof("[system-agent] Validating remote configuration")
 
-	logrus.Infof("Checking connection info file: %s", connectionInfoFile)
+	logrus.Infof("[system-agent] Checking connection info file: %s", connectionInfoFile)
 
 	if _, err := os.Stat(connectionInfoFile); err != nil {
 		if os.IsNotExist(err) {
@@ -212,38 +212,38 @@ func validateConnectionInfoFile(connectionInfoFile string) error {
 		}
 		return fmt.Errorf("error accessing connection info file: %w", err)
 	}
-	logrus.Infof("Connection info file exists")
+	logrus.Infof("[system-agent] Connection info file exists")
 
 	// Parse the connection info file
 	var connInfo config.ConnectionInfo
 	if err := config.Parse(connectionInfoFile, &connInfo); err != nil {
 		return fmt.Errorf("invalid connection info file: %w", err)
 	}
-	logrus.Infof("Connection info file is valid JSON")
+	logrus.Infof("[system-agent] Connection info file is valid JSON")
 
 	// Verify required fields
 	if connInfo.KubeConfig == "" {
 		return fmt.Errorf("connection info missing required kubeConfig field")
 	}
-	logrus.Infof("Connection info has required kubeConfig field")
+	logrus.Infof("[system-agent] Connection info has required kubeConfig field")
 
 	if connInfo.Namespace == "" {
 		return fmt.Errorf("connection info missing required namespace field")
 	} else {
-		logrus.Infof("Connection info has namespace: %s", connInfo.Namespace)
+		logrus.Infof("[system-agent] Connection info has namespace: %s", connInfo.Namespace)
 	}
 
 	if connInfo.SecretName == "" {
 		return fmt.Errorf("connection info missing required secretName field")
 	} else {
-		logrus.Infof("Connection info has secretName: %s", connInfo.SecretName)
+		logrus.Infof("[system-agent] Connection info has secretName: %s", connInfo.SecretName)
 	}
 
 	return nil
 }
 
 func validateLocalConfig(cf config.AgentConfig) error {
-	logrus.Infof("Validating local configuration")
+	logrus.Infof("[system-agent] Validating local configuration")
 
 	if cf.LocalPlanDir == "" {
 		return fmt.Errorf("local watching enabled but local plan directory not specified")
@@ -251,12 +251,12 @@ func validateLocalConfig(cf config.AgentConfig) error {
 
 	if _, err := os.Stat(cf.LocalPlanDir); err != nil {
 		if os.IsNotExist(err) {
-			logrus.Warnf("Local plan directory does not exist: %s (will be created on startup)", cf.LocalPlanDir)
+			logrus.Warnf("[system-agent] Local plan directory does not exist: %s (will be created on startup)", cf.LocalPlanDir)
 		} else {
 			return fmt.Errorf("error accessing local plan directory: %w", err)
 		}
 	} else {
-		logrus.Infof("Local plan directory exists: %s", cf.LocalPlanDir)
+		logrus.Infof("[system-agent] Local plan directory exists: %s", cf.LocalPlanDir)
 	}
 
 	return nil
