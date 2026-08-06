@@ -50,7 +50,7 @@ func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProvide
 		agentRegistriesFile:           firstNonEmpty(agentRegistriesFile, defaultAgentRegistriesFile),
 	}
 
-	logrus.Debugf("Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
+	logrus.Debugf("[image] Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
 
 	return &u
 }
@@ -84,7 +84,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 		}
 
 		if _, err := os.Stat(u.imageCredentialProviderConfig); os.IsExist(err) {
-			logrus.Debugf("Image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
+			logrus.Debugf("[image] Image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			plugins, err := plugin.RegisterCredentialProviderPlugins(u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			if err != nil {
 				return err
@@ -99,7 +99,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			}
 		}
 
-		logrus.Infof("Pulling image %s", image.Name())
+		logrus.Infof("[image] Pulling image %s", image.Name())
 		img, err = registry.Image(image,
 			remote.WithPlatform(v1.Platform{
 				Architecture: runtime.GOARCH,
@@ -107,7 +107,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			}),
 		)
 		if err != nil {
-			return fmt.Errorf("%v: failed to get image %s", err, image.Name())
+			return fmt.Errorf("failed to get image %s: %w", image.Name(), err)
 		}
 	}
 
