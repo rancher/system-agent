@@ -989,3 +989,103 @@ func TestInstructionExecutionDir(t *testing.T) {
 		t.Errorf("expected dir %q, got %q", want, dir)
 	}
 }
+
+func TestRunPeriodicInstructionsRecordsFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	executionDir := t.TempDir()
+	now := time.Now()
+	previousSuccess := now.Add(-1000 * time.Second).Format(time.UnixDate)
+	cp := CalculatedPlan{
+		Checksum: "checksum-periodic-fail",
+		Plan: planapi.Plan{
+			PeriodicInstructions: []planapi.PeriodicInstruction{
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "flaky", Command: "sh", Args: []string{"-c", "exit 3"}},
+					PeriodSeconds:     600,
+				},
+				{
+					CommonInstruction: planapi.CommonInstruction{Name: "should-not-run", Command: "sh", Args: []string{"-c", "exit 0"}},
+				},
+			},
+		},
+	}
+	existing := encodeExistingPeriodicOutput(t, map[string]planapi.PeriodicInstructionOutput{
+		"flaky": {Name: "flaky", LastSuccessfulRunTime: previousSuccess},
+	})
+
+	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
+	if err != nil {
+		t.Fatalf("runPeriodicInstructions returned error: %v", err)
+	}
+	if succeeded {
+		t.Error("expected succeeded=false because the instruction failed")
+	}
+
+	outputs := decodePeriodicOutputs(t, output)
+	got := outputs["flaky"]
+	if got.ExitCode != 3 {
+		t.Errorf("expected ExitCode 3, got %d", got.ExitCode)
+	}
+	if got.Failures != 1 {
+		t.Errorf("expected Failures to increment to 1, got %d", got.Failures)
+	}
+	if got.LastSuccessfulRunTime != previousSuccess {
+		t.Errorf("expected LastSuccessfulRunTime to carry forward the prior success time %q, got %q", previousSuccess, got.LastSuccessfulRunTime)
+	}
+	if got.LastFailedRunTime == "" {
+		t.Error("expected LastFailedRunTime to be set")
+	}
+	if _, ran := outputs["should-not-run"]; ran {
+		t.Error("expected the second instruction to never run after the first failed")
+	}
+}
+
+func TestApplyBlockedByInterlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	interlockDir := t.TempDir()
+	now := time.Now()
+	restartPendingPath := filepath.Join(interlockDir, restartPendingInterlockFile)
+	if err := os.WriteFile(restartPendingPath, []byte(now.Add(-1*time.Minute).Format(time.UnixDate)), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	workDir := t.TempDir()
+	markerPath := filepath.Join(workDir, "should-not-exist")
+	a := newTestApplyinator(t, workDir, false, "", interlockDir)
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{
+				CommonInstruction: planapi.CommonInstruction{
+					Name:    "should-not-run",
+					Command: "sh",
+					Args:    []string{"-c", "touch " + markerPath},
+				},
+			},
+		},
+	}
+
+	_, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum-interlock"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+	})
+	if err == nil {
+		t.Fatal("expected Apply to return an error while the interlock blocks")
+	}
+	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected instruction to never run while blocked, but marker file exists (stat err: %v)", statErr)
+	}
+	activePath := filepath.Join(interlockDir, applyinatorActiveInterlockFile)
+	if _, statErr := os.Stat(activePath); !os.IsNotExist(statErr) {
+		t.Errorf("expected applyinator-active file to not be created when blocked, stat err: %v", statErr)
+	}
+}

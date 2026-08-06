@@ -344,8 +344,10 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	}, nil
 }
 
-// Apply accepts a context, calculated plan, a bool to indicate whether to run the onetime instructions, the existing onetimeinstruction output, and an input byte slice which is a base64+gzip json-marshalled map of PeriodicInstructionOutput
-// entries where the key is the PeriodicInstructionOutput.Name. It outputs a revised versions of the existing outputs, and if specified, runs the one time instructions. Notably, ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false
+// Apply reconciles the local system against input.CalculatedPlan: it honors the interlock, archives the plan,
+// reconciles files, optionally runs one-time instructions, and always runs due periodic instructions. It returns
+// the updated one-time and periodic outputs (gzip+JSON encoded) alongside their success flags. Notably,
+// ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false.
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
 	logrus.Debugf("[Applyinator] Applying plan with checksum %s", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[Applyinator] Applying plan - attempting to get lock")
@@ -607,7 +609,7 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 		}
 	}
 	logrus.Infof("[Applyinator] Command %s %v finished with err: %v and exit code: %d", instruction.Command, instruction.Args, waitErr, exitCode)
-	return stdoutBuffer.Bytes(), stderrTarget.Bytes(), exitCode, waitErr
+	return stdoutTarget.Bytes(), stderrTarget.Bytes(), exitCode, waitErr
 }
 
 // streamLogs accepts a prefix, outputBuffer, reader, and buffer lock and will scan input from the reader and write it
