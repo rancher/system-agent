@@ -645,3 +645,124 @@ func TestReconcileFiles(t *testing.T) {
 		t.Errorf("expected %s to be deleted, stat err: %v", deletedPath, err)
 	}
 }
+
+func TestPeriodicInstructionDue(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	testCases := []struct {
+		name          string
+		prev          planapi.PeriodicInstructionOutput
+		periodSeconds int
+		forced        bool
+		wantDue       bool
+		wantFailures  int
+	}{
+		{
+			name:    "never run before is always due",
+			prev:    planapi.PeriodicInstructionOutput{},
+			wantDue: true,
+		},
+		{
+			name: "period not yet elapsed is not due",
+			prev: planapi.PeriodicInstructionOutput{
+				LastSuccessfulRunTime: now.Add(-30 * time.Second).Format(time.UnixDate),
+			},
+			periodSeconds: 600,
+			wantDue:       false,
+		},
+		{
+			name: "period elapsed is due",
+			prev: planapi.PeriodicInstructionOutput{
+				LastSuccessfulRunTime: now.Add(-700 * time.Second).Format(time.UnixDate),
+			},
+			periodSeconds: 600,
+			wantDue:       true,
+		},
+		{
+			name: "zero PeriodSeconds defaults to 600",
+			prev: planapi.PeriodicInstructionOutput{
+				LastSuccessfulRunTime: now.Add(-30 * time.Second).Format(time.UnixDate),
+			},
+			periodSeconds: 0,
+			wantDue:       false,
+		},
+		{
+			name: "forced bypasses an unelapsed period",
+			prev: planapi.PeriodicInstructionOutput{
+				LastSuccessfulRunTime: now.Add(-30 * time.Second).Format(time.UnixDate),
+			},
+			periodSeconds: 600,
+			forced:        true,
+			wantDue:       true,
+		},
+		{
+			name: "failure cooldown not yet elapsed is not due",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-5 * time.Second).Format(time.UnixDate),
+				Failures:          1,
+			},
+			wantDue:      false,
+			wantFailures: 1,
+		},
+		{
+			name: "failure cooldown elapsed is due",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-31 * time.Second).Format(time.UnixDate),
+				Failures:          1,
+			},
+			wantDue:      true,
+			wantFailures: 1,
+		},
+		{
+			name: "failure cooldown caps at 6 failures worth (180s)",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-181 * time.Second).Format(time.UnixDate),
+				Failures:          50,
+			},
+			wantDue:      true,
+			wantFailures: 50,
+		},
+		{
+			name: "failure cooldown still capped at 180s when not yet elapsed",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-179 * time.Second).Format(time.UnixDate),
+				Failures:          50,
+			},
+			wantDue:      false,
+			wantFailures: 50,
+		},
+		{
+			name: "forced bypasses failure cooldown",
+			prev: planapi.PeriodicInstructionOutput{
+				LastFailedRunTime: now.Add(-5 * time.Second).Format(time.UnixDate),
+				Failures:          1,
+			},
+			forced:       true,
+			wantDue:      true,
+			wantFailures: 1,
+		},
+		{
+			name: "unparsable last successful run time is treated as no history",
+			prev: planapi.PeriodicInstructionOutput{
+				LastSuccessfulRunTime: "not-a-time",
+			},
+			periodSeconds: 600,
+			wantDue:       true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			due, failures := periodicInstructionDue(now, tc.prev, tc.periodSeconds, tc.forced)
+			if due != tc.wantDue {
+				t.Errorf("expected due=%v, got %v", tc.wantDue, due)
+			}
+			if failures != tc.wantFailures {
+				t.Errorf("expected failures=%d, got %d", tc.wantFailures, failures)
+			}
+		})
+	}
+}

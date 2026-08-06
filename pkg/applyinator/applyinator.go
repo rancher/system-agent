@@ -87,6 +87,47 @@ type ApplyInput struct {
 	ExistingPeriodicOutput     []byte
 }
 
+// periodicInstructionDue decides whether a periodic instruction should run now, given the
+// previously recorded output for that instruction. An unset or unparsable last-run timestamp is
+// treated as "no history" (always due). forced (the one-time instructions ran this cycle) bypasses
+// both the period and the failure cooldown.
+func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutput, periodSeconds int, forced bool) (due bool, failures int) {
+	if prev.LastSuccessfulRunTime != "" {
+		t, err := time.Parse(time.UnixDate, prev.LastSuccessfulRunTime)
+		if err != nil {
+			logrus.Errorf("error encountered during parsing of last successful run time: %v", err)
+		} else {
+			effectivePeriod := periodSeconds
+			if effectivePeriod == 0 {
+				effectivePeriod = 600
+			}
+			if now.Before(t.Add(time.Second*time.Duration(effectivePeriod))) && !forced {
+				return false, failures
+			}
+		}
+	}
+
+	if prev.LastFailedRunTime != "" {
+		failures = prev.Failures
+		t, err := time.Parse(time.UnixDate, prev.LastFailedRunTime)
+		if err != nil {
+			logrus.Errorf("error encountered during parsing of last failed time: %+v", err)
+		} else {
+			failureCooldown := failures
+			if failureCooldown > 6 {
+				failureCooldown = 6
+			} else if failureCooldown == 0 {
+				failureCooldown = 1
+			}
+			if now.Before(t.Add(time.Second*time.Duration(30*failureCooldown))) && !forced {
+				return false, failures
+			}
+		}
+	}
+
+	return true, failures
+}
+
 // reconcileFiles applies a plan's Files: writing regular files, creating directories, and
 // deleting anything marked with the delete action.
 func reconcileFiles(files []planapi.File) error {
