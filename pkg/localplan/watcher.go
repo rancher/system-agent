@@ -24,6 +24,16 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 		applyinator: applyinator,
 	}
 
+	// Nothing else creates the local plan directory -- install.sh writes localPlanDirectory into
+	// the config but only mkdirs the interlock, config, and bin dirs. Create it here so a missing
+	// directory does not make listFiles report a walk error on every 5s poll forever. 0700 matches
+	// appliedPlanDir: plans can carry secrets.
+	for _, base := range bases {
+		if err := os.MkdirAll(base, 0700); err != nil {
+			logrus.Errorf("[localplan] Failed to create local plan directory %s: %v", base, err)
+		}
+	}
+
 	go w.start(ctx)
 }
 

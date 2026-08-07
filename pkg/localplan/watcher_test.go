@@ -183,3 +183,37 @@ func TestListFilesNoErrorsWhenAllBasesSucceed(t *testing.T) {
 		t.Fatalf("listFiles returned error: %v", err)
 	}
 }
+
+func TestWatchFilesCreatesMissingPlanDirectories(t *testing.T) {
+	t.Parallel()
+
+	// Nothing else on the node creates the local plan directory, so WatchFiles must. Without it,
+	// listFiles reports a filepath.Walk error on every 5s poll for the lifetime of the daemon.
+	parent := t.TempDir()
+	missing := filepath.Join(parent, "plans")
+	nested := filepath.Join(parent, "nested", "plans")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	WatchFiles(ctx, *applyinator.NewApplyinator(t.TempDir(), false, "", "", nil), missing, nested)
+
+	for _, dir := range []string{missing, nested} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("expected WatchFiles to create %s, stat failed: %v", dir, err)
+		}
+		if !info.IsDir() {
+			t.Errorf("expected %s to be a directory", dir)
+		}
+	}
+
+	// The created directories must then walk cleanly, i.e. no recurring error.
+	w := &watcher{
+		applyinator: *applyinator.NewApplyinator(t.TempDir(), false, "", "", nil),
+		bases:       []string{missing, nested},
+	}
+	if err := w.listFiles(ctx, false); err != nil {
+		t.Errorf("expected no error walking the created directories, got %v", err)
+	}
+}
