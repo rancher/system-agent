@@ -23,14 +23,15 @@ type applyOutcomeInput struct {
 
 // buildSecretDataUpdates computes the Secret data key writes resulting from one apply, mirroring
 // the pre-refactor post-apply mutation block in the OnChange closure. The caller is responsible
-// for merging the returned map into secret.Data.
-func buildSecretDataUpdates(in applyOutcomeInput) map[string][]byte {
+// for merging the returned map into secret.Data and emitting the returned logs.
+func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decisionLog) {
 	updates := map[string][]byte{
 		AppliedPeriodicOutputKey: in.PeriodicOutput,
 	}
 
 	failed := (in.NeedsApplied && !in.OneTimeApplySucceeded) || (!in.NeedsApplied && in.WasFailedPlan)
 	if failed {
+		logs := []decisionLog{debugDecision("one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", in.Checksum)}
 		updates[FailedChecksumKey] = []byte(in.Checksum)
 		if in.NeedsApplied {
 			updates[FailureCountKey] = incrementCount(in.PriorFailureCount)
@@ -41,9 +42,10 @@ func buildSecretDataUpdates(in applyOutcomeInput) map[string][]byte {
 				updates[planapi.PlanStateKey] = []byte(planapi.PlanStateFailed)
 			}
 		}
-		return updates
+		return updates, logs
 	}
 
+	logs := []decisionLog{debugDecision("writing an applied checksum value of %s to the remote plan", in.Checksum)}
 	updates[AppliedChecksumKey] = []byte(in.Checksum)
 	updates[AppliedOutputKey] = in.OneTimeOutput
 	updates[FailureCountKey] = []byte("0")
@@ -56,5 +58,5 @@ func buildSecretDataUpdates(in applyOutcomeInput) map[string][]byte {
 			updates[planapi.PlanStateKey] = []byte(planapi.PlanStateSucceeded)
 		}
 	}
-	return updates
+	return updates, logs
 }

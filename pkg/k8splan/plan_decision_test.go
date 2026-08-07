@@ -1,6 +1,8 @@
 package k8splan
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,23 +134,63 @@ func TestDecidePlanStateAction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		state planapi.PlanState
-		want  planStateResult
+		name             string
+		state            planapi.PlanState
+		want             planStateResult
+		wantLogLevel     decisionLevel
+		wantLogSubstring string
 	}{
-		{name: "pending applies and resets attempt", state: planapi.PlanStatePending, want: planStateResult{NeedsApplied: true, ResetPlanAttempt: true}},
-		{name: "in-progress re-executes without resetting attempt", state: planapi.PlanStateInProgress, want: planStateResult{NeedsApplied: true, ResetPlanAttempt: false}},
-		{name: "succeeded is terminal", state: planapi.PlanStateSucceeded, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
-		{name: "failed is terminal", state: planapi.PlanStateFailed, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
-		{name: "cancelled is terminal", state: planapi.PlanStateCancelled, want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
-		{name: "unknown state is treated as terminal", state: planapi.PlanState("some-future-state"), want: planStateResult{NeedsApplied: false, ResetPlanAttempt: false}},
+		{
+			name: "pending applies and resets attempt", state: planapi.PlanStatePending,
+			want:         planStateResult{NeedsApplied: true, ResetPlanAttempt: true},
+			wantLogLevel: decisionInfo, wantLogSubstring: "applying new plan content",
+		},
+		{
+			name: "in-progress re-executes without resetting attempt", state: planapi.PlanStateInProgress,
+			want:         planStateResult{NeedsApplied: true, ResetPlanAttempt: false},
+			wantLogLevel: decisionInfo, wantLogSubstring: "crash recovery",
+		},
+		{
+			name: "succeeded is terminal", state: planapi.PlanStateSucceeded,
+			want:         planStateResult{NeedsApplied: false, ResetPlanAttempt: false},
+			wantLogLevel: decisionDebug, wantLogSubstring: "(terminal); not applying",
+		},
+		{
+			name: "failed is terminal", state: planapi.PlanStateFailed,
+			want:         planStateResult{NeedsApplied: false, ResetPlanAttempt: false},
+			wantLogLevel: decisionDebug, wantLogSubstring: "(terminal); not applying",
+		},
+		{
+			name: "cancelled is terminal", state: planapi.PlanStateCancelled,
+			want:         planStateResult{NeedsApplied: false, ResetPlanAttempt: false},
+			wantLogLevel: decisionDebug, wantLogSubstring: "(terminal); not applying",
+		},
+		{
+			name: "unknown state is treated as terminal", state: planapi.PlanState("some-future-state"),
+			want:         planStateResult{NeedsApplied: false, ResetPlanAttempt: false},
+			wantLogLevel: decisionDebug, wantLogSubstring: "(terminal); not applying",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := decidePlanStateAction(tt.state); got != tt.want {
+			got := decidePlanStateAction(tt.state)
+			gotLogs := got.Logs
+			got.Logs = nil
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("decidePlanStateAction(%q) = %+v, want %+v", tt.state, got, tt.want)
+			}
+			// The decision must always explain itself: these lines are the only field-debugging
+			// surface when a node stalls.
+			if len(gotLogs) != 1 {
+				t.Fatalf("expected exactly one decision log, got %d: %+v", len(gotLogs), gotLogs)
+			}
+			if gotLogs[0].Level != tt.wantLogLevel {
+				t.Errorf("expected log level %d, got %d (%q)", tt.wantLogLevel, gotLogs[0].Level, gotLogs[0].Message)
+			}
+			if !strings.Contains(gotLogs[0].Message, tt.wantLogSubstring) {
+				t.Errorf("expected log to contain %q, got %q", tt.wantLogSubstring, gotLogs[0].Message)
 			}
 		})
 	}
@@ -170,22 +212,27 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 		lastApplyTime            time.Time
 		resourceVersionUnchanged bool
 		want                     checksumFlowResult
+		// wantLogSubstring, when set, asserts the decision explained itself in the logs. These
+		// lines are the primary field-debugging surface when a node stalls mid-provisioning.
+		wantLogSubstring string
 	}{
 		{
-			name:         "first start force-applies and clears applied checksum",
-			data:         map[string][]byte{},
-			planChecksum: "checksum-a",
-			hasRunOnce:   false,
-			currentTime:  now,
-			want:         checksumFlowResult{NeedsApplied: true, HasRunOnce: true, ClearAppliedChecksum: true},
+			name:             "first start force-applies and clears applied checksum",
+			data:             map[string][]byte{},
+			planChecksum:     "checksum-a",
+			hasRunOnce:       false,
+			currentTime:      now,
+			want:             checksumFlowResult{NeedsApplied: true, HasRunOnce: true, ClearAppliedChecksum: true},
+			wantLogSubstring: "Detected first start, force-applying",
 		},
 		{
-			name:         "checksum matches applied checksum: no-op",
-			data:         map[string][]byte{AppliedChecksumKey: []byte("checksum-a")},
-			planChecksum: "checksum-a",
-			hasRunOnce:   true,
-			currentTime:  now,
-			want:         checksumFlowResult{NeedsApplied: false, HasRunOnce: true},
+			name:             "checksum matches applied checksum: no-op",
+			data:             map[string][]byte{AppliedChecksumKey: []byte("checksum-a")},
+			planChecksum:     "checksum-a",
+			hasRunOnce:       true,
+			currentTime:      now,
+			want:             checksumFlowResult{NeedsApplied: false, HasRunOnce: true},
+			wantLogSubstring: "Applied checksum was the same as the plan from remote",
 		},
 		{
 			name:         "checksum differs from applied checksum: applies",
@@ -205,6 +252,7 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 			currentTime:              now,
 			resourceVersionUnchanged: true, // ...but an unchanged resource version wins
 			want:                     checksumFlowResult{NeedsApplied: false, HasRunOnce: true},
+			wantLogSubstring:         "did not change. running probes, skipping apply.",
 		},
 		{
 			name: "failed before, cooldown not elapsed: skips",
@@ -212,12 +260,13 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 				AppliedChecksumKey: []byte("checksum-old"),
 				FailedChecksumKey:  []byte("checksum-a"),
 			},
-			planChecksum:  "checksum-a",
-			hasRunOnce:    true,
-			failureCount:  1,
-			currentTime:   now,
-			lastApplyTime: now.Add(-10 * time.Second),
-			want:          checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+			planChecksum:     "checksum-a",
+			hasRunOnce:       true,
+			failureCount:     1,
+			currentTime:      now,
+			lastApplyTime:    now.Add(-10 * time.Second),
+			want:             checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+			wantLogSubstring: "cooldown timer for failed plan application has not passed yet",
 		},
 		{
 			name: "failed before, cooldown elapsed: re-applies",
@@ -239,12 +288,13 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 				FailedChecksumKey:  []byte("checksum-a"),
 				MaxFailuresKey:     []byte("3"),
 			},
-			planChecksum:  "checksum-a",
-			hasRunOnce:    true,
-			failureCount:  3,
-			currentTime:   now,
-			lastApplyTime: now.Add(-time.Hour),
-			want:          checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+			planChecksum:     "checksum-a",
+			hasRunOnce:       true,
+			failureCount:     3,
+			currentTime:      now,
+			lastApplyTime:    now.Add(-time.Hour),
+			want:             checksumFlowResult{NeedsApplied: false, WasFailedPlan: true, HasRunOnce: true},
+			wantLogSubstring: "Maximum failure threshold exceeded",
 		},
 		{
 			name: "failed checksum does not match current plan: cooldown does not apply",
@@ -252,46 +302,90 @@ func TestDecideChecksumFlowAction(t *testing.T) {
 				AppliedChecksumKey: []byte("checksum-old"),
 				FailedChecksumKey:  []byte("checksum-different"),
 			},
-			planChecksum:  "checksum-a",
-			hasRunOnce:    true,
-			failureCount:  1,
-			currentTime:   now,
-			lastApplyTime: now,
-			want:          checksumFlowResult{NeedsApplied: true, HasRunOnce: true},
+			planChecksum:     "checksum-a",
+			hasRunOnce:       true,
+			failureCount:     1,
+			currentTime:      now,
+			lastApplyTime:    now,
+			want:             checksumFlowResult{NeedsApplied: true, HasRunOnce: true},
+			wantLogSubstring: "Cancelling failure cooldown",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := decideChecksumFlowAction(tt.data, tt.planChecksum, tt.hasRunOnce, tt.failureCount, tt.currentTime, tt.lastApplyTime, cooldown, tt.resourceVersionUnchanged)
-			if got != tt.want {
+			got := decideChecksumFlowAction(tt.data, tt.planChecksum, tt.hasRunOnce, tt.failureCount, tt.currentTime, tt.lastApplyTime, cooldown, tt.resourceVersionUnchanged, "rv-1")
+			gotLogs := got.Logs
+			got.Logs = nil
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("decideChecksumFlowAction() = %+v, want %+v", got, tt.want)
+			}
+			if tt.wantLogSubstring != "" {
+				if !decisionLogsContain(gotLogs, tt.wantLogSubstring) {
+					t.Errorf("expected a decision log containing %q, got %+v", tt.wantLogSubstring, gotLogs)
+				}
 			}
 		})
 	}
 }
 
-func TestParseIntFromBytes(t *testing.T) {
+// decisionLogsContain reports whether any collected log message contains substr.
+func decisionLogsContain(logs []decisionLog, substr string) bool {
+	for _, entry := range logs {
+		if strings.Contains(entry.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestParseMaxFailures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		raw      []byte
-		fallback int
-		want     int
+		name             string
+		data             map[string][]byte
+		want             int
+		wantLogLevel     decisionLevel
+		wantLogSubstring string
+		wantNoLogs       bool
 	}{
-		{name: "nil uses fallback", raw: nil, fallback: -1, want: -1},
-		{name: "empty uses fallback", raw: []byte(""), fallback: -1, want: -1},
-		{name: "valid number", raw: []byte("7"), fallback: -1, want: 7},
-		{name: "unparsable uses fallback", raw: []byte("nope"), fallback: 0, want: 0},
+		{name: "absent key means no threshold", data: map[string][]byte{}, want: -1, wantNoLogs: true},
+		{name: "empty value means no threshold", data: map[string][]byte{MaxFailuresKey: []byte("")}, want: -1, wantNoLogs: true},
+		{
+			name: "valid threshold is parsed", data: map[string][]byte{MaxFailuresKey: []byte("7")}, want: 7,
+			wantLogLevel: decisionTrace, wantLogSubstring: "Parsed max failure value of 7",
+		},
+		{
+			// An unparsable value is operator misconfiguration and must be surfaced loudly rather
+			// than silently defaulted to "no threshold".
+			name: "unparsable threshold falls back to -1 and logs an error", data: map[string][]byte{MaxFailuresKey: []byte("nope")}, want: -1,
+			wantLogLevel: decisionError, wantLogSubstring: "error parsing max-failures",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := parseIntFromBytes(tt.raw, tt.fallback); got != tt.want {
-				t.Errorf("parseIntFromBytes(%q, %d) = %d, want %d", tt.raw, tt.fallback, got, tt.want)
+			got, logs := parseMaxFailures(tt.data)
+			if got != tt.want {
+				t.Errorf("parseMaxFailures() = %d, want %d", got, tt.want)
+			}
+			if tt.wantNoLogs {
+				if len(logs) != 0 {
+					t.Errorf("expected no logs, got %+v", logs)
+				}
+				return
+			}
+			if len(logs) != 1 {
+				t.Fatalf("expected exactly one log, got %d: %+v", len(logs), logs)
+			}
+			if logs[0].Level != tt.wantLogLevel {
+				t.Errorf("expected log level %d, got %d", tt.wantLogLevel, logs[0].Level)
+			}
+			if !strings.Contains(logs[0].Message, tt.wantLogSubstring) {
+				t.Errorf("expected log to contain %q, got %q", tt.wantLogSubstring, logs[0].Message)
 			}
 		})
 	}

@@ -79,6 +79,8 @@ type planStateResult struct {
 	// ResetPlanAttempt is true only for PlanStatePending: a freshly delivered plan always starts
 	// its one-time instructions at attempt 1, regardless of any prior failure count.
 	ResetPlanAttempt bool
+	// Logs explains the decision; the caller emits them via emitDecisionLogs.
+	Logs []decisionLog
 }
 
 // decidePlanStateAction mirrors the plan-state switch: pending and in-progress both require
@@ -86,11 +88,21 @@ type planStateResult struct {
 func decidePlanStateAction(state planapi.PlanState) planStateResult {
 	switch state {
 	case planapi.PlanStatePending:
-		return planStateResult{NeedsApplied: true, ResetPlanAttempt: true}
+		return planStateResult{
+			NeedsApplied:     true,
+			ResetPlanAttempt: true,
+			Logs:             []decisionLog{infoDecision("plan-state is %q; applying new plan content", state)},
+		}
 	case planapi.PlanStateInProgress:
-		return planStateResult{NeedsApplied: true}
+		return planStateResult{
+			NeedsApplied: true,
+			Logs:         []decisionLog{infoDecision("plan-state is %q on startup; re-executing plan (crash recovery)", state)},
+		}
 	default:
-		return planStateResult{NeedsApplied: false}
+		return planStateResult{
+			NeedsApplied: false,
+			Logs:         []decisionLog{debugDecision("plan-state is %q (terminal); not applying", state)},
+		}
 	}
 }
 
@@ -106,44 +118,59 @@ type checksumFlowResult struct {
 	// ClearAppliedChecksum is true when the caller should reset AppliedChecksumKey to "" before
 	// applying — set only on the very first run, so a subsequent crash-restart is unambiguous.
 	ClearAppliedChecksum bool
+	// Logs explains the decision; the caller emits them via emitDecisionLogs.
+	Logs []decisionLog
 }
 
 // decideChecksumFlowAction mirrors the pre-refactor checksum-flow branch of the OnChange closure.
 // data is the Secret's data map (read-only here); planChecksum is the checksum of the plan
 // currently being evaluated; resourceVersionUnchanged reports whether the Secret's resource
 // version matches the last one this watcher processed.
-func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRunOnce bool, failureCount int, currentTime, lastApplyTime time.Time, cooldownPeriod time.Duration, resourceVersionUnchanged bool) checksumFlowResult {
+func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRunOnce bool, failureCount int, currentTime, lastApplyTime time.Time, cooldownPeriod time.Duration, resourceVersionUnchanged bool, lastAppliedResourceVersion string) checksumFlowResult {
 	needsApplied := true
 	wasFailedPlan := false
 	clearAppliedChecksum := false
+	var logs []decisionLog
 
 	if secretChecksumData, ok := data[AppliedChecksumKey]; ok {
+		logs = append(logs, traceDecision("Remote plan had an applied checksum value of %s", string(secretChecksumData)))
 		if string(secretChecksumData) == planChecksum {
+			logs = append(logs, debugDecision("Applied checksum was the same as the plan from remote. Not applying."))
 			needsApplied = false
 		}
 	}
 
 	if !hasRunOnce {
+		logs = append(logs, infoDecision("Detected first start, force-applying one-time instruction set"))
 		needsApplied = true
 		hasRunOnce = true
 		clearAppliedChecksum = true
 	}
 
-	maxFailureThreshold := parseIntFromBytes(data[MaxFailuresKey], -1)
+	maxFailureThreshold, thresholdLogs := parseMaxFailures(data)
+	logs = append(logs, thresholdLogs...)
 
 	if failureCount != 0 {
-		if rFC, ok := data[FailedChecksumKey]; ok && string(rFC) == planChecksum {
-			wasFailedPlan = true
-			switch {
-			case failureCount >= maxFailureThreshold && maxFailureThreshold != -1:
-				needsApplied = false
-			case !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)):
-				needsApplied = false
+		if rFC, ok := data[FailedChecksumKey]; ok {
+			if string(rFC) == planChecksum {
+				logs = append(logs, debugDecision("Plan appears to have failed before, failure count was %d", failureCount))
+				wasFailedPlan = true
+				switch {
+				case failureCount >= maxFailureThreshold && maxFailureThreshold != -1:
+					logs = append(logs, errorDecision("Maximum failure threshold exceeded for plan with checksum value of %s, (failures: %d, threshold: %d)", planChecksum, failureCount, maxFailureThreshold))
+					needsApplied = false
+				case !currentTime.Equal(lastApplyTime) && !currentTime.After(lastApplyTime.Add(cooldownPeriod)):
+					logs = append(logs, debugDecision("%f second cooldown timer for failed plan application has not passed yet.", cooldownPeriod.Seconds()))
+					needsApplied = false
+				}
+			} else {
+				logs = append(logs, errorDecision("Received plan checksum (%s) did not match failed plan checksum (%s) and failure count was greater than zero. Cancelling failure cooldown.", planChecksum, string(rFC)))
 			}
 		}
 	}
 
 	if resourceVersionUnchanged && !wasFailedPlan {
+		logs = append(logs, debugDecision("last applied resource version (%s) did not change. running probes, skipping apply.", lastAppliedResourceVersion))
 		needsApplied = false
 	}
 
@@ -152,20 +179,23 @@ func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRu
 		WasFailedPlan:        wasFailedPlan,
 		HasRunOnce:           hasRunOnce,
 		ClearAppliedChecksum: clearAppliedChecksum,
+		Logs:                 logs,
 	}
 }
 
-// parseIntFromBytes parses raw as a base-10 integer, returning fallback when raw is empty or
-// unparsable.
-func parseIntFromBytes(raw []byte, fallback int) int {
-	if len(raw) == 0 {
-		return fallback
+// parseMaxFailures reads MaxFailuresKey, returning -1 (no threshold) when the key is absent,
+// empty, or unparsable. An unparsable value is an operator-visible misconfiguration, so it is
+// reported at error level rather than silently defaulted.
+func parseMaxFailures(data map[string][]byte) (int, []decisionLog) {
+	raw, ok := data[MaxFailuresKey]
+	if !ok || len(raw) == 0 {
+		return -1, nil
 	}
-	n, err := strconv.Atoi(string(raw))
+	threshold, err := strconv.Atoi(string(raw))
 	if err != nil {
-		return fallback
+		return -1, []decisionLog{errorDecision("error parsing max-failures: %s: %v", string(raw), err)}
 	}
-	return n
+	return threshold, []decisionLog{traceDecision("Parsed max failure value of %d and setting as maxFailureThreshold", threshold)}
 }
 
 // selectExistingOutput picks the existing one-time-instruction output to carry into the next

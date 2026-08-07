@@ -75,6 +75,7 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 
 	if currentPlanState != "" {
 		psResult := decidePlanStateAction(currentPlanState)
+		emitDecisionLogs(psResult.Logs)
 		needsApplied = psResult.NeedsApplied
 		if psResult.ResetPlanAttempt {
 			planAttempt = 1
@@ -83,7 +84,8 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 			w.hasRunOnce = true
 		}
 	} else {
-		csResult := decideChecksumFlowAction(secret.Data, cp.Checksum, w.hasRunOnce, failureCount, currentTime, lastApplyTime, cooldownPeriod, w.lastAppliedResourceVersion == secret.ResourceVersion)
+		csResult := decideChecksumFlowAction(secret.Data, cp.Checksum, w.hasRunOnce, failureCount, currentTime, lastApplyTime, cooldownPeriod, w.lastAppliedResourceVersion == secret.ResourceVersion, w.lastAppliedResourceVersion)
+		emitDecisionLogs(csResult.Logs)
 		needsApplied = csResult.NeedsApplied
 		wasFailedPlan = csResult.WasFailedPlan
 		w.hasRunOnce = csResult.HasRunOnce
@@ -122,7 +124,7 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	output = applyOutput.OneTimeOutput
 	periodicOutput = applyOutput.PeriodicOutput
 
-	outcomeUpdates := buildSecretDataUpdates(applyOutcomeInput{
+	outcomeUpdates, outcomeLogs := buildSecretDataUpdates(applyOutcomeInput{
 		Checksum:              cp.Checksum,
 		CurrentTime:           currentTime,
 		NeedsApplied:          needsApplied,
@@ -134,6 +136,7 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 		PriorFailureCount:     secret.Data[FailureCountKey],
 		PriorSuccessCount:     secret.Data[SuccessCountKey],
 	})
+	emitDecisionLogs(outcomeLogs)
 	for k, v := range outcomeUpdates {
 		secret.Data[k] = v
 	}

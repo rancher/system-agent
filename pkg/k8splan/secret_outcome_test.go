@@ -1,6 +1,7 @@
 package k8splan
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -130,7 +131,7 @@ func TestBuildSecretDataUpdates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := buildSecretDataUpdates(tt.in)
+			got, logs := buildSecretDataUpdates(tt.in)
 			if len(got) != len(tt.want) {
 				t.Fatalf("buildSecretDataUpdates() returned %d keys %v, want %d keys %v", len(got), keysOf(got), len(tt.want), keysOf(tt.want))
 			}
@@ -143,6 +144,18 @@ func TestBuildSecretDataUpdates(t *testing.T) {
 				if string(gotV) != string(wantV) {
 					t.Errorf("key %q = %q, want %q", k, gotV, wantV)
 				}
+			}
+			// Every outcome must record which branch it took; this is the line that tells an
+			// operator whether the node stored a success or a failure.
+			if len(logs) != 1 {
+				t.Fatalf("expected exactly one outcome log, got %d: %+v", len(logs), logs)
+			}
+			wantLog := "writing an applied checksum value"
+			if _, isFailure := got[FailedChecksumKey]; isFailure && len(got[FailedChecksumKey]) > 0 {
+				wantLog = "either failed or was already failed"
+			}
+			if !strings.Contains(logs[0].Message, wantLog) {
+				t.Errorf("expected outcome log to contain %q, got %q", wantLog, logs[0].Message)
 			}
 		})
 	}
