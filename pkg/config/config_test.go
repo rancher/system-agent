@@ -4,17 +4,26 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
 type testResult struct {
-	Foo string `json:"foo" yaml:"foo"`
+	// Parse decodes YAML via sigs.k8s.io/yaml, which converts YAML to JSON and honours json tags
+	// only -- so a yaml tag here would be inert and misleading.
+	Foo string `json:"foo"`
 }
 
 func writeConfigFile(t *testing.T, name string, content []byte, perm os.FileMode) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, content, perm); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile passes perm through open(2), where the kernel applies the process umask -- so
+	// under umask 077 a requested 0644 lands as 0600 and silently inverts the negative permission
+	// tests. chmod(2) ignores the umask.
+	if err := os.Chmod(path, perm); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -44,8 +53,13 @@ func TestParseWrongPermissions(t *testing.T) {
 	t.Parallel()
 
 	path := writeConfigFile(t, "config.json", []byte(`{"foo":"bar"}`), 0644)
-	if err := Parse(path, &testResult{}); err == nil {
+	err := Parse(path, &testResult{})
+	if err == nil {
 		t.Fatal("expected an error for a file with non-0600 permissions, got nil")
+	}
+	// Assert on the cause: otherwise this passes for any unrelated failure (ownership, decode).
+	if !strings.Contains(err.Error(), "was not expected 0600") {
+		t.Errorf("expected a permissions error, got %v", err)
 	}
 }
 
@@ -88,8 +102,8 @@ func TestParseMatchesExtensionAsSubstringNotSuffix(t *testing.T) {
 	t.Parallel()
 
 	// Parse chooses a decoder by checking whether the filename contains ".json"/".yaml"
-	// anywhere, not by checking the true file extension — this is documented, existing
-	// behavior (see CLAUDE.md), characterized here rather than "fixed."
+	// anywhere, not by checking the true file extension. This is existing behavior (see the
+	// switch in Parse), characterized here rather than "fixed."
 	path := writeConfigFile(t, "config.json.bak", []byte(`{"foo":"bar"}`), 0600)
 	var result testResult
 	if err := Parse(path, &result); err != nil {
@@ -128,6 +142,9 @@ func TestPermissionsCheck(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("permissionsCheck() error = %v, wantErr %v", err, tt.wantErr)
 			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "was not expected 0600") {
+				t.Errorf("expected the error to name the expected mode, got %v", err)
+			}
 		})
 	}
 }
@@ -138,5 +155,52 @@ func TestPathOwnedByCurrentUser(t *testing.T) {
 	path := writeConfigFile(t, "owner-test", []byte("{}"), 0600)
 	if err := pathOwnedByCurrentUser(path); err != nil {
 		t.Errorf("expected a file created by this process to be owned by the current user, got: %v", err)
+	}
+}
+
+// TestParseRejectsFileOwnedByAnotherUser covers the ownership branch of Parse. CLAUDE.md calls out
+// ownership as a common source of "unable to parse config file" failures that are really
+// permission failures, so the rejection path is worth pinning. Chowning to another user requires
+// root, so this is skipped otherwise.
+func TestParseRejectsFileOwnedByAnotherUser(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pathOwnedByCurrentUser is a no-op on windows")
+	}
+	if os.Getuid() != 0 {
+		t.Skip("requires root to chown a file to another user")
+	}
+	t.Parallel()
+
+	const nobody = 65534
+	path := writeConfigFile(t, "config.json", []byte(`{"foo":"bar"}`), 0600)
+	if err := os.Chown(path, nobody, nobody); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Parse(path, &testResult{})
+	if err == nil {
+		t.Fatal("expected an error for a file owned by another user, got nil")
+	}
+	if !strings.Contains(err.Error(), "was not owned by") {
+		t.Errorf("expected an ownership error, got %v", err)
+	}
+}
+
+func TestPathOwnedByCurrentUserRejectsOtherOwner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pathOwnedByCurrentUser is a no-op on windows")
+	}
+	if os.Getuid() != 0 {
+		t.Skip("requires root to chown a file to another user")
+	}
+	t.Parallel()
+
+	const nobody = 65534
+	path := writeConfigFile(t, "owner-test", []byte("{}"), 0600)
+	if err := os.Chown(path, nobody, nobody); err != nil {
+		t.Fatal(err)
+	}
+	if err := pathOwnedByCurrentUser(path); err == nil {
+		t.Error("expected an error for a file owned by another user, got nil")
 	}
 }
