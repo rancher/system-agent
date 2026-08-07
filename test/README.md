@@ -18,7 +18,7 @@ test/
 │   ├── const.go              # embedded manifests + env var name constants
 │   └── helpers.go            # E2EConfig (env var loading), scheme setup, shared parallel-proc data
 ├── framework/                 # reusable spec helpers (no Ginkgo specs live here)
-│   ├── const.go               # namespace/label/timeout constants, ShortTestLabel/FullTestLabel
+│   ├── const.go               # namespace/label/timeout constants, ShortTestLabel/LongTestLabel
 │   ├── cluster.go             # kubectl wrappers (apply, wait-for-ready, exec, logs, HTTP test server lifecycle)
 │   ├── plan.go                # PlanBuilder fluent API for constructing plan JSON
 │   ├── secret.go              # plan Secret CRUD + polling/Eventually helpers
@@ -30,6 +30,16 @@ test/
 └── integration/                 # separate, non-Ginkgo suite — see integration/README.md
 ```
 
+`test/` is a **separate Go module** (`test/go.mod`, with `replace github.com/rancher/system-agent => ../`). This is deliberate: it keeps the Ginkgo and Kind dependency trees out of the main module, so the shipped daemon's dependency graph stays small.
+
+### The three test tiers
+
+| Tier | Location | Build tag | Run with |
+| --- | --- | --- | --- |
+| Unit | `pkg/**/*_test.go` (main module) | `test` | `make test` |
+| E2E | `test/e2e/` (this module) | `e2e` | `make test-e2e` |
+| Integration | `test/integration/` | `ignore` (stripped by the runner) | `make integration-tests` |
+
 ## Running Tests
 
 From the repository root:
@@ -38,7 +48,7 @@ From the repository root:
 # Run short tests
 make test-e2e
 
-# Run long tests only
+# Run long tests only (currently matches zero specs -- see Test Labels below)
 GINKGO_LABEL_FILTER="long" make test-e2e
 
 # Run with custom image
@@ -71,7 +81,7 @@ SKIP_RESOURCE_CLEANUP=true make test-e2e
 Tests are categorized with labels for selective execution:
 
 - `short`: Quick tests for CI
-- `long`: Extended tests that take longer to run(nightly)
+- `long`: Extended tests that take longer to run (nightly). **No spec carries this label today**, so `GINKGO_LABEL_FILTER="long"` currently matches zero specs and exits green — see Known Coverage Gaps below.
 
 ## Known Coverage Gaps
 
@@ -81,3 +91,4 @@ Not covered by this suite today — worth keeping in mind when triaging a produc
 - **TLS/mTLS and client-certificate probes** (`pkg/prober`) aren't exercised — `probes_test.go` only covers plain HTTP probes against the in-cluster test server.
 - **Malformed/invalid plan JSON** isn't tested at this layer (only via unit tests in `pkg/applyinator`).
 - **Agent restart / crash recovery** is only covered by the separate, heavier `test/integration` suite (`Test_SystemAgent_ForceApplyOnRestart`, `_CrashRecovery`), not by this Kind-based e2e suite.
+- **The `long` label is unused.** Every `Describe` in this suite carries `framework.ShortTestLabel`, so a nightly job filtering on `long` runs nothing and reports success. Until long-running specs exist, nightly should run with an empty `GINKGO_LABEL_FILTER` (which runs all specs).

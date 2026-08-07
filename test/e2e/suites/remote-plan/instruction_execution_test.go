@@ -94,7 +94,7 @@ var _ = Describe("Remote Plan - Instruction Execution", Label(framework.ShortTes
 		Expect(outputMap["combined-output"]).To(ContainSubstring("stdout-line"),
 			"one-time instruction output should contain stdout")
 		Expect(outputMap["combined-output"]).To(ContainSubstring("stderr-line"),
-			"one-time instruction output should also contain stderr (regression test for bee4f0d)")
+			"one-time instruction output should also contain stderr (execute() must merge stderr into stdout when combinedOutput is true)")
 	})
 
 	It("should stop executing instructions after a failure", func() {
