@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -512,9 +514,8 @@ func TestReconcileSecretPendingTransitionsThroughInProgress(t *testing.T) {
 	if planapi.PlanState(result.Data[planapi.PlanStateKey]) != planapi.PlanStateSucceeded {
 		t.Errorf("expected final plan-state %q, got %q", planapi.PlanStateSucceeded, result.Data[planapi.PlanStateKey])
 	}
-	// newMockSecretController's Update expectation is AnyTimes(), so this test doesn't assert an
-	// exact call count, but the pending -> in-progress -> succeeded path exercises two Update
-	// calls: one committing in-progress before Apply runs, one committing the final outcome.
+	// The exact Update call count and the in-progress-before-Apply ordering are asserted in
+	// TestReconcileSecretCommitsInProgressBeforeApply.
 }
 
 func TestReconcileSecretUpdateConflictRetry(t *testing.T) {
@@ -561,5 +562,120 @@ func TestReconcileSecretUpdateConflictRetry(t *testing.T) {
 	}
 	if result.ResourceVersion != "43" {
 		t.Errorf("expected the retried update to return the latest secret (resource version 43), got %q", result.ResourceVersion)
+	}
+}
+
+// TestReconcileSecretCommitsInProgressBeforeApply pins the single most safety-critical ordering
+// invariant in this package: the pending -> in-progress transition (and the plan-revision bump)
+// must reach the API server *before* Apply runs. That write is the only record that an apply was
+// started, and it is what lets a crashed agent recognise on restart that it must re-execute.
+func TestReconcileSecretCommitsInProgressBeforeApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	// The instruction records when Apply ran by touching a marker file, so ordering can be
+	// asserted against the observed Update calls rather than inferred.
+	markerDir := t.TempDir()
+	marker := filepath.Join(markerDir, "apply-ran")
+	planBytes, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "marker", Command: "sh", Args: []string{"-c", "touch " + marker}}},
+		},
+	})
+
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any()).AnyTimes()
+
+	type observedUpdate struct {
+		planState    string
+		planRevision string
+		applyHadRun  bool
+	}
+	var observed []observedUpdate
+	sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+		_, statErr := os.Stat(marker)
+		observed = append(observed, observedUpdate{
+			planState:    string(s.Data[planapi.PlanStateKey]),
+			planRevision: string(s.Data[planapi.PlanRevisionKey]),
+			applyHadRun:  statErr == nil,
+		})
+		return s, nil
+	}).AnyTimes()
+
+	w := newTestWatcher(t, false, "")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data: map[string][]byte{
+			PlanKey:                 planBytes,
+			planapi.PlanStateKey:    []byte(planapi.PlanStatePending),
+			planapi.PlanRevisionKey: []byte("7"),
+		},
+	}
+
+	if _, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second); err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+
+	if len(observed) != 2 {
+		t.Fatalf("expected exactly 2 Update calls (in-progress, then the outcome), got %d: %+v", len(observed), observed)
+	}
+	first := observed[0]
+	if first.planState != string(planapi.PlanStateInProgress) {
+		t.Errorf("expected the first Update to commit plan-state %q, got %q", planapi.PlanStateInProgress, first.planState)
+	}
+	if first.applyHadRun {
+		t.Error("expected the in-progress write to reach the API server BEFORE Apply ran; crash recovery depends on this ordering")
+	}
+	if first.planRevision != "8" {
+		t.Errorf("expected plan-revision to be incremented to 8 in the same write as in-progress, got %q", first.planRevision)
+	}
+	if observed[1].planState != string(planapi.PlanStateSucceeded) {
+		t.Errorf("expected the second Update to commit the outcome %q, got %q", planapi.PlanStateSucceeded, observed[1].planState)
+	}
+	if !observed[1].applyHadRun {
+		t.Error("expected the outcome write to happen after Apply ran")
+	}
+}
+
+// TestReconcileSecretInProgressOnStartupReExecutes covers the crash-recovery entry point: an agent
+// that restarts and finds plan-state already in-progress must re-execute the plan rather than
+// treating it as terminal.
+func TestReconcileSecretInProgressOnStartupReExecutes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	marker := filepath.Join(t.TempDir(), "re-executed")
+	planBytes, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "marker", Command: "sh", Args: []string{"-c", "touch " + marker}}},
+		},
+	})
+
+	sc := newMockSecretController(t)
+	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any()).AnyTimes()
+
+	w := newTestWatcher(t, false, "")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
+		Data: map[string][]byte{
+			PlanKey:              planBytes,
+			planapi.PlanStateKey: []byte(planapi.PlanStateInProgress),
+		},
+	}
+
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Errorf("expected the plan to be re-executed on an in-progress startup, marker missing: %v", statErr)
+	}
+	if planapi.PlanState(result.Data[planapi.PlanStateKey]) != planapi.PlanStateSucceeded {
+		t.Errorf("expected final plan-state %q, got %q", planapi.PlanStateSucceeded, result.Data[planapi.PlanStateKey])
 	}
 }

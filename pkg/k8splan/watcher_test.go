@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,12 @@ import (
 	"testing"
 	"time"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
+	"github.com/rancher/wrangler/v3/pkg/generic/fake"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -210,27 +216,126 @@ func TestConnectWithCAFallback(t *testing.T) {
 	})
 }
 
-func TestSecretConflictMergeKeysAppliedOnRetry(t *testing.T) {
+// TestUpdateSecretConflictHandling drives updateSecret's conflict path for real. The negative
+// case is the one that matters most: when the re-fetched Secret carries a *different* plan, the
+// write must be abandoned rather than clobbering a newer plan's status.
+func TestUpdateSecretConflictHandling(t *testing.T) {
 	t.Parallel()
 
-	latest := &corev1.Secret{Data: map[string][]byte{"unrelated-key": []byte("keep-me")}}
-	ours := &corev1.Secret{Data: map[string][]byte{}}
-	for _, key := range secretConflictMergeKeys {
-		ours.Data[key] = []byte("from-ours:" + key)
+	ourPlan, ourChecksum := marshalPlan(t, planapi.Plan{})
+	newerPlan, _ := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "newer", Command: "true"}},
+		},
+	})
+
+	tests := []struct {
+		name string
+		// latestPlan is the plan the re-fetched Secret carries when the conflict is observed.
+		latestPlan     []byte
+		wantUpdates    int
+		wantErr        bool
+		wantMergedKeys bool
+	}{
+		{
+			name:           "conflict with same plan retries and merges our keys",
+			latestPlan:     ourPlan,
+			wantUpdates:    2,
+			wantErr:        false,
+			wantMergedKeys: true,
+		},
+		{
+			name:        "conflict with a different plan abandons the write",
+			latestPlan:  newerPlan,
+			wantUpdates: 1,
+			wantErr:     true,
+		},
 	}
 
-	for _, key := range secretConflictMergeKeys {
-		latest.Data[key] = ours.Data[key]
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	for _, key := range secretConflictMergeKeys {
-		if string(latest.Data[key]) != "from-ours:"+key {
-			t.Errorf("expected merged key %q to carry the retried value, got %q", key, latest.Data[key])
-		}
+			ctrl := gomock.NewController(t)
+			sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+
+			ours := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "1"},
+				Data: map[string][]byte{
+					PlanKey:            ourPlan,
+					AppliedChecksumKey: []byte(ourChecksum),
+				},
+			}
+			for _, key := range secretConflictMergeKeys {
+				if key == AppliedChecksumKey {
+					continue
+				}
+				ours.Data[key] = []byte("from-ours:" + key)
+			}
+
+			// The Secret as it exists on the API server when the conflict is observed.
+			latest := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "2"},
+				Data: map[string][]byte{
+					PlanKey:         tt.latestPlan,
+					"unrelated-key": []byte("keep-me"),
+				},
+			}
+			for _, key := range secretConflictMergeKeys {
+				latest.Data[key] = []byte("stale:" + key)
+			}
+
+			sc.EXPECT().Get(testNamespace, testSecret, gomock.Any()).Return(latest, nil).AnyTimes()
+
+			var updates []*corev1.Secret
+			gomock.InOrder(
+				sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+					updates = append(updates, s.DeepCopy())
+					return nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, testSecret, errors.New("conflict"))
+				}),
+				sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+					updates = append(updates, s.DeepCopy())
+					return s, nil
+				}).MaxTimes(1),
+			)
+
+			w := newTestWatcher(t, true, "")
+			_, err := w.updateSecret(sc, ours)
+
+			if tt.wantErr && err == nil {
+				t.Error("expected updateSecret to return the conflict error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("expected updateSecret to succeed after retry, got %v", err)
+			}
+			if len(updates) != tt.wantUpdates {
+				t.Fatalf("expected %d Update call(s), got %d", tt.wantUpdates, len(updates))
+			}
+
+			if !tt.wantMergedKeys {
+				return
+			}
+			retried := updates[1]
+			for _, key := range secretConflictMergeKeys {
+				want := "from-ours:" + key
+				if key == AppliedChecksumKey {
+					want = ourChecksum
+				}
+				if string(retried.Data[key]) != want {
+					t.Errorf("expected merged key %q to carry our value %q, got %q", key, want, retried.Data[key])
+				}
+			}
+			if string(retried.Data["unrelated-key"]) != "keep-me" {
+				t.Errorf("expected a key outside the merge list to be left untouched, got %q", retried.Data["unrelated-key"])
+			}
+		})
 	}
-	if string(latest.Data["unrelated-key"]) != "keep-me" {
-		t.Error("expected a key outside the merge list to be left untouched")
-	}
+}
+
+// TestSecretConflictMergeKeyCount pins the merge key set against the pre-refactor updateSecret.
+func TestSecretConflictMergeKeyCount(t *testing.T) {
+	t.Parallel()
+
 	if len(secretConflictMergeKeys) != 11 {
 		t.Errorf("expected 11 merge keys (matching the pre-refactor updateSecret), got %d: %v", len(secretConflictMergeKeys), secretConflictMergeKeys)
 	}
