@@ -163,6 +163,15 @@ func TestExecuteCapturesStdoutStderrAndExitCode(t *testing.T) {
 			script:         "echo out-line; echo err-line 1>&2; exit 0",
 			wantExitCode:   0,
 		},
+		{
+			// A signal-terminated process never produces an exit status. It must surface as -1,
+			// not 0, or runPeriodicInstructions (which branches on the exit code rather than the
+			// error) would persist the failed run as a success.
+			name:           "signal-terminated process reports exit code -1",
+			combinedOutput: false,
+			script:         "echo out-line; echo err-line 1>&2; kill -9 $$",
+			wantExitCode:   -1,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -996,52 +1005,78 @@ func TestRunPeriodicInstructionsRecordsFailure(t *testing.T) {
 	}
 	t.Parallel()
 
-	a := NewApplyinator(t.TempDir(), false, "", "", nil)
-	executionDir := t.TempDir()
-	now := time.Now()
-	previousSuccess := now.Add(-1000 * time.Second).Format(time.UnixDate)
-	cp := CalculatedPlan{
-		Checksum: "checksum-periodic-fail",
-		Plan: planapi.Plan{
-			PeriodicInstructions: []planapi.PeriodicInstruction{
-				{
-					CommonInstruction: planapi.CommonInstruction{Name: "flaky", Command: "sh", Args: []string{"-c", "exit 3"}},
-					PeriodSeconds:     600,
-				},
-				{
-					CommonInstruction: planapi.CommonInstruction{Name: "should-not-run", Command: "sh", Args: []string{"-c", "exit 0"}},
-				},
-			},
+	testCases := []struct {
+		name         string
+		script       string
+		wantExitCode int
+	}{
+		{
+			name:         "non-zero exit status",
+			script:       "exit 3",
+			wantExitCode: 3,
+		},
+		{
+			// Regression guard: a signal-terminated instruction has no exit status. If execute()
+			// reported it as 0, the run below would be persisted as a success -- clearing
+			// LastFailedRunTime and resetting Failures -- while succeeded=false.
+			name:         "signal-terminated instruction",
+			script:       "kill -9 $$",
+			wantExitCode: -1,
 		},
 	}
-	existing := encodeExistingPeriodicOutput(t, map[string]planapi.PeriodicInstructionOutput{
-		"flaky": {Name: "flaky", LastSuccessfulRunTime: previousSuccess},
-	})
 
-	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
-	if err != nil {
-		t.Fatalf("runPeriodicInstructions returned error: %v", err)
-	}
-	if succeeded {
-		t.Error("expected succeeded=false because the instruction failed")
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	outputs := decodePeriodicOutputs(t, output)
-	got := outputs["flaky"]
-	if got.ExitCode != 3 {
-		t.Errorf("expected ExitCode 3, got %d", got.ExitCode)
-	}
-	if got.Failures != 1 {
-		t.Errorf("expected Failures to increment to 1, got %d", got.Failures)
-	}
-	if got.LastSuccessfulRunTime != previousSuccess {
-		t.Errorf("expected LastSuccessfulRunTime to carry forward the prior success time %q, got %q", previousSuccess, got.LastSuccessfulRunTime)
-	}
-	if got.LastFailedRunTime == "" {
-		t.Error("expected LastFailedRunTime to be set")
-	}
-	if _, ran := outputs["should-not-run"]; ran {
-		t.Error("expected the second instruction to never run after the first failed")
+			a := NewApplyinator(t.TempDir(), false, "", "", nil)
+			executionDir := t.TempDir()
+			now := time.Now()
+			previousSuccess := now.Add(-1000 * time.Second).Format(time.UnixDate)
+			cp := CalculatedPlan{
+				Checksum: "checksum-periodic-fail",
+				Plan: planapi.Plan{
+					PeriodicInstructions: []planapi.PeriodicInstruction{
+						{
+							CommonInstruction: planapi.CommonInstruction{Name: "flaky", Command: "sh", Args: []string{"-c", tc.script}},
+							PeriodSeconds:     600,
+						},
+						{
+							CommonInstruction: planapi.CommonInstruction{Name: "should-not-run", Command: "sh", Args: []string{"-c", "exit 0"}},
+						},
+					},
+				},
+			}
+			existing := encodeExistingPeriodicOutput(t, map[string]planapi.PeriodicInstructionOutput{
+				"flaky": {Name: "flaky", LastSuccessfulRunTime: previousSuccess},
+			})
+
+			output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
+			if err != nil {
+				t.Fatalf("runPeriodicInstructions returned error: %v", err)
+			}
+			if succeeded {
+				t.Error("expected succeeded=false because the instruction failed")
+			}
+
+			outputs := decodePeriodicOutputs(t, output)
+			got := outputs["flaky"]
+			if got.ExitCode != tc.wantExitCode {
+				t.Errorf("expected ExitCode %d, got %d", tc.wantExitCode, got.ExitCode)
+			}
+			if got.Failures != 1 {
+				t.Errorf("expected Failures to increment to 1, got %d", got.Failures)
+			}
+			if got.LastSuccessfulRunTime != previousSuccess {
+				t.Errorf("expected LastSuccessfulRunTime to carry forward the prior success time %q, got %q", previousSuccess, got.LastSuccessfulRunTime)
+			}
+			if got.LastFailedRunTime == "" {
+				t.Error("expected LastFailedRunTime to be set")
+			}
+			if _, ran := outputs["should-not-run"]; ran {
+				t.Error("expected the second instruction to never run after the first failed")
+			}
+		})
 	}
 }
 

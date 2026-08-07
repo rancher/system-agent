@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -602,7 +603,12 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	exitCode := 0
 	waitErr := cmd.Wait()
 	if waitErr != nil {
-		if ee, ok := waitErr.(*exec.ExitError); ok {
+		// A non-ExitError wait failure (the process never produced an exit status) must not be
+		// reported as exit code 0: runPeriodicInstructions branches on the exit code rather than
+		// the error, and would otherwise persist a failed run as a success.
+		exitCode = -1
+		var ee *exec.ExitError
+		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
 		}
 	}
