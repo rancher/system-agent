@@ -165,7 +165,7 @@ func TestListFilesAggregatesErrorsAcrossBases(t *testing.T) {
 		bases:       []string{t.TempDir(), filepath.Join(t.TempDir(), "does-not-exist")},
 	}
 
-	err := w.listFiles(context.Background(), false)
+	err := w.listFiles(context.Background())
 	if err == nil {
 		t.Fatal("expected an aggregated error when one base directory does not exist, got nil")
 	}
@@ -179,7 +179,7 @@ func TestListFilesNoErrorsWhenAllBasesSucceed(t *testing.T) {
 		bases:       []string{t.TempDir(), t.TempDir()},
 	}
 
-	if err := w.listFiles(context.Background(), false); err != nil {
+	if err := w.listFiles(context.Background()); err != nil {
 		t.Fatalf("listFiles returned error: %v", err)
 	}
 }
@@ -213,7 +213,7 @@ func TestWatchFilesCreatesMissingPlanDirectories(t *testing.T) {
 		applyinator: *applyinator.NewApplyinator(t.TempDir(), false, "", "", nil),
 		bases:       []string{missing, nested},
 	}
-	if err := w.listFiles(ctx, false); err != nil {
+	if err := w.listFiles(ctx); err != nil {
 		t.Errorf("expected no error walking the created directories, got %v", err)
 	}
 }

@@ -32,7 +32,7 @@ type ConnectionInfo struct {
 	SecretName string `json:"secretName"`
 }
 
-func Parse(path string, result interface{}) error {
+func Parse(path string, result any) error {
 	if path == "" {
 		return fmt.Errorf("empty file passed")
 	}

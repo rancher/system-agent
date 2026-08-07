@@ -9,8 +9,8 @@ import (
 )
 
 type testResult struct {
-	// Parse decodes YAML via sigs.k8s.io/yaml, which converts YAML to JSON and honours json tags
-	// only -- so a yaml tag here would be inert and misleading.
+	// Parse decodes YAML via sigs.k8s.io/yaml, which converts YAML to JSON and honors JSON tags
+	// only -- so a YAML tag here would be inert and misleading.
 	Foo string `json:"foo"`
 }
 

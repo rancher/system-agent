@@ -34,11 +34,11 @@ test/
 
 ### The three test tiers
 
-| Tier | Location | Build tag | Run with |
-| --- | --- | --- | --- |
-| Unit | `pkg/**/*_test.go` (main module) | `test` | `make test` |
-| E2E | `test/e2e/` (this module) | `e2e` | `make test-e2e` |
-| Integration | `test/integration/` | `ignore` (stripped by the runner) | `make integration-tests` |
+| Tier        | Location                         | Build tag                         | Run with                 |
+|-------------|----------------------------------|-----------------------------------|--------------------------|
+| Unit        | `pkg/**/*_test.go` (main module) | `test`                            | `make test`              |
+| E2E         | `test/e2e/` (this module)        | `e2e`                             | `make test-e2e`          |
+| Integration | `test/integration/`              | `ignore` (stripped by the runner) | `make integration-tests` |
 
 ## Running Tests
 

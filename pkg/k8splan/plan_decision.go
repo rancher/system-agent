@@ -10,70 +10,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// parseLastApplyTime reads LastApplyTimeKey from data, falling back to currentTime when the key
-// is absent or its value cannot be parsed with time.UnixDate.
-func parseLastApplyTime(data map[string][]byte, currentTime time.Time) time.Time {
-	rawLAT, ok := data[LastApplyTimeKey]
-	if !ok {
-		return currentTime
-	}
-	parsed, err := time.Parse(time.UnixDate, string(rawLAT))
-	if err != nil {
-		logrus.Errorf("[k8splan] Error parsing last apply time %s, using current time", string(rawLAT))
-		return currentTime
-	}
-	return parsed
-}
-
-// parseProbePeriodOverride reads ProbePeriodKey (a whole number of seconds) from data, returning
-// current unchanged when the key is absent or its value cannot be parsed.
-func parseProbePeriodOverride(data map[string][]byte, current time.Duration) time.Duration {
-	rawPeriod, ok := data[ProbePeriodKey]
-	if !ok {
-		return current
-	}
-	parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod)))
-	if err != nil {
-		logrus.Errorf("[k8splan] Error parsing duration %ss, using default", string(rawPeriod))
-		return current
-	}
-	return parsedPeriod
-}
-
-// parseProbeStatuses reads and JSON-decodes ProbeStatusesKey from data, returning an empty map
-// when the key is absent or its value cannot be decoded.
-func parseProbeStatuses(data map[string][]byte) map[string]planapi.ProbeStatus {
-	rawProbeStatusByteData, ok := data[ProbeStatusesKey]
-	if !ok {
-		return make(map[string]planapi.ProbeStatus)
-	}
-	var probeStatuses map[string]planapi.ProbeStatus
-	if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
-		logrus.Errorf("[k8splan] Error while parsing probe statuses: %v", err)
-		return make(map[string]planapi.ProbeStatus)
-	}
-	return probeStatuses
-}
-
-// parseFailureCount reads FailureCountKey from data. planAttempt is failureCount+1 when the key
-// is present and non-empty (even if its value fails to parse as a number, matching pre-refactor
-// behavior), or 1 when the key is absent or empty.
-func parseFailureCount(data map[string][]byte) (failureCount, planAttempt int) {
-	rawFailureCount, ok := data[FailureCountKey]
-	if !ok || len(rawFailureCount) == 0 {
-		return 0, 1
-	}
-	if fc, err := strconv.Atoi(string(rawFailureCount)); err == nil {
-		failureCount = fc
-	}
-	return failureCount, failureCount + 1
-}
-
 // planStateResult is the outcome of evaluating the plan-state flow (the flow used when the
 // orchestrator writes plan-state — see the currentPlanState != "" branch in reconcileSecret).
-//
-// This is the seam the pause/cancel design's gate() function will later replace or extend with
-// cancelled/paused/progress-checkpoint handling; it deliberately does not implement any of that.
 type planStateResult struct {
 	NeedsApplied bool
 	// ResetPlanAttempt is true only for PlanStatePending: a freshly delivered plan always starts
@@ -181,6 +119,64 @@ func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRu
 		ClearAppliedChecksum: clearAppliedChecksum,
 		Logs:                 logs,
 	}
+}
+
+// parseLastApplyTime reads LastApplyTimeKey from data, falling back to currentTime when the key
+// is absent or its value cannot be parsed with time.UnixDate.
+func parseLastApplyTime(data map[string][]byte, currentTime time.Time) time.Time {
+	rawLAT, ok := data[LastApplyTimeKey]
+	if !ok {
+		return currentTime
+	}
+	parsed, err := time.Parse(time.UnixDate, string(rawLAT))
+	if err != nil {
+		logrus.Errorf("[k8splan] error parsing last apply time %s, using current time", string(rawLAT))
+		return currentTime
+	}
+	return parsed
+}
+
+// parseProbePeriodOverride reads ProbePeriodKey (a whole number of seconds) from data, returning
+// current unchanged when the key is absent or its value cannot be parsed.
+func parseProbePeriodOverride(data map[string][]byte, current time.Duration) time.Duration {
+	rawPeriod, ok := data[ProbePeriodKey]
+	if !ok {
+		return current
+	}
+	parsedPeriod, err := time.ParseDuration(fmt.Sprintf("%ss", string(rawPeriod)))
+	if err != nil {
+		logrus.Errorf("[k8splan] error parsing duration %ss, using default", string(rawPeriod))
+		return current
+	}
+	return parsedPeriod
+}
+
+// parseProbeStatuses reads and JSON-decodes ProbeStatusesKey from data, returning an empty map
+// when the key is absent or its value cannot be decoded.
+func parseProbeStatuses(data map[string][]byte) map[string]planapi.ProbeStatus {
+	rawProbeStatusByteData, ok := data[ProbeStatusesKey]
+	if !ok {
+		return make(map[string]planapi.ProbeStatus)
+	}
+	var probeStatuses map[string]planapi.ProbeStatus
+	if err := json.Unmarshal(rawProbeStatusByteData, &probeStatuses); err != nil {
+		logrus.Errorf("[k8splan] error while parsing probe statuses: %v", err)
+		return make(map[string]planapi.ProbeStatus)
+	}
+	return probeStatuses
+}
+
+// parseFailureCount reads FailureCountKey from data. planAttempt is failureCount+1 when the key is
+// present, non-empty, and parses as a number; otherwise it is 1 (matching pre-refactor behavior).
+func parseFailureCount(data map[string][]byte) (failureCount, planAttempt int) {
+	rawFailureCount, ok := data[FailureCountKey]
+	if !ok || len(rawFailureCount) == 0 {
+		return 0, 1
+	}
+	if fc, err := strconv.Atoi(string(rawFailureCount)); err == nil {
+		failureCount = fc
+	}
+	return failureCount, failureCount + 1
 }
 
 // parseMaxFailures reads MaxFailuresKey, returning -1 (no threshold) when the key is absent,

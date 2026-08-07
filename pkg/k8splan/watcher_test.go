@@ -174,26 +174,26 @@ func TestConnectWithCAFallback(t *testing.T) {
 	// closed via defer when this parent test function returns. Parallel subtests only actually
 	// run after the parent returns, which would race the deferred Close() against the subtest
 	// bodies.
-	t.Run("succeeds with matching CA data", func(t *testing.T) {
+	t.Run("succeeds with matching CAData", func(t *testing.T) {
 		kc := &rest.Config{Host: server.URL, TLSClientConfig: rest.TLSClientConfig{CAData: append([]byte(nil), caPEM...)}}
 		if err := connectWithCAFallback(context.Background(), kc, true); err != nil {
 			t.Fatalf("expected success, got: %v", err)
 		}
 	})
 
-	t.Run("retries without CA data on unknown authority when not strict", func(t *testing.T) {
+	t.Run("retries without CAData on unknown authority when not strict", func(t *testing.T) {
 		// httptest.NewTLSServer's certificate is self-signed and not in any real trust store, so
 		// the retry (which falls back to system roots) cannot succeed in this test environment
 		// either — it exercises the same "unknown authority" failure a second time. What this
 		// verifies is that the retry was actually attempted: CAData is nullified, and the error
-		// is the "nullified CA data" variant (produced only by the second validateKC call), not
+		// is the "nullified CAData" variant (produced only by the second validateKC call), not
 		// the immediate non-retry error.
 		kc := &rest.Config{Host: server.URL, TLSClientConfig: rest.TLSClientConfig{CAData: append([]byte(nil), wrongCAPEM...)}}
 		err := connectWithCAFallback(context.Background(), kc, false)
 		if err == nil {
 			t.Fatal("expected an error (the retry also fails against an untrusted test certificate), got nil")
 		}
-		if !strings.Contains(err.Error(), "nullified CA data") {
+		if !strings.Contains(err.Error(), "nullified CAData") {
 			t.Errorf("expected the retry's distinct error variant, got: %v", err)
 		}
 		if kc.CAData != nil {
@@ -207,7 +207,7 @@ func TestConnectWithCAFallback(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected an error, got nil")
 		}
-		if strings.Contains(err.Error(), "nullified CA data") {
+		if strings.Contains(err.Error(), "nullified CAData") {
 			t.Error("expected the non-retry error variant when strict verify prevents the fallback retry")
 		}
 		if kc.CAData == nil {

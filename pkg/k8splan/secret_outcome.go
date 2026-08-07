@@ -32,6 +32,7 @@ func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decision
 	failed := (in.NeedsApplied && !in.OneTimeApplySucceeded) || (!in.NeedsApplied && in.WasFailedPlan)
 	if failed {
 		logs := []decisionLog{debugDecision("one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", in.Checksum)}
+		// Update the corresponding counts/outputs
 		updates[FailedChecksumKey] = []byte(in.Checksum)
 		if in.NeedsApplied {
 			updates[FailureCountKey] = incrementCount(in.PriorFailureCount)
@@ -39,15 +40,19 @@ func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decision
 			updates[SuccessCountKey] = []byte("0")
 			updates[LastApplyTimeKey] = []byte(in.CurrentTime.Format(time.UnixDate))
 			if in.UsesPlanState {
+				// In the new flow the agent reports failure immediately; the orchestrator
+				// decides whether to retry by resetting plan-state to pending.
 				updates[planapi.PlanStateKey] = []byte(planapi.PlanStateFailed)
 			}
 		}
 		return updates, logs
 	}
 
+	// secret.Data should always have already been initialized because otherwise we would have failed out above.
 	logs := []decisionLog{debugDecision("writing an applied checksum value of %s to the remote plan", in.Checksum)}
 	updates[AppliedChecksumKey] = []byte(in.Checksum)
 	updates[AppliedOutputKey] = in.OneTimeOutput
+	// On a successful application, we should blank out the corresponding failure keys.
 	updates[FailureCountKey] = []byte("0")
 	updates[FailedOutputKey] = []byte{}
 	updates[FailedChecksumKey] = []byte{}

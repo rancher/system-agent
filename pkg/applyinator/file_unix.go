@@ -10,7 +10,7 @@ import (
 
 // reconcileFilePermissions abstracts out the file permissions checks that only works on Linux.
 func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {
-	logrus.Debugf("[applyinator] Reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)
+	logrus.Debugf("[applyinator] reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)
 	if err := os.Chmod(path, perm); err != nil {
 		return err
 	}

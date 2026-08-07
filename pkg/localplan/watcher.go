@@ -30,7 +30,7 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 	// appliedPlanDir: plans can carry secrets.
 	for _, base := range bases {
 		if err := os.MkdirAll(base, 0700); err != nil {
-			logrus.Errorf("[localplan] Failed to create local plan directory %s: %v", base, err)
+			logrus.Errorf("[localplan] failed to create local plan directory %s: %v", base, err)
 		}
 	}
 
@@ -56,12 +56,9 @@ const (
 )
 
 func (w *watcher) start(ctx context.Context) {
-	force := true
 	for {
-		if err := w.listFiles(ctx, force); err == nil {
-			force = false
-		} else {
-			logrus.Errorf("[localplan] Failed to process config: %v", err)
+		if err := w.listFiles(ctx); err != nil {
+			logrus.Errorf("[localplan] failed to process config: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -71,17 +68,17 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
-func (w *watcher) listFiles(ctx context.Context, force bool) error {
+func (w *watcher) listFiles(ctx context.Context) error {
 	var errs []error
 	for _, base := range w.bases {
-		if err := w.listFilesIn(ctx, base, force); err != nil {
+		if err := w.listFilesIn(ctx, base); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
+func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -97,8 +94,8 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 	keys := make([]string, len(files))
 	keyIndex := 0
 	for path, file := range files {
-		if strings.HasSuffix(file.Name(), ".skip") {
-			skips[strings.TrimSuffix(file.Name(), ".skip")] = true
+		if before, ok := strings.CutSuffix(file.Name(), ".skip"); ok {
+			skips[before] = true
 		}
 		keys[keyIndex] = path
 		keyIndex++
@@ -110,31 +107,31 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 			continue
 		}
 
-		logrus.Debugf("[localplan] Processing file %s", path)
+		logrus.Debugf("[localplan] processing file %s", path)
 
 		cp, err := w.parsePlan(path)
 		if err != nil {
-			logrus.Errorf("[localplan] Error received when parsing plan: %v", err)
+			logrus.Errorf("[localplan] error received when parsing plan: %v", err)
 			continue
 		}
 
-		logrus.Debugf("[localplan] Plan from file %s was: %v", path, cp.Plan)
+		logrus.Debugf("[localplan] plan from file %s was: %v", path, cp.Plan)
 
 		posFile := positionFileName(path)
 		posData, err := readPositionFile(posFile)
 		if err != nil {
-			logrus.Errorf("[localplan] Error reading position file: %v", err)
+			logrus.Errorf("[localplan] error reading position file: %v", err)
 		}
 
 		planPosition, err := parsePositionData(posData)
 		if err != nil { // this is going to be mad that its empty
-			logrus.Errorf("[localplan] Error parsing position data: %v", err)
+			logrus.Errorf("[localplan] error parsing position data: %v", err)
 		}
 
 		needsApplied, probeStatuses, err := w.needsApplication(planPosition, cp)
 
 		if err != nil {
-			logrus.Errorf("[localplan] Error while determining if node plan needed application: %v", err)
+			logrus.Errorf("[localplan] error while determining if node plan needed application: %v", err)
 			continue
 		}
 
@@ -152,7 +149,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 
 		applyOutput, err := w.applyinator.Apply(ctx, input)
 		if err != nil {
-			logrus.Errorf("[localplan] Error when applying node plan from file: %s: %v", path, err)
+			logrus.Errorf("[localplan] error when applying node plan from file: %s: %v", path, err)
 			continue
 		}
 
@@ -166,13 +163,13 @@ func (w *watcher) listFilesIn(ctx context.Context, base string, _ bool) error {
 
 		newPPData, err := json.Marshal(npp)
 		if err != nil {
-			logrus.Errorf("[localplan] Error marshalling new plan position data: %v", err)
+			logrus.Errorf("[localplan] error marshalling new plan position data: %v", err)
 		}
 
 		if !bytes.Equal(newPPData, posData) {
-			logrus.Debugf("[localplan] Writing position data")
+			logrus.Debugf("[localplan] writing position data")
 			if err := os.WriteFile(posFile, newPPData, 0600); err != nil {
-				logrus.Errorf("[localplan] Error encountered when writing position file for %s: %v", path, err)
+				logrus.Errorf("[localplan] error encountered when writing position file for %s: %v", path, err)
 			}
 		}
 	}
@@ -192,9 +189,9 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 		return applyinator.CalculatedPlan{}, err
 	}
 
-	logrus.Tracef("[localplan] Byte data: %v", b)
+	logrus.Tracef("[localplan] byte data: %v", b)
 
-	logrus.Debugf("[localplan] Plan string was %s", string(b))
+	logrus.Debugf("[localplan] plan string was %s", string(b))
 
 	cp, err := applyinator.CalculatePlan(b)
 	if err != nil {
@@ -212,7 +209,7 @@ func readPositionFile(positionFile string) ([]byte, error) {
 	data, err := os.ReadFile(positionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logrus.Debugf("[localplan] Position file %s did not exist", positionFile)
+			logrus.Debugf("[localplan] position file %s did not exist", positionFile)
 			return []byte{}, nil
 		}
 		return []byte{}, err
@@ -234,10 +231,10 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]planapi.ProbeStatus, error) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {
-		logrus.Debugf("[localplan] Plan checksum (%s) matched", computedChecksum)
+		logrus.Debugf("[localplan] plan checksum (%s) matched", computedChecksum)
 		return false, planPosition.ProbeStatus, nil
 	}
-	logrus.Infof("[localplan] Plan checksums differed (%s:%s)", computedChecksum, planPosition.AppliedChecksum)
+	logrus.Infof("[localplan] plan checksums differed (computed %s, applied %s)", computedChecksum, planPosition.AppliedChecksum)
 
 	// Default to needing application.
 	return true, planPosition.ProbeStatus, nil

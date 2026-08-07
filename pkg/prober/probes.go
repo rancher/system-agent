@@ -15,21 +15,21 @@ func DoProbes(probes map[string]planapi.Probe, probeStatuses map[string]planapi.
 		wg.Add(1)
 		go func(probeName string, probe planapi.Probe, wg *sync.WaitGroup) {
 			defer wg.Done()
-			logrus.Debugf("[prober] Running probe %s", probeName)
+			logrus.Debugf("[prober] running probe %s", probeName)
 			mu.Lock()
-			logrus.Tracef("[prober] Retrieving existing probe status for %s from map if existing", probeName)
+			logrus.Tracef("[prober] retrieving existing probe status for %s from map if existing", probeName)
 			probeStatus, ok := probeStatuses[probeName]
 			mu.Unlock()
 			if !ok {
-				logrus.Tracef("[prober] Probe status for %s was not present in map, initializing", probeName)
+				logrus.Tracef("[prober] probe status for %s was not present in map, initializing", probeName)
 				probeStatus = planapi.ProbeStatus{}
 			}
 			probe.Name = probeName
 			if err := DoProbe(probe, &probeStatus, initial); err != nil {
-				logrus.Errorf("[prober] Error running probe %s: %v", probeName, err)
+				logrus.Errorf("[prober] error running probe %s: %v", probeName, err)
 			}
 			mu.Lock()
-			logrus.Tracef("[prober] Writing probe status for %s to map", probeName)
+			logrus.Tracef("[prober] writing probe status for %s to map", probeName)
 			probeStatuses[probeName] = probeStatus
 			mu.Unlock()
 		}(probeName, probe, &wg)

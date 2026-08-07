@@ -29,7 +29,7 @@ func writeBase64ContentToFile(file planapi.File) error {
 		return err
 	}
 	if file.Permissions == "" {
-		logrus.Debugf("[applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
+		logrus.Debugf("[applyinator] requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultFilePermissions)
 	}
 	fileMode, err := resolvePermissions(file.Permissions, defaultFilePermissions)
 	if err != nil {
@@ -45,7 +45,7 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 
 	existing, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(existing, content) {
-		logrus.Debugf("[applyinator] File %s does not need to be written", path)
+		logrus.Debugf("[applyinator] file %s does not need to be written", path)
 	} else {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, defaultDirectoryPermissions); err != nil {
@@ -63,7 +63,7 @@ func createDirectory(file planapi.File) error {
 		return fmt.Errorf("%s was not a directory", file.Path)
 	}
 	if file.Permissions == "" {
-		logrus.Debugf("[applyinator] Requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
+		logrus.Debugf("[applyinator] requested file permission for %s was %s, defaulting to %d", file.Path, file.Permissions, defaultDirectoryPermissions)
 	}
 	fileMode, err := resolvePermissions(file.Permissions, defaultDirectoryPermissions)
 	if err != nil {
@@ -79,12 +79,12 @@ func createDirectory(file planapi.File) error {
 
 func removeFile(file planapi.File) error {
 	if file.Directory {
-		logrus.Debugf("[applyinator] Removing directory %s", file.Path)
+		logrus.Debugf("[applyinator] removing directory %s", file.Path)
 		if err := os.RemoveAll(file.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	} else {
-		logrus.Debugf("[applyinator] Removing file %s", file.Path)
+		logrus.Debugf("[applyinator] removing file %s", file.Path)
 		if err := os.Remove(file.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}

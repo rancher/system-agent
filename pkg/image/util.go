@@ -38,14 +38,6 @@ type Utility struct {
 	fallbackRegistriesFiles []string
 }
 
-// firstNonEmpty returns v if it is non-empty, otherwise def.
-func firstNonEmpty(v, def string) string {
-	if v != "" {
-		return v
-	}
-	return def
-}
-
 func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProviderBinDir, agentRegistriesFile string) *Utility {
 	u := Utility{
 		imagesDir:                     firstNonEmpty(imagesDir, defaultImagesDir),
@@ -55,7 +47,7 @@ func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProvide
 		fallbackRegistriesFiles:       []string{rke2RegistriesFile, k3sRegistriesFile},
 	}
 
-	logrus.Debugf("[image] Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
+	logrus.Debugf("[image] instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
 
 	return &u
 }
@@ -88,8 +80,8 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			return err
 		}
 
-		if _, err := os.Stat(u.imageCredentialProviderConfig); os.IsExist(err) {
-			logrus.Debugf("[image] Image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
+		if _, err := os.Stat(u.imageCredentialProviderConfig); err == nil {
+			logrus.Debugf("[image] image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			plugins, err := plugin.RegisterCredentialProviderPlugins(u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			if err != nil {
 				return err
@@ -104,7 +96,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			}
 		}
 
-		logrus.Infof("[image] Pulling image %s", image.Name())
+		logrus.Infof("[image] pulling image %s", image.Name())
 		img, err = registry.Image(image,
 			remote.WithPlatform(v1.Platform{
 				Architecture: runtime.GOARCH,
@@ -131,4 +123,12 @@ func findFirstExisting(candidates ...string) string {
 		}
 	}
 	return ""
+}
+
+// firstNonEmpty returns v if it is non-empty, otherwise def.
+func firstNonEmpty(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }
