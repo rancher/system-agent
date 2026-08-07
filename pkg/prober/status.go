@@ -5,10 +5,15 @@ import planapi "github.com/rancher/rancher/pkg/plan"
 const (
 	defaultSuccessThreshold = 1
 	defaultFailureThreshold = 3
+	// defaultTimeoutSeconds matches the documented default on planapi.Probe.TimeoutSeconds. It
+	// must be applied: a zero timeout means http.Client{Timeout: 0}, i.e. no timeout at all, and a
+	// hung probe blocks DoProbes' WaitGroup, stalling the watcher's reconcile loop indefinitely.
+	defaultTimeoutSeconds = 1
 )
 
-// resolveThreshold returns configured if it is non-zero, otherwise def.
-func resolveThreshold(configured, def int) int {
+// orDefault returns configured if it is non-zero, otherwise def. Used for the probe schema's
+// optional integer fields, all of which treat zero as "unset".
+func orDefault(configured, def int) int {
 	if configured == 0 {
 		return def
 	}

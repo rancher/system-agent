@@ -22,8 +22,8 @@ func TestResolveThreshold(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := resolveThreshold(tt.configured, tt.def); got != tt.want {
-				t.Errorf("resolveThreshold(%d, %d) = %d, want %d", tt.configured, tt.def, got, tt.want)
+			if got := orDefault(tt.configured, tt.def); got != tt.want {
+				t.Errorf("orDefault(%d, %d) = %d, want %d", tt.configured, tt.def, got, tt.want)
 			}
 		})
 	}

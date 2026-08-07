@@ -49,9 +49,10 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 			logrus.Debugf("[prober] Adding CA certificate %s for probe %s", probe.HTTPGetAction.CACert, probe.Name)
 			caCert, err := os.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
+				// Skip the append rather than falling through with a nil caCert, which would
+				// produce a second, misleading "error appending" log on top of the real cause.
 				logrus.Errorf("[prober] Error loading CA cert %s for probe %s: %v", probe.HTTPGetAction.CACert, probe.Name, err)
-			}
-			if !caCertPool.AppendCertsFromPEM(caCert) {
+			} else if !caCertPool.AppendCertsFromPEM(caCert) {
 				logrus.Errorf("[prober] Error while appending CA cert to pool for probe %s", probe.Name)
 			}
 		}
@@ -70,7 +71,7 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 		return err
 	}
 
-	probeDuration := time.Duration(probe.TimeoutSeconds) * time.Second
+	probeDuration := time.Duration(orDefault(probe.TimeoutSeconds, defaultTimeoutSeconds)) * time.Second
 	logrus.Tracef("[prober] Probe %s timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
 
 	probeResult, output, err := k8sProber.Probe(probeRequest, probeDuration)
@@ -81,8 +82,8 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 
 	logrus.Debugf("[prober] Probe %s output was %s", probe.Name, output)
 
-	successThreshold := resolveThreshold(probe.SuccessThreshold, defaultSuccessThreshold)
-	failureThreshold := resolveThreshold(probe.FailureThreshold, defaultFailureThreshold)
+	successThreshold := orDefault(probe.SuccessThreshold, defaultSuccessThreshold)
+	failureThreshold := orDefault(probe.FailureThreshold, defaultFailureThreshold)
 
 	succeeded := probeResult == k8sprobe.Success
 	if succeeded {
