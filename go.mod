@@ -48,16 +48,16 @@ require (
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.2.9
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260508124826-0b6b24d9811e
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260807185439-3d7396a2b7d3
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.0
+	github.com/rancher/wrangler/v3 v3.7.1-rc.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
-	golang.org/x/sync v0.20.0
-	k8s.io/api v0.36.0
-	k8s.io/apimachinery v0.36.0
-	k8s.io/client-go v0.36.0
+	golang.org/x/sync v0.22.0
+	k8s.io/api v0.36.2
+	k8s.io/apimachinery v0.36.2
+	k8s.io/client-go v0.36.1
 	k8s.io/kubernetes v1.36.0
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -143,13 +143,13 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
-	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
