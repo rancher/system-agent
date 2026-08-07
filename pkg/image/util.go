@@ -32,6 +32,10 @@ type Utility struct {
 	imageCredentialProviderConfig string
 	imageCredentialProviderBinDir string
 	agentRegistriesFile           string
+	// fallbackRegistriesFiles are the distro-managed registry configs consulted, in order, when
+	// agentRegistriesFile does not exist. Held as a field rather than read from package constants
+	// so findRegistriesYaml can be tested without depending on the host's filesystem.
+	fallbackRegistriesFiles []string
 }
 
 // firstNonEmpty returns v if it is non-empty, otherwise def.
@@ -48,6 +52,7 @@ func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProvide
 		imageCredentialProviderConfig: firstNonEmpty(imageCredentialProviderConfig, defaultImageCredentialProviderConfig),
 		imageCredentialProviderBinDir: firstNonEmpty(imageCredentialProviderBinDir, defaultImageCredentialProviderBinDir),
 		agentRegistriesFile:           firstNonEmpty(agentRegistriesFile, defaultAgentRegistriesFile),
+		fallbackRegistriesFiles:       []string{rke2RegistriesFile, k3sRegistriesFile},
 	}
 
 	logrus.Debugf("[image] Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
@@ -115,7 +120,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 }
 
 func (u *Utility) findRegistriesYaml() string {
-	return findFirstExisting(u.agentRegistriesFile, rke2RegistriesFile, k3sRegistriesFile)
+	return findFirstExisting(append([]string{u.agentRegistriesFile}, u.fallbackRegistriesFiles...)...)
 }
 
 // findFirstExisting returns the first path in candidates that exists on disk, or "" if none do.

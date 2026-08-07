@@ -2,6 +2,7 @@ package image
 
 import (
 	"os"
+	"reflect"
 	"path/filepath"
 	"testing"
 )
@@ -102,21 +103,62 @@ func TestFindRegistriesYamlPrefersAgentRegistriesFile(t *testing.T) {
 
 	dir := t.TempDir()
 	agentFile := filepath.Join(dir, "agent-registries.yaml")
-	if err := os.WriteFile(agentFile, []byte("{}"), 0600); err != nil {
-		t.Fatal(err)
+	rke2File := filepath.Join(dir, "rke2-registries.yaml")
+	for _, f := range []string{agentFile, rke2File} {
+		if err := os.WriteFile(f, []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	u := &Utility{agentRegistriesFile: agentFile}
+	// Both exist, so the agent file must win.
+	u := &Utility{agentRegistriesFile: agentFile, fallbackRegistriesFiles: []string{rke2File}}
 	if got := u.findRegistriesYaml(); got != agentFile {
 		t.Errorf("findRegistriesYaml() = %q, want %q", got, agentFile)
+	}
+}
+
+func TestFindRegistriesYamlFallsBackInOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	rke2File := filepath.Join(dir, "rke2-registries.yaml")
+	k3sFile := filepath.Join(dir, "k3s-registries.yaml")
+	for _, f := range []string{rke2File, k3sFile} {
+		if err := os.WriteFile(f, []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	u := &Utility{
+		agentRegistriesFile:     filepath.Join(dir, "does-not-exist.yaml"),
+		fallbackRegistriesFiles: []string{rke2File, k3sFile},
+	}
+	if got := u.findRegistriesYaml(); got != rke2File {
+		t.Errorf("findRegistriesYaml() = %q, want the first existing fallback %q", got, rke2File)
 	}
 }
 
 func TestFindRegistriesYamlReturnsEmptyWhenNoneExist(t *testing.T) {
 	t.Parallel()
 
-	u := &Utility{agentRegistriesFile: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
+	// The fallback paths are injected rather than read from the package constants, so this does
+	// not depend on whether the host happens to have rke2 or k3s installed.
+	dir := t.TempDir()
+	u := &Utility{
+		agentRegistriesFile:     filepath.Join(dir, "does-not-exist.yaml"),
+		fallbackRegistriesFiles: []string{filepath.Join(dir, "no-rke2.yaml"), filepath.Join(dir, "no-k3s.yaml")},
+	}
 	if got := u.findRegistriesYaml(); got != "" {
-		t.Errorf("findRegistriesYaml() = %q, want empty string (rke2/k3s registries files are not expected to exist on a test host)", got)
+		t.Errorf("findRegistriesYaml() = %q, want empty string", got)
+	}
+}
+
+func TestNewUtilityWiresDistroRegistriesFallbacks(t *testing.T) {
+	t.Parallel()
+
+	u := NewUtility("", "", "", "")
+	want := []string{rke2RegistriesFile, k3sRegistriesFile}
+	if !reflect.DeepEqual(u.fallbackRegistriesFiles, want) {
+		t.Errorf("expected NewUtility to wire the distro registry fallbacks in order %v, got %v", want, u.fallbackRegistriesFiles)
 	}
 }
