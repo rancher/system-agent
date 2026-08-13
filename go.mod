@@ -2,6 +2,8 @@ module github.com/rancher/system-agent
 
 go 1.25.0
 
+toolchain go1.25.12
+
 replace (
 	// replace those modules from go.opentelemetry.io to eliminate CVEs
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0
