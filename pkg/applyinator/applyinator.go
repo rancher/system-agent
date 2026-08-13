@@ -50,6 +50,9 @@ const applyinatorActiveInterlockFile = "applyinator-active"
 const restartPendingTimeout = 5 * time.Minute // Wait a maximum of 5 minutes before force-applying a plan if a restart is pending.
 const deleteFileAction = "delete"
 
+const defaultEffectivePeriod = 600 // 10 minutes
+const defaultFailureCooldown = 6
+
 func NewApplyinator(workDir string, preserveWorkDir bool, appliedPlanDir, interlockDir string, imageUtil *image.Utility) *Applyinator {
 	return &Applyinator{
 		mu:              &sync.Mutex{},
@@ -202,7 +205,7 @@ func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutpu
 	if t, ok := parseUnixTimeOrZero("last successful run time", prev.LastSuccessfulRunTime); ok {
 		effectivePeriod := periodSeconds
 		if effectivePeriod == 0 {
-			effectivePeriod = 600
+			effectivePeriod = defaultEffectivePeriod
 		}
 		if now.Before(t.Add(time.Second*time.Duration(effectivePeriod))) && !forced {
 			logrus.Debugf("[applyinator] not running periodic instruction as period duration has not elapsed since last successful run")
@@ -214,8 +217,8 @@ func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutpu
 		if t, ok := parseUnixTimeOrZero("last failed run time", prev.LastFailedRunTime); ok {
 			failures = prev.Failures
 			failureCooldown := failures
-			if failureCooldown > 6 {
-				failureCooldown = 6
+			if failureCooldown > defaultFailureCooldown {
+				failureCooldown = defaultFailureCooldown
 			} else if failureCooldown == 0 {
 				failureCooldown = 1
 			}
