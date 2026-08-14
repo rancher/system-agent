@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.25
+# syntax=docker/dockerfile:1.4
 
 # Copyright © 2025 SUSE LLC
 #
