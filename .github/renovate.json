@@ -4,10 +4,19 @@
   ],
   "baseBranchPatterns": [
       "$default",
+      "release/v2.15",
       "release/v2.14",
       "release/v2.13"
   ],
   "packageRules": [
+    {
+      "matchBaseBranches": [
+        "release/v2.15"
+      ],
+      "extends": [
+        "github>rancher/renovate-config//rancher-2.15#release"
+      ]
+    },
     {
       "matchBaseBranches": [
         "release/v2.14"
