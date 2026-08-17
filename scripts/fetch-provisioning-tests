@@ -30,9 +30,9 @@ docker cp "$container_id":/usr/bin/k3s "$RANCHER_DIR/bin/k3s"
 docker cp "$container_id":/usr/bin/rancher-machine "$RANCHER_DIR/bin/rancher-machine"
 docker rm "$container_id"
 
-# Tag the image as rancher/rancher:dev so provisioning-tests skips building
+# Tag the image as rancher/rancher:head so provisioning-tests skips building
 # Rancher from source (it checks for rancher/rancher:$TAG where TAG=dev).
-docker tag "$RANCHER_IMAGE" rancher/rancher:dev
+docker tag "$RANCHER_IMAGE" rancher/rancher:head
 
 popd
 

@@ -35,7 +35,7 @@ jobs:
           sudo ip addr add 172.17.0.2/32 dev docker0
       - name: Set up k3s binaries and CNI plugins
         env:
-          CATTLE_K3S_VERSION: v1.35.3-k3s1
+          CATTLE_K3S_VERSION: v1.36.1-k3s1
         run: |
           container_id=$(sudo docker create rancher/k3s:${CATTLE_K3S_VERSION})
           for bin in blkid bandwidth cni conntrack containerd containerd-shim-runc-v2 ethtool firewall ip ipset k3s losetup pigz runc; do
