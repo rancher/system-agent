@@ -22,7 +22,7 @@ fi
 mkdir -p "$RANCHER_DIR/bin"
 
 # Extract the rancher binary from the container image.
-RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.15.0}
+RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.16-c234bc1ccd804c9a00425c6cf7f9a4ead1120958-head}
 docker pull "$RANCHER_IMAGE"
 container_id=$(docker create "$RANCHER_IMAGE")
 docker cp "$container_id":/usr/bin/rancher "$RANCHER_DIR/bin/rancher"
