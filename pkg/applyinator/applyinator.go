@@ -107,10 +107,15 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	if a.interlockDir != "" {
 		restartPendingInterlockFilePath := filepath.Join(a.interlockDir, restartPendingInterlockFile)
 		applyinatorActiveInterlockFilePath := filepath.Join(a.interlockDir, applyinatorActiveInterlockFile)
-		// First off, remove check and remove the active interlock as the applyinator is not actually active
-		if _, err := os.Stat(applyinatorActiveInterlockFile); err == nil {
-			err = os.Remove(applyinatorActiveInterlockFile)
-			if err != nil {
+		// First off, check and remove the active interlock as the applyinator is not actually active.
+		// The file is only meaningful while its writer is still running: this process is the only
+		// thing that creates it, so anything found here was left by an agent that no longer exists.
+		if contents, err := os.ReadFile(applyinatorActiveInterlockFilePath); err == nil {
+			if owner, ok := parseInterlockOwner(contents); ok && owner.PID != os.Getpid() && owner.isAlive() {
+				return output, fmt.Errorf("another system-agent process (pid %d) is applying a plan; refusing to apply concurrently", owner.PID)
+			}
+			logrus.Warnf("[Applyinator] removing stale active interlock file %s left by a previous agent", applyinatorActiveInterlockFilePath)
+			if err := os.Remove(applyinatorActiveInterlockFilePath); err != nil && !os.IsNotExist(err) {
 				logrus.Errorf("unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 			}
 		}
@@ -141,7 +146,7 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		}
 
 		// At this point, there is no restart-pending and we can continue with applyinator reconciliation, so create the applyinator-active file
-		err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(nowUnixTimeString), 0600)
+		err := os.WriteFile(applyinatorActiveInterlockFilePath, newInterlockOwner(now).marshal(), 0600)
 		if err != nil {
 			logrus.Errorf("unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 		}

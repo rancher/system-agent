@@ -592,6 +592,7 @@ RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
+ExecStartPre=-/bin/rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
 
@@ -908,16 +909,24 @@ create_env_file() {
 }
 
 ensure_applyinator_not_active() {
+    FILE_APPLYINATOR="${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active"
     i=1
     while [ "${i}" -ne "${APPLYINATOR_ACTIVE_WAIT_COUNT}" ]; do
-      if [ -f "${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active" ]; then
+        [ -f "${FILE_APPLYINATOR}" ] || return 0
+        # The agent stamps this file with its pid. If that process is gone the file
+        # is a leftover, so there is nothing to wait for.
+        _pid=$(sed -n 's/^pid=//p' "${FILE_APPLYINATOR}" 2>/dev/null | head -1)
+        if [ -n "${_pid}" ] && ! kill -0 "${_pid}" 2>/dev/null; then
+            info "Active plan interlock owned by pid ${_pid}, which is no longer running. Removing stale interlock file."
+            rm -f "${FILE_APPLYINATOR}"
+            return 0
+        fi
         i=$((i + 1))
         info "Active plan reconciliation detected. Sleeping for 5 seconds and retrying check"
         sleep 5
-        continue
-      fi
-      break
     done
+    warn "Ignoring active plan interlock ${FILE_APPLYINATOR} after timeout; removing it."
+    rm -f "${FILE_APPLYINATOR}"
 }
 
 do_install() {
