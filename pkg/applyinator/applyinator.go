@@ -481,6 +481,31 @@ func (a *Applyinator) writePlanToDisk(now time.Time, plan *CalculatedPlan) error
 	return writeContentToFile(filepath.Join(a.appliedPlanDir, file), os.Getuid(), os.Getgid(), 0600, anpString)
 }
 
+// Drain blocks until any in-flight Apply completes or ctx expires, then
+// guarantees the active interlock file is gone. Call it after the top-level
+// context is cancelled so a SIGTERM does not leave an interlock behind.
+func (a *Applyinator) Drain(ctx context.Context) {
+	if a.interlockDir == "" {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+		logrus.Debugf("[Applyinator] drain complete, no apply in flight")
+	case <-ctx.Done():
+		logrus.Warnf("[Applyinator] drain timed out waiting for in-flight apply; clearing active interlock anyway")
+	}
+	path := filepath.Join(a.interlockDir, applyinatorActiveInterlockFile)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logrus.Errorf("unable to remove applyinator active interlock file %s during drain: %v", path, err)
+	}
+}
+
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction planapi.CommonInstruction, combinedOutput bool, attempt int) ([]byte, []byte, int, error) {
 	if instruction.Image == "" {
 		logrus.Infof("[Applyinator] No image provided, creating empty working directory %s", executionDir)

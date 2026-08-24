@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mattn/go-colorable"
 	"github.com/sirupsen/logrus"
@@ -23,6 +25,10 @@ const (
 	cattleAgentConfigEnv       = "CATTLE_AGENT_CONFIG"
 	cattleAgentStrictVerifyEnv = "CATTLE_AGENT_STRICT_VERIFY"
 	defaultConfigFile          = "/etc/rancher/agent/config.yaml"
+
+	// applyDrainTimeout bounds how long shutdown waits for an in-flight apply.
+	// wrangler hard-exits on a second signal, so this cannot be open-ended.
+	applyDrainTimeout = 30 * time.Second
 )
 
 func main() {
@@ -125,6 +131,13 @@ func run(_ *cli.Context) error {
 	}
 
 	<-topContext.Done()
+
+	// Give an in-flight Apply a bounded window to finish and clear its interlock
+	// before exiting. topContext is already cancelled here, so the drain needs a
+	// context of its own.
+	drainCtx, cancel := context.WithTimeout(context.Background(), applyDrainTimeout)
+	defer cancel()
+	applyinator.Drain(drainCtx)
 	return nil
 }
 
