@@ -929,6 +929,24 @@ ensure_applyinator_not_active() {
     rm -f "${FILE_APPLYINATOR}"
 }
 
+write_interlock_owner() {
+    _boot=""
+    if [ -r /proc/sys/kernel/random/boot_id ]; then
+        _boot=$(cat /proc/sys/kernel/random/boot_id)
+    fi
+    # Format must match interlockOwner.marshal() in pkg/applyinator/interlock.go.
+    # LC_ALL=C keeps the day/month names parseable by Go's time.UnixDate, and the
+    # timestamp is written in UTC with a literal "UTC" zone: Go's UnixDate layout
+    # cannot parse a numeric zone (glibc %Z emits e.g. "+0530" where the zone has
+    # no abbreviation), and it resolves an unknown abbreviation like "CEST" to a
+    # zero offset, which would skew the timeout window.
+    # No start= field is written here: the agent treats a missing one as "unknown"
+    # and falls back to PID-only liveness, which is sufficient for the short,
+    # trap-guarded window the installer holds this file.
+    printf 'pid=%s\nboot=%s\ntime=%s\n' "$$" "${_boot}" "$(LC_ALL=C date -u '+%a %b %e %H:%M:%S UTC %Y')" > "$1"
+    chmod 0600 "$1"
+}
+
 do_install() {
     if [ $(id -u) != 0 ]; then
       fatal "This script must be run as root."
@@ -940,7 +958,11 @@ do_install() {
     ensure_directories
     verify_downloader curl || fatal "can not find curl for downloading files"
 
-    touch ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
+    # Stamp the file with this shell's identity so the agent can tell a live
+    # installer from one that was killed, and remove it on any exit path — every
+    # fatal between here and the final rm previously leaked it.
+    write_interlock_owner ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
+    trap 'rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending' EXIT INT TERM
     ensure_applyinator_not_active
 
     if [ -z "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') = "true" ]; then

@@ -120,28 +120,53 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 			}
 		}
 
-		if _, err := os.Stat(restartPendingInterlockFilePath); err == nil {
-			// check the restart pending interlock file to see if we've passed our threshold for blocking
-			fileContents, err := os.ReadFile(restartPendingInterlockFilePath)
-			if err != nil {
-				return output, fmt.Errorf("unable to read restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
-			}
-			// Parse the time out of the file and determine if we have passed our time threshold
-			t, err := time.Parse(time.UnixDate, string(fileContents))
-			if err != nil {
-				// If we are unable to parse the first observed time out of the file, write "now" as the first observed time of the file.
-				if err := os.WriteFile(restartPendingInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+		if contents, err := os.ReadFile(restartPendingInterlockFilePath); err == nil {
+			owner, ok := parseInterlockOwner(contents)
+			switch {
+			case ok && !owner.isAlive():
+				// The installer that created this is gone — it was killed between
+				// creating the file and its final rm. Clear it rather than serving
+				// out the full restartPendingTimeout.
+				logrus.Warnf("[Applyinator] removing restart pending interlock file %s left by dead pid %d", restartPendingInterlockFilePath, owner.PID)
+				if err := os.Remove(restartPendingInterlockFilePath); err != nil && !os.IsNotExist(err) {
+					logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+				}
+			case ok && owner.Written.IsZero():
+				// Owner is alive but the file carries no usable timestamp, so the
+				// timeout has no defined start. Stamp our own observation time —
+				// preserving the owner fields so liveness still works — and block.
+				stamped := owner
+				stamped.Written = now
+				if err := os.WriteFile(restartPendingInterlockFilePath, stamped.marshal(), 0600); err != nil {
 					return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
 				}
 				return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", restartPendingTimeout.String())
-			}
-			if now.Before(t.Add(restartPendingTimeout)) {
-				return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", t.Add(restartPendingTimeout).Sub(now).String())
-			}
-			// remove the restart pending file
-			err = os.Remove(restartPendingInterlockFilePath)
-			if err != nil {
-				logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+			case ok && now.Before(owner.Written.Add(restartPendingTimeout)):
+				return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", owner.Written.Add(restartPendingTimeout).Sub(now).String())
+			case ok:
+				// A live installer cannot block applies forever: past the cap, force through.
+				logrus.Warnf("[Applyinator] restart pending interlock file %s exceeded %s; ignoring", restartPendingInterlockFilePath, restartPendingTimeout)
+				if err := os.Remove(restartPendingInterlockFilePath); err != nil && !os.IsNotExist(err) {
+					logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+				}
+			default:
+				// Legacy format (bare timestamp, or an empty `touch`) — unchanged
+				// behaviour, for an old install.sh against a new binary.
+				t, err := time.Parse(time.UnixDate, string(contents))
+				if err != nil {
+					// If we are unable to parse the first observed time out of the file, write "now" as the first observed time of the file.
+					if err := os.WriteFile(restartPendingInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+						return output, fmt.Errorf("unable to write first-observed time to restart pending interlock file %s: %w", restartPendingInterlockFilePath, err)
+					}
+					return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", restartPendingTimeout.String())
+				}
+				if now.Before(t.Add(restartPendingTimeout)) {
+					return output, fmt.Errorf("restart is pending for system-agent, waiting %s until ignoring pending restart", t.Add(restartPendingTimeout).Sub(now).String())
+				}
+				// remove the restart pending file
+				if err := os.Remove(restartPendingInterlockFilePath); err != nil {
+					logrus.Errorf("error encountered while removing restart pending interlock file %s: %v", restartPendingInterlockFilePath, err)
+				}
 			}
 		}
 
