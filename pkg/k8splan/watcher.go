@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -66,6 +65,12 @@ const (
 
 	enqueueAfterDuration  = "5s"
 	cooldownTimerDuration = "30s"
+
+	// maxConsecutiveStaleReads is how many times in a row a live read may come
+	// back older than the last applied resourceVersion before the agent stops
+	// trusting what it remembers. Consecutive, not cumulative: an in-order event
+	// ends the streak.
+	maxConsecutiveStaleReads = 3
 )
 
 func Watch(ctx context.Context, applyinator applyinator.Applyinator, connInfo config.ConnectionInfo, strictVerify bool) {
@@ -81,6 +86,7 @@ type watcher struct {
 	connInfo                   config.ConnectionInfo
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
+	staleReadCount             int
 	secretUID                  string
 }
 
@@ -88,6 +94,57 @@ func toInt(resourceVersion string) int {
 	// we assume this is always a valid number
 	n, _ := strconv.Atoi(resourceVersion)
 	return n
+}
+
+// staleReadAction is what the watcher should do about a secret whose
+// resourceVersion is older than the last one it applied.
+type staleReadAction int
+
+const (
+	// staleRetry means ground truth could not be established: requeue and try
+	// again without engaging the controller's failure rate limiter.
+	staleRetry staleReadAction = iota
+	// staleUseLive means the live read is at least as new as the last applied
+	// resourceVersion, so reconcile against the live object.
+	staleUseLive
+	// staleForceResync means repeated live reads stayed behind. Drop the
+	// remembered resourceVersion and reconcile against the live object anyway,
+	// rather than staying wedged.
+	staleForceResync
+)
+
+func liveResourceVersion(live *corev1.Secret) string {
+	if live == nil {
+		return ""
+	}
+	return live.ResourceVersion
+}
+
+// noteInOrderEvent records that an event arrived in the expected order, ending
+// any run of stale reads. Without this the counter is cumulative rather than
+// consecutive, and three unrelated stale observations over an agent's lifetime
+// would force a resync — which re-runs one-time instructions.
+func (w *watcher) noteInOrderEvent() {
+	w.staleReadCount = 0
+}
+
+// resolveStaleRead decides how to handle an out-of-order secret and advances the
+// consecutive-stale counter. liveRV is ignored when getErr is non-nil.
+func (w *watcher) resolveStaleRead(liveRV string, getErr error) staleReadAction {
+	switch {
+	case getErr != nil:
+		return staleRetry
+	case toInt(liveRV) >= toInt(w.lastAppliedResourceVersion):
+		w.noteInOrderEvent()
+		return staleUseLive
+	case w.staleReadCount+1 >= maxConsecutiveStaleReads:
+		w.staleReadCount = 0
+		w.lastAppliedResourceVersion = ""
+		return staleForceResync
+	default:
+		w.staleReadCount++
+		return staleRetry
+	}
 }
 
 func incrementCount(count []byte) []byte {
@@ -195,10 +252,35 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			logrus.Infof("[K8s] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state", secret.UID, w.secretUID)
 			w.secretUID = ""
 			w.lastAppliedResourceVersion = ""
+			w.staleReadCount = 0
 			hasRunOnce = false
 		case rvIsOlder:
-			logrus.Errorf("[K8s] received secret to process that was older than the last secret operated on. (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
-			return secret, errors.New("secret received was too old")
+			logrus.Warnf("[K8s] received secret with resource version %s, older than the last applied (%s); confirming with a live read", secret.ResourceVersion, w.lastAppliedResourceVersion)
+			live, getErr := core.Secret().Get(w.connInfo.Namespace, w.connInfo.SecretName, metav1.GetOptions{})
+			if getErr == nil && live == nil {
+				getErr = fmt.Errorf("live read returned a nil secret")
+			}
+			attempt := w.staleReadCount + 1
+			switch w.resolveStaleRead(liveResourceVersion(live), getErr) {
+			case staleUseLive:
+				logrus.Infof("[K8s] live read returned resource version %s; proceeding with it", live.ResourceVersion)
+				originalSecret = live.DeepCopy()
+				secret = live.DeepCopy()
+			case staleForceResync:
+				logrus.Warnf("[K8s] live read still older than last applied after %d attempts; resetting last applied resource version and resyncing", attempt)
+				originalSecret = live.DeepCopy()
+				secret = live.DeepCopy()
+			default: // staleRetry
+				if getErr != nil {
+					logrus.Warnf("[K8s] unable to confirm stale secret with a live read: %v; retrying in %s", getErr, probePeriod)
+				} else {
+					logrus.Warnf("[K8s] live read also older than last applied (attempt %d of %d); retrying in %s", attempt, maxConsecutiveStaleReads, probePeriod)
+				}
+				core.Secret().EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, probePeriod)
+				return secret, nil
+			}
+		default:
+			w.noteInOrderEvent()
 		}
 
 		if planData, ok := secret.Data[PlanKey]; ok {
@@ -419,8 +501,10 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 			}
 			secret, err = w.updateSecret(core, secret)
 			if err != nil {
-				logrus.Fatalf("[K8s] encountered an error while attempting to update the secret: %v", err)
-				return nil, nil
+				// Terminating here left the node with a plan applied but its result
+				// unreported. Requeue with backoff instead and let the write retry.
+				logrus.Errorf("[K8s] encountered an error while attempting to update the secret: %v", err)
+				return secret, err
 			}
 			return secret, nil
 		}
