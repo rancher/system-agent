@@ -13,22 +13,38 @@ See also: [integration/README.md](integration/README.md) for the v2prov-based in
 ```
 test/
 ├── e2e/
-│   ├── suites/remote-plan/   # the one Ginkgo suite: TestRemotePlan, all specs
-│   ├── data/manifests/       # embedded YAML: namespace/RBAC, agent config, agent DaemonSet, HTTP test server
-│   ├── const.go              # embedded manifests + env var name constants
-│   └── helpers.go            # E2EConfig (env var loading), scheme setup, shared parallel-proc data
-├── framework/                 # reusable spec helpers (no Ginkgo specs live here)
-│   ├── const.go               # namespace/label/timeout constants, ShortTestLabel/LongTestLabel
-│   ├── cluster.go             # kubectl wrappers (apply, wait-for-ready, exec, logs, HTTP test server lifecycle)
-│   ├── plan.go                # PlanBuilder fluent API for constructing plan JSON
-│   ├── secret.go              # plan Secret CRUD + polling/Eventually helpers
-│   ├── decode.go               # gzip+base64+JSON decoding of applied-output/periodic-output fields
-│   └── template.go            # `${VAR}` template rendering for the embedded manifests
-├── testenv/                    # Kind cluster + agent lifecycle (used only by suite_test.go)
-│   ├── setup.go                # SetupTestCluster (Kind + image load + RBAC), DeployRemoteAgent (SA token, kubeconfig, DaemonSet)
-│   └── cleanup.go              # CleanupTestCluster (tears down the Kind cluster)
-└── integration/                 # separate, non-Ginkgo suite — see integration/README.md
+│   ├── suites/remote-plan/
+│   ├── data/manifests/
+│   ├── const.go
+│   └── helpers.go
+├── framework/
+│   ├── const.go
+│   ├── cluster.go
+│   ├── plan.go
+│   ├── secret.go
+│   ├── decode.go
+│   └── template.go
+├── testenv/
+│   ├── setup.go
+│   └── cleanup.go
+└── integration/
 ```
+
+- `e2e/suites/remote-plan/`: the single Ginkgo suite (`TestRemotePlan`) with all specs.
+- `e2e/data/manifests/`: embedded YAML for namespace/RBAC, agent config, DaemonSet, and HTTP test server.
+- `e2e/const.go`: embedded manifest and env-var constants.
+- `e2e/helpers.go`: `E2EConfig` loading, scheme setup, and shared parallel-proc state.
+- `framework/`: reusable spec helpers (no Ginkgo specs live here).
+- `framework/const.go`: namespace/label/timeout constants (`ShortTestLabel`, `LongTestLabel`).
+- `framework/cluster.go`: kubectl wrappers (apply/wait/exec/logs/server lifecycle).
+- `framework/plan.go`: fluent `PlanBuilder` for plan JSON.
+- `framework/secret.go`: plan Secret CRUD and polling helpers.
+- `framework/decode.go`: gzip+base64+JSON decoding for output fields.
+- `framework/template.go`: `${VAR}` template rendering for embedded manifests.
+- `testenv/`: Kind cluster and agent lifecycle helpers used by `suite_test.go`.
+- `testenv/setup.go`: cluster setup and remote-agent deployment.
+- `testenv/cleanup.go`: Kind cluster teardown.
+- `integration/`: separate non-Ginkgo suite (see `integration/README.md`).
 
 `test/` is a **separate Go module** (`test/go.mod`, with `replace github.com/rancher/system-agent => ../`). This is deliberate: it keeps the Ginkgo and Kind dependency trees out of the main module, so the shipped daemon's dependency graph stays small.
 

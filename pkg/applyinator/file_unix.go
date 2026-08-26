@@ -8,7 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// reconcileFilePermissions updates permissions and ownership on Unix.
+// reconcileFilePermissions abstracts out the file permissions checks that only works on Linux.
 // It sets the mode then chowns the path to uid:gid.
 func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {
 	logrus.Debugf("[applyinator] reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)

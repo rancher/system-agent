@@ -158,10 +158,8 @@ func TestPathOwnedByCurrentUser(t *testing.T) {
 	}
 }
 
-// TestParseRejectsFileOwnedByAnotherUser covers the ownership branch of Parse. CLAUDE.md calls out
-// ownership as a common source of "unable to parse config file" failures that are really
-// permission failures, so the rejection path is worth pinning. Chowning to another user requires
-// root, so this is skipped otherwise.
+// TestParseRejectsFileOwnedByAnotherUser covers the ownership branch of Parse.
+// Chowning to another user requires root, so this is skipped otherwise.
 func TestParseRejectsFileOwnedByAnotherUser(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("pathOwnedByCurrentUser is a no-op on windows")
