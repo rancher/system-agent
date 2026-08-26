@@ -24,6 +24,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Applyinator coordinates plan application and execution.
+// It holds configuration and resources used during an apply.
 type Applyinator struct {
 	mu              *sync.Mutex
 	workDir         string
@@ -33,7 +35,7 @@ type Applyinator struct {
 	imageUtil       *image.Utility
 }
 
-// CalculatedPlan is passed into Applyinator and is a Plan with checksum calculated
+// CalculatedPlan holds a Plan and its checksum, and is passed into Applyinator.
 type CalculatedPlan struct {
 	Plan     planapi.Plan
 	Checksum string
@@ -91,10 +93,12 @@ type ApplyInput struct {
 	ExistingPeriodicOutput     []byte
 }
 
-// Apply reconciles the local system against input.CalculatedPlan: it honors the interlock, archives the plan,
-// reconciles files, optionally runs one-time instructions, and always runs due periodic instructions. It returns
-// the updated one-time and periodic outputs (gzip+JSON encoded) alongside their success flags. Notably,
-// ApplyOutput.OneTimeApplySucceeded will be false if ApplyInput.RunOneTimeInstructions is false.
+// Apply reconciles the local system to input.CalculatedPlan.
+// It honors the interlock and archives the plan.
+// It reconciles files and optionally runs one-time instructions.
+// It runs due periodic instructions.
+// It returns gzip+JSON encoded one-time and periodic outputs and their success flags.
+// ApplyOutput.OneTimeApplySucceeded is false when RunOneTimeInstructions is false.
 func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput, error) {
 	logrus.Debugf("[applyinator] applying plan with checksum %s", input.CalculatedPlan.Checksum)
 	logrus.Tracef("[applyinator] applying plan - attempting to get lock")
@@ -162,8 +166,9 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	return output, nil
 }
 
-// parseUnixTimeOrZero parses s using time.UnixDate. ok is false when s is empty or unparsable —
-// callers should treat that as "no recorded time," not an error.
+// parseUnixTimeOrZero parses s using time.UnixDate.
+// It returns ok false when s is empty or unparsable.
+// Callers treat that as no recorded time, not an error.
 func parseUnixTimeOrZero(label, s string) (t time.Time, ok bool) {
 	if s == "" {
 		return time.Time{}, false
@@ -176,7 +181,8 @@ func parseUnixTimeOrZero(label, s string) (t time.Time, ok bool) {
 	return parsed, true
 }
 
-// decodeGzipJSON gunzips data and unmarshals the result into out. A no-op when data is empty.
+// decodeGzipJSON gunzips data and unmarshals into out.
+// It returns nil when data is empty.
 func decodeGzipJSON(data []byte, out any) error {
 	if len(data) == 0 {
 		return nil
@@ -197,10 +203,10 @@ func encodeGzipJSON(v any) ([]byte, error) {
 	return gzipByteSlice(marshalled)
 }
 
-// periodicInstructionDue decides whether a periodic instruction should run now, given the
-// previously recorded output for that instruction. An unset or unparsable last-run timestamp is
-// treated as "no history" (always due). forced (the one-time instructions ran this cycle) bypasses
-// both the period and the failure cooldown.
+// periodicInstructionDue determines if a periodic instruction should run now.
+// It uses the previously recorded output for the instruction.
+// It treats an unset or unparsable last-successful timestamp as no history (always due).
+// When forced is true, bypass the period and the failure cooldown.
 func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutput, periodSeconds int, forced bool) (due bool, failures int) {
 	if t, ok := parseUnixTimeOrZero("last successful run time", prev.LastSuccessfulRunTime); ok {
 		effectivePeriod := periodSeconds
@@ -232,8 +238,8 @@ func periodicInstructionDue(now time.Time, prev planapi.PeriodicInstructionOutpu
 	return true, failures
 }
 
-// reconcileFiles applies a plan's Files: writing regular files, creating directories, and
-// deleting anything marked with the delete action.
+// reconcileFiles applies a plan's Files.
+// It writes regular files, creates directories, and deletes marked paths.
 func reconcileFiles(files []planapi.File) error {
 	for _, file := range files {
 		if file.Action == deleteFileAction {
@@ -255,15 +261,16 @@ func reconcileFiles(files []planapi.File) error {
 	return nil
 }
 
-// instructionExecutionDir returns the per-instruction execution directory and its log-line prefix,
-// both derived from the plan checksum and the instruction's index within its list.
+// instructionExecutionDir returns the per-instruction execution directory and log prefix.
+// The values derive from the plan checksum and the instruction index.
 func instructionExecutionDir(baseDir, checksum string, index int) (dir, prefix string) {
 	prefix = checksum + "_" + strconv.Itoa(index)
 	return filepath.Join(baseDir, prefix), prefix
 }
 
-// runOneTimeInstructions executes a plan's one-time instructions in order, stopping at the first
-// failure, and returns the updated (gzip+JSON encoded) saved-output map.
+// runOneTimeInstructions executes one-time instructions in order.
+// It stops at the first failure.
+// It returns the updated gzip+JSON encoded saved-output map and a success flag.
 func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, attempts int) ([]byte, bool, error) {
 	logrus.Infof("[applyinator] applying one-time instructions for plan with checksum %s", cp.Checksum)
 	executionOutputs := map[string][]byte{}
@@ -298,9 +305,9 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 	return output, oneTimeApplySucceeded, nil
 }
 
-// runPeriodicInstructions executes each due periodic instruction and returns the updated
-// (gzip+JSON encoded) periodic-output map. ranOneTime forces every instruction to run regardless
-// of its period/failure cooldown, matching the one-time-instructions-just-ran semantics.
+// runPeriodicInstructions executes each due periodic instruction.
+// It returns the updated gzip+JSON encoded periodic-output map and a success flag.
+// Set ranOneTime to force every instruction to run regardless of period and cooldown.
 func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir string, cp CalculatedPlan, existingOutput []byte, ranOneTime bool, now time.Time) ([]byte, bool, error) {
 	nowUnixTimeString := now.Format(time.UnixDate)
 
@@ -369,10 +376,9 @@ func (a *Applyinator) runPeriodicInstructions(ctx context.Context, executionDir 
 	return output, periodicApplySucceeded, nil
 }
 
-// checkInterlock enforces the interlock directory protocol used by install.sh during an agent
-// upgrade: a restart-pending file blocks applying for up to restartPendingTimeout, after which it
-// is ignored and removed. On success, it returns a cleanup func that must be deferred by the
-// caller to remove the applyinator-active file once the apply completes.
+// checkInterlock enforces the interlock directory protocol used by install.sh during agent upgrade.
+// A restart-pending file blocks applies for restartPendingTimeout, then it is removed and ignored.
+// On success return a cleanup func. The caller must defer that func to remove applyinator-active file.
 func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	noop := func() {}
 	if a.interlockDir == "" {
@@ -628,8 +634,8 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	return stdoutTarget.Bytes(), stderrTarget.Bytes(), exitCode, waitErr
 }
 
-// streamLogs accepts a prefix, outputBuffer, reader, and buffer lock and will scan input from the reader and write it
-// to the output buffer while also logging anything that comes from the reader with the prefix.
+// streamLogs reads lines from reader and appends them to outputBuffer.
+// Log each line with prefix. Protect writes with lock.
 func streamLogs(prefix string, outputBuffer *bytes.Buffer, reader io.Reader, lock *sync.Mutex) error {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {

@@ -16,13 +16,10 @@ const (
 	decisionError
 )
 
-// decisionLog is a single log line produced while evaluating a plan decision.
-//
-// The decision functions in plan_decision.go are pure so they can be exhaustively unit tested, but
-// the lines they would otherwise log are the primary field-debugging surface for this daemon: it
-// runs on provisioned nodes where journalctl is often the only diagnostic available. Collecting
-// entries instead of logging directly keeps the functions pure while preserving that surface, and
-// makes the reasoning behind a decision assertable in tests.
+// decisionLog is one log line produced while evaluating a plan decision.
+// Decision functions are pure for unit testing.
+// The collected log lines are the primary field-debugging surface on provisioned nodes.
+// Tests can assert on the collected messages.
 type decisionLog struct {
 	Level   decisionLevel
 	Message string

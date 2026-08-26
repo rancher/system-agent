@@ -11,8 +11,8 @@ const (
 	defaultTimeoutSeconds = 1
 )
 
-// orDefault returns configured if it is non-zero, otherwise def. Used for the probe schema's
-// optional integer fields, all of which treat zero as "unset".
+// orDefault returns configured if non-zero, otherwise def.
+// Used for the probe schema's optional integer fields, which treat zero as "unset".
 func orDefault(configured, def int) int {
 	if configured == 0 {
 		return def
@@ -20,9 +20,10 @@ func orDefault(configured, def int) int {
 	return configured
 }
 
-// applyProbeResult updates status in place to reflect one probe outcome: consecutive successes
-// count toward successThreshold before Healthy is set true, consecutive failures count toward
-// failureThreshold before Healthy is set false, and each outcome resets the opposite counter.
+// applyProbeResult updates status in place to reflect one probe outcome.
+// Consecutive successes count toward successThreshold before Healthy is set true.
+// Consecutive failures count toward failureThreshold before Healthy is set false.
+// Each outcome resets the opposite counter.
 func applyProbeResult(status *planapi.ProbeStatus, succeeded bool, successThreshold, failureThreshold int) {
 	if succeeded {
 		if status.SuccessCount < successThreshold {

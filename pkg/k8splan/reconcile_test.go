@@ -565,10 +565,9 @@ func TestReconcileSecretUpdateConflictRetry(t *testing.T) {
 	}
 }
 
-// TestReconcileSecretCommitsInProgressBeforeApply pins the single most safety-critical ordering
-// invariant in this package: the pending -> in-progress transition (and the plan-revision bump)
-// must reach the API server *before* Apply runs. That write is the only record that an apply was
-// started, and it is what lets a crashed agent recognize on restart that it must re-execute.
+// TestReconcileSecretCommitsInProgressBeforeApply verifies in-progress commit ordering.
+// Ensure pending -> in-progress and plan-revision reach the API server before Apply runs.
+// This write lets a crashed agent re-execute the plan on restart.
 func TestReconcileSecretCommitsInProgressBeforeApply(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")

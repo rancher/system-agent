@@ -10,14 +10,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// planStateResult is the outcome of evaluating the plan-state flow (the flow used when the
-// orchestrator writes plan-state — see the currentPlanState != "" branch in reconcileSecret).
+// planStateResult is the result of evaluating plan-state.
 type planStateResult struct {
 	NeedsApplied bool
-	// ResetPlanAttempt is true only for PlanStatePending: a freshly delivered plan always starts
-	// its one-time instructions at attempt 1, regardless of any prior failure count.
+	// ResetPlanAttempt is true for PlanStatePending.
+	// A new plan begins one-time instructions at attempt 1.
 	ResetPlanAttempt bool
-	// Logs explains the decision; the caller emits them via emitDecisionLogs.
+	// Logs contains messages that explain the decision.
 	Logs []decisionLog
 }
 
@@ -44,19 +43,16 @@ func decidePlanStateAction(state planapi.PlanState) planStateResult {
 	}
 }
 
-// checksumFlowResult is the outcome of evaluating the checksum flow (the backward-compatible flow
-// used when the orchestrator never writes plan-state).
+// checksumFlowResult is the result of the checksum-based decision.
 type checksumFlowResult struct {
 	NeedsApplied bool
-	// WasFailedPlan is true when the plan previously failed with the same checksum being
-	// evaluated now.
+	// WasFailedPlan is true when this checksum previously failed.
 	WasFailedPlan bool
-	// HasRunOnce is the (possibly updated) value the caller should persist for the next call.
+	// HasRunOnce is the updated first-run marker the caller must persist.
 	HasRunOnce bool
-	// ClearAppliedChecksum is true when the caller should reset AppliedChecksumKey to "" before
-	// applying — set only on the very first run, so a subsequent crash-restart is unambiguous.
+	// ClearAppliedChecksum is true on the first forced apply and requests clearing the stored checksum.
 	ClearAppliedChecksum bool
-	// Logs explains the decision; the caller emits them via emitDecisionLogs.
+	// Logs contains messages that explain the decision.
 	Logs []decisionLog
 }
 
@@ -121,8 +117,8 @@ func decideChecksumFlowAction(data map[string][]byte, planChecksum string, hasRu
 	}
 }
 
-// parseLastApplyTime reads LastApplyTimeKey from data, falling back to currentTime when the key
-// is absent or its value cannot be parsed with time.UnixDate.
+// parseLastApplyTime reads LastApplyTimeKey from data.
+// It falls back to currentTime when the key is absent or unparsable via time.UnixDate.
 func parseLastApplyTime(data map[string][]byte, currentTime time.Time) time.Time {
 	rawLAT, ok := data[LastApplyTimeKey]
 	if !ok {
@@ -136,8 +132,8 @@ func parseLastApplyTime(data map[string][]byte, currentTime time.Time) time.Time
 	return parsed
 }
 
-// parseProbePeriodOverride reads ProbePeriodKey (a whole number of seconds) from data, returning
-// current unchanged when the key is absent or its value cannot be parsed.
+// parseProbePeriodOverride reads ProbePeriodKey from data.
+// It returns current unchanged when the key is absent or unparsable.
 func parseProbePeriodOverride(data map[string][]byte, current time.Duration) time.Duration {
 	rawPeriod, ok := data[ProbePeriodKey]
 	if !ok {
@@ -151,8 +147,8 @@ func parseProbePeriodOverride(data map[string][]byte, current time.Duration) tim
 	return parsedPeriod
 }
 
-// parseProbeStatuses reads and JSON-decodes ProbeStatusesKey from data, returning an empty map
-// when the key is absent or its value cannot be decoded.
+// parseProbeStatuses decodes ProbeStatusesKey from data as JSON.
+// It returns an empty map when the key is absent or decoding fails.
 func parseProbeStatuses(data map[string][]byte) map[string]planapi.ProbeStatus {
 	rawProbeStatusByteData, ok := data[ProbeStatusesKey]
 	if !ok {

@@ -8,8 +8,8 @@ import (
 	"github.com/rancher/wharfie/pkg/extract"
 )
 
-// extractFiles was abstracted because Windows containers don't have a concept of a scratch container.
-// So files need to be placed in a subdirectory.
+// extractFiles extracts image files into dir on Windows.
+// Place files in a subdirectory because Windows has no scratch container concept.
 func extractFiles(img v1.Image, dir string) error {
 	extractPaths := map[string]string{
 		"/Files/bin": dir,

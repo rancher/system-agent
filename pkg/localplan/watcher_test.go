@@ -187,8 +187,8 @@ func TestListFilesNoErrorsWhenAllBasesSucceed(t *testing.T) {
 func TestWatchFilesCreatesMissingPlanDirectories(t *testing.T) {
 	t.Parallel()
 
-	// Nothing else on the node creates the local plan directory, so WatchFiles must. Without it,
-	// listFiles reports a filepath.Walk error on every 5s poll for the lifetime of the daemon.
+	// Nothing else on the node creates the local plan directory, so WatchFiles must.
+	// Without it, listFiles reports a filepath.Walk error on every 5s poll for the lifetime of the daemon.
 	parent := t.TempDir()
 	missing := filepath.Join(parent, "plans")
 	nested := filepath.Join(parent, "nested", "plans")

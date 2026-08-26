@@ -17,9 +17,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// reconcileSecret is the per-Secret-change handler registered with core.Secret().OnChange. It
-// decides whether the plan should be (re-)applied, runs the apply, and writes the outcome back to
-// the Secret.
+// reconcileSecret handles Secret change events.
+// It decides whether to apply the plan, runs the apply, and writes outcomes back to the Secret.
 func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.SecretController, secret *corev1.Secret, cooldownPeriod time.Duration) (*corev1.Secret, error) {
 	if secret == nil {
 		logrus.Debugf("[k8splan] received nil secret (object deleted from cache), skipping")

@@ -15,7 +15,8 @@ import (
 const defaultDirectoryPermissions os.FileMode = 0755
 const defaultFilePermissions os.FileMode = 0600
 
-// resolvePermissions returns def when perm is empty, otherwise parses perm as an octal file mode.
+// resolvePermissions returns def when perm is empty.
+// Otherwise, it parses perm as an octal file mode.
 func resolvePermissions(perm string, def os.FileMode) (os.FileMode, error) {
 	if perm == "" {
 		return def, nil
@@ -23,6 +24,8 @@ func resolvePermissions(perm string, def os.FileMode) (os.FileMode, error) {
 	return parsePerm(perm)
 }
 
+// writeBase64ContentToFile decodes base64 content and writes it to disk.
+// It uses the file's Permissions, UID and GID.
 func writeBase64ContentToFile(file planapi.File) error {
 	content, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
@@ -38,6 +41,8 @@ func writeBase64ContentToFile(file planapi.File) error {
 	return writeContentToFile(file.Path, file.UID, file.GID, fileMode, content)
 }
 
+// writeContentToFile writes content to path if it differs from existing content.
+// It creates containing directories and sets permissions and ownership.
 func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content []byte) error {
 	if path == "" {
 		return fmt.Errorf("path was empty")
@@ -58,6 +63,8 @@ func writeContentToFile(path string, uid int, gid int, perm os.FileMode, content
 	return reconcileFilePermissions(path, uid, gid, perm)
 }
 
+// createDirectory creates a directory described by file.
+// It applies requested permissions and ownership.
 func createDirectory(file planapi.File) error {
 	if !file.Directory {
 		return fmt.Errorf("%s was not a directory", file.Path)
@@ -77,6 +84,8 @@ func createDirectory(file planapi.File) error {
 	return reconcileFilePermissions(file.Path, file.UID, file.GID, fileMode)
 }
 
+// removeFile removes a file or directory described by file.
+// It tolerates missing paths.
 func removeFile(file planapi.File) error {
 	if file.Directory {
 		logrus.Debugf("[applyinator] removing directory %s", file.Path)
@@ -92,6 +101,8 @@ func removeFile(file planapi.File) error {
 	return nil
 }
 
+// parsePerm parses a string as an octal file mode.
+// It returns defaultFilePermissions on error.
 func parsePerm(perm string) (os.FileMode, error) {
 	parsedPerm, err := strconv.ParseInt(perm, 8, 32)
 	if err != nil {

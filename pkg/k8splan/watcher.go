@@ -64,8 +64,9 @@ const (
 	cooldownTimerDuration = "30s"
 )
 
-// secretConflictMergeKeys are the Secret data keys updateSecret carries over from the write it
-// was attempting into the freshly-fetched secret, when retrying after an Update conflict.
+// secretConflictMergeKeys lists Secret data keys that updateSecret merges on conflict.
+// When retrying after an Update conflict, these keys are carried from the attempted write
+// into the freshly fetched secret before retrying the Update.
 var secretConflictMergeKeys = []string{
 	ProbeStatusesKey,
 	AppliedPeriodicOutputKey,
@@ -94,10 +95,9 @@ type watcher struct {
 	applyinator                applyinator.Applyinator
 	lastAppliedResourceVersion string
 	secretUID                  string
-	// hasRunOnce and probePeriod are mutated by reconcileSecret and must persist across calls —
-	// they used to be local variables in start(), captured by reference by the OnChange closure.
-	// probePeriod is deliberately sticky: once a Secret specifies probe-period-seconds, that
-	// value is used as the default for subsequent Secrets too, unless overridden again.
+	// hasRunOnce and probePeriod are mutated by reconcileSecret and persist across calls.
+	// probePeriod is sticky: when a Secret sets probe-period-seconds it becomes the default
+	// for subsequent Secrets until overridden.
 	hasRunOnce  bool
 	probePeriod time.Duration
 }
@@ -170,7 +170,8 @@ func (w *watcher) start(ctx context.Context, strictVerify bool) {
 	}
 }
 
-// updateSecret attempts to update the secret 4 times (the DefaultBackoff) -- if there is a conflict and the new plan doesn't match the plan being applied in the current iteration, it will discontinue.
+// updateSecret attempts to update the secret up to the DefaultBackoff retry policy.
+// It discontinues if there is a conflict and the re-fetched secret carries a different plan.
 func (w *watcher) updateSecret(sc corecontrollers.SecretController, secret *corev1.Secret) (*corev1.Secret, error) {
 	var resultingSecret *corev1.Secret
 	var latestSecretUpdateAttempted bool

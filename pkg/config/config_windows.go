@@ -7,12 +7,12 @@ import (
 	"os"
 )
 
-// pathOwnedByCurrentUser is abstracted out with Windows being a no op.
+// pathOwnedByCurrentUser validates ownership on Unix. On Windows return nil.
 func pathOwnedByCurrentUser(_ string) error {
 	return nil
 }
 
-// permissionsCheck is abstracted out with Windows being a no op.
+// permissionsCheck validates file mode on Unix. On Windows return nil.
 func permissionsCheck(_ os.FileInfo, _ string) error {
 	return nil
 }

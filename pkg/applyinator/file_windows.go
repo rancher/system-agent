@@ -9,13 +9,14 @@ import (
 	"os"
 )
 
-// reconcileFilePermissions abstracts out the file permissions checks and are a no op on Windows
+// reconcileFilePermissions applies Windows ACL-style permissions.
+// It does not map numeric uid/gid to Windows principals.
 func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {
 	logrus.Debugf("[applyinator] reconciling file permissions for %s to %d", path, perm)
 	if uid != 0 || gid != 0 {
 		// note: although acl.Chown is implemented, adding support for Windows UID and GIDs (which are strings)
 		// would require adding new fields to the File struct.
-		logrus.Debugf("[applyinator] windows file permissions do not support custom uid and guid (%d:%d) for %s", uid, gid, path)
+		logrus.Debugf("[applyinator] windows file permissions do not support custom uid and gid (%d:%d) for %s", uid, gid, path)
 	}
 
 	return acl.Chmod(path, perm)

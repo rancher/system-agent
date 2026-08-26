@@ -27,17 +27,18 @@ const (
 	k3sRegistriesFile                    string = "/etc/rancher/k3s/registries.yaml"
 )
 
+// Utility stages images and extracts them for instruction execution.
 type Utility struct {
 	imagesDir                     string
 	imageCredentialProviderConfig string
 	imageCredentialProviderBinDir string
 	agentRegistriesFile           string
-	// fallbackRegistriesFiles are the distro-managed registry configs consulted, in order, when
-	// agentRegistriesFile does not exist. Held as a field rather than read from package constants
-	// so findRegistriesYaml can be tested without depending on the host's filesystem.
+	// fallbackRegistriesFiles are distro registry configs consulted in order when
+	// agentRegistriesFile does not exist. This field makes the function testable.
 	fallbackRegistriesFiles []string
 }
 
+// NewUtility constructs a Utility and wires defaults.
 func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProviderBinDir, agentRegistriesFile string) *Utility {
 	u := Utility{
 		imagesDir:                     firstNonEmpty(imagesDir, defaultImagesDir),
@@ -52,6 +53,8 @@ func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProvide
 	return &u
 }
 
+// Stage ensures destDir exists and extracts imgString into it.
+// It first searches local tar archives, then pulls from registries when needed.
 func (u *Utility) Stage(destDir string, imgString string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -111,11 +114,13 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 	return extractFiles(img, destDir)
 }
 
+// findRegistriesYaml returns the first existing registries.yaml path or empty.
 func (u *Utility) findRegistriesYaml() string {
 	return findFirstExisting(append([]string{u.agentRegistriesFile}, u.fallbackRegistriesFiles...)...)
 }
 
-// findFirstExisting returns the first path in candidates that exists on disk, or "" if none do.
+// findFirstExisting returns the first path that exists from candidates.
+// It returns an empty string when none exist.
 func findFirstExisting(candidates ...string) string {
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
@@ -125,7 +130,7 @@ func findFirstExisting(candidates ...string) string {
 	return ""
 }
 
-// firstNonEmpty returns v if it is non-empty, otherwise def.
+// firstNonEmpty returns v when non-empty, otherwise def.
 func firstNonEmpty(v, def string) string {
 	if v != "" {
 		return v

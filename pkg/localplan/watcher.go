@@ -18,6 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// WatchFiles starts a file watcher for local plan files.
+// It ensures base directories exist and polls for plans every 5 seconds.
 func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases ...string) {
 	w := &watcher{
 		bases:       bases,
@@ -37,7 +39,8 @@ func WatchFiles(ctx context.Context, applyinator applyinator.Applyinator, bases 
 	go w.start(ctx)
 }
 
-// stdout and stderr are both base64, gzipped
+// NodePlanPosition persists the node plan position on disk.
+// Stdout and stderr fields are base64 and gzipped.
 type NodePlanPosition struct {
 	AppliedChecksum string                         `json:"appliedChecksum,omitempty"`
 	Output          []byte                         `json:"output,omitempty"`
@@ -55,6 +58,7 @@ const (
 	positionSuffix = ".pos"
 )
 
+// start runs the polling loop until ctx is done.
 func (w *watcher) start(ctx context.Context) {
 	for {
 		if err := w.listFiles(ctx); err != nil {
@@ -68,6 +72,7 @@ func (w *watcher) start(ctx context.Context) {
 	}
 }
 
+// listFiles walks configured bases and processes any found plan files.
 func (w *watcher) listFiles(ctx context.Context) error {
 	var errs []error
 	for _, base := range w.bases {
@@ -78,6 +83,7 @@ func (w *watcher) listFiles(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// listFilesIn walks base and queues plans for processing.
 func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 	files := map[string]os.FileInfo{}
 	if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
@@ -177,6 +183,7 @@ func (w *watcher) listFilesIn(ctx context.Context, base string) error {
 	return nil
 }
 
+// parsePlan reads a plan file and returns its CalculatedPlan.
 func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -201,10 +208,12 @@ func (w *watcher) parsePlan(file string) (applyinator.CalculatedPlan, error) {
 	return cp, nil
 }
 
+// positionFileName returns the position file name for planPath.
 func positionFileName(planPath string) string {
 	return strings.TrimSuffix(planPath, planSuffix) + positionSuffix
 }
 
+// readPositionFile returns the position file contents or empty when absent.
 func readPositionFile(positionFile string) ([]byte, error) {
 	data, err := os.ReadFile(positionFile)
 	if err != nil {
@@ -217,6 +226,7 @@ func readPositionFile(positionFile string) ([]byte, error) {
 	return data, nil
 }
 
+// parsePositionData unmarshals positionData into NodePlanPosition.
 func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 	var planPosition NodePlanPosition
 	if len(positionData) == 0 {
@@ -226,8 +236,7 @@ func parsePositionData(positionData []byte) (NodePlanPosition, error) {
 	return planPosition, err
 }
 
-// Returns true if the plan needs to be applied, false if not
-// needsApplication, probeStatus, error
+// needsApplication returns whether the plan must be applied and current probe statuses.
 func (w *watcher) needsApplication(planPosition NodePlanPosition, cp applyinator.CalculatedPlan) (bool, map[string]planapi.ProbeStatus, error) {
 	computedChecksum := cp.Checksum
 	if planPosition.AppliedChecksum == computedChecksum {

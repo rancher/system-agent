@@ -6,24 +6,22 @@ import (
 	planapi "github.com/rancher/rancher/pkg/plan"
 )
 
-// applyOutcomeInput carries everything buildSecretDataUpdates needs to compute the Secret data
-// writes for one reconcile, after Applyinator.Apply has returned.
+// applyOutcomeInput packages inputs for buildSecretDataUpdates.
 type applyOutcomeInput struct {
 	Checksum              string
 	CurrentTime           time.Time
 	NeedsApplied          bool
 	WasFailedPlan         bool
-	UsesPlanState         bool // true when currentPlanState != "" (the plan-state flow was used)
+	UsesPlanState         bool // true when currentPlanState != "" in the plan-state flow
 	OneTimeOutput         []byte
 	OneTimeApplySucceeded bool
 	PeriodicOutput        []byte
-	PriorFailureCount     []byte // secret.Data[FailureCountKey] before this reconcile, for incrementCount
-	PriorSuccessCount     []byte // secret.Data[SuccessCountKey] before this reconcile, for incrementCount
+	PriorFailureCount     []byte // secret.Data[FailureCountKey] before this reconcile
+	PriorSuccessCount     []byte // secret.Data[SuccessCountKey] before this reconcile
 }
 
-// buildSecretDataUpdates computes the Secret data key writes resulting from one apply, mirroring
-// the pre-refactor post-apply mutation block in the OnChange closure. The caller is responsible
-// for merging the returned map into secret.Data and emitting the returned logs.
+// buildSecretDataUpdates computes the Secret data key writes resulting from one apply.
+// The caller merges the returned map into secret.Data and emits the returned logs.
 func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decisionLog) {
 	updates := map[string][]byte{
 		AppliedPeriodicOutputKey: in.PeriodicOutput,

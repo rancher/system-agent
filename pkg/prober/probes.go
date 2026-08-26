@@ -7,6 +7,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// DoProbes runs probes concurrently and updates probeStatuses.
+// It waits for all probes to finish before returning.
 func DoProbes(probes map[string]planapi.Probe, probeStatuses map[string]planapi.ProbeStatus, initial bool) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -34,6 +36,6 @@ func DoProbes(probes map[string]planapi.Probe, probeStatuses map[string]planapi.
 			mu.Unlock()
 		}(probeName, probe, &wg)
 	}
-	// wait for all probes to complete
+	// Wait for all probes to complete.
 	wg.Wait()
 }

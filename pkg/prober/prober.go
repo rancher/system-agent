@@ -16,6 +16,8 @@ import (
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )
 
+// DoProbe executes a single probe and updates probeStatus.
+// When initial=true, sleep initialDelaySeconds before running.
 func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool) error {
 	logrus.Tracef("[prober] running probe %+v", probe)
 	if initial {

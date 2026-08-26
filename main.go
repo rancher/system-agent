@@ -18,6 +18,7 @@ import (
 	"github.com/rancher/wrangler/v3/pkg/signals"
 )
 
+// Environment and default file constants.
 const (
 	cattleLogLevelEnv          = "CATTLE_LOGLEVEL"
 	cattleAgentConfigEnv       = "CATTLE_AGENT_CONFIG"
@@ -111,7 +112,7 @@ func run(_ *cli.Context) error {
 			return fmt.Errorf("unable to parse connection info file %s: %w. The file may contain invalid JSON from a failed installation. Please verify it was written correctly during agent installation", cf.ConnectionInfoFile, err)
 		}
 
-		var strictVerify bool // When strictVerify is set to true, the kubeconfig validator will not discard CAData if it is invalid
+		var strictVerify bool // When strictVerify is true, the kubeconfig validator will not discard CAData if it is invalid
 		if strings.ToLower(os.Getenv(cattleAgentStrictVerifyEnv)) == "true" {
 			strictVerify = true
 		}
