@@ -32,7 +32,8 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	lastApplyTime := parseLastApplyTime(secret.Data, currentTime)
 	w.probePeriod = parseProbePeriodOverride(secret.Data, w.probePeriod)
 
-	logrus.Debugf("[k8splan] processing secret %s in namespace %s at generation %d with resource version %s", secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
+	logrus.Debugf("[k8splan] processing secret %s in namespace %s at generation %d with resource version %s",
+		secret.Name, secret.Namespace, secret.Generation, secret.ResourceVersion)
 	// needsApplied indicates whether the one-time instructions should be run. It is always set by
 	// decidePlanStateAction or decideChecksumFlowAction below before being read.
 	var needsApplied bool
@@ -43,12 +44,15 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	switch {
 	case uidChanged:
 		// Secret was deleted and recreated with a new UID; reset state so the new secret is force-applied.
-		logrus.Infof("[k8splan] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state", secret.UID, w.secretUID)
+		logrus.Infof("[k8splan] received secret with new UID (%s, previously %s); secret was recreated — resetting agent state",
+			secret.UID, w.secretUID)
 		w.secretUID = ""
 		w.lastAppliedResourceVersion = ""
 		w.hasRunOnce = false
+
 	case rvIsOlder:
-		logrus.Errorf("[k8splan] received secret to process that was older than the last secret operated on (%s vs %s)", secret.ResourceVersion, w.lastAppliedResourceVersion)
+		logrus.Errorf("[k8splan] received secret to process that was older than the last secret operated on (%s vs %s)",
+			secret.ResourceVersion, w.lastAppliedResourceVersion)
 		return secret, errors.New("secret received was too old")
 	}
 
@@ -80,7 +84,6 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 
 	if currentPlanState != "" {
 		psResult := decidePlanStateAction(currentPlanState)
-		emitDecisionLogs(psResult.Logs)
 		needsApplied = psResult.NeedsApplied
 		if psResult.ResetPlanAttempt {
 			planAttempt = 1
@@ -90,8 +93,9 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 		}
 	} else {
 		// Backward compatibility: old checksum-based needsApplied decision.
-		csResult := decideChecksumFlowAction(secret.Data, cp.Checksum, w.hasRunOnce, failureCount, currentTime, lastApplyTime, cooldownPeriod, w.lastAppliedResourceVersion == secret.ResourceVersion, w.lastAppliedResourceVersion)
-		emitDecisionLogs(csResult.Logs)
+		csResult := decideChecksumFlowAction(secret.Data, cp.Checksum, w.hasRunOnce, failureCount, currentTime,
+			lastApplyTime, cooldownPeriod, w.lastAppliedResourceVersion == secret.ResourceVersion, w.lastAppliedResourceVersion)
+
 		needsApplied = csResult.NeedsApplied
 		wasFailedPlan = csResult.WasFailedPlan
 		w.hasRunOnce = csResult.HasRunOnce
@@ -135,7 +139,7 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	output = applyOutput.OneTimeOutput
 	periodicOutput = applyOutput.PeriodicOutput
 
-	outcomeUpdates, outcomeLogs := buildSecretDataUpdates(applyOutcomeInput{
+	outcomeUpdates := buildSecretDataUpdates(applyOutcomeInput{
 		Checksum:              cp.Checksum,
 		CurrentTime:           currentTime,
 		NeedsApplied:          needsApplied,
@@ -147,7 +151,6 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 		PriorFailureCount:     secret.Data[FailureCountKey],
 		PriorSuccessCount:     secret.Data[SuccessCountKey],
 	})
-	emitDecisionLogs(outcomeLogs)
 	maps.Copy(secret.Data, outcomeUpdates)
 
 	prober.DoProbes(cp.Plan.Probes, probeStatuses, needsApplied)

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	planapi "github.com/rancher/rancher/pkg/plan"
+	"github.com/sirupsen/logrus"
 )
 
 // applyOutcomeInput packages inputs for buildSecretDataUpdates.
@@ -21,15 +22,16 @@ type applyOutcomeInput struct {
 }
 
 // buildSecretDataUpdates computes the Secret data key writes resulting from one apply.
-// The caller merges the returned map into secret.Data and emits the returned logs.
-func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decisionLog) {
+// The caller merges the returned map into secret.Data.
+func buildSecretDataUpdates(in applyOutcomeInput) map[string][]byte {
 	updates := map[string][]byte{
 		AppliedPeriodicOutputKey: in.PeriodicOutput,
 	}
 
 	failed := (in.NeedsApplied && !in.OneTimeApplySucceeded) || (!in.NeedsApplied && in.WasFailedPlan)
 	if failed {
-		logs := []decisionLog{debugDecision("one-time-instructions with checksum (%s) either failed or was already failed (and cooldown period hasn't elapsed) during application", in.Checksum)}
+		logrus.Debugf("[k8splan] one-time-instructions with checksum (%s) either failed or was already failed"+
+			" (and cooldown period hasn't elapsed) during application", in.Checksum)
 		// Update the corresponding counts/outputs
 		updates[FailedChecksumKey] = []byte(in.Checksum)
 		if in.NeedsApplied {
@@ -43,11 +45,11 @@ func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decision
 				updates[planapi.PlanStateKey] = []byte(planapi.PlanStateFailed)
 			}
 		}
-		return updates, logs
+		return updates
 	}
 
 	// secret.Data should always have already been initialized because otherwise we would have failed out above.
-	logs := []decisionLog{debugDecision("writing an applied checksum value of %s to the remote plan", in.Checksum)}
+	logrus.Debugf("[k8splan] writing an applied checksum value of %s to the remote plan", in.Checksum)
 	updates[AppliedChecksumKey] = []byte(in.Checksum)
 	updates[AppliedOutputKey] = in.OneTimeOutput
 	// On a successful application, we should blank out the corresponding failure keys.
@@ -61,5 +63,5 @@ func buildSecretDataUpdates(in applyOutcomeInput) (map[string][]byte, []decision
 			updates[planapi.PlanStateKey] = []byte(planapi.PlanStateSucceeded)
 		}
 	}
-	return updates, logs
+	return updates
 }
