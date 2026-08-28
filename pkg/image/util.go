@@ -27,45 +27,34 @@ const (
 	k3sRegistriesFile                    string = "/etc/rancher/k3s/registries.yaml"
 )
 
+// Utility stages images and extracts them for instruction execution.
 type Utility struct {
 	imagesDir                     string
 	imageCredentialProviderConfig string
 	imageCredentialProviderBinDir string
 	agentRegistriesFile           string
+	// fallbackRegistriesFiles are distro registry configs consulted in order when
+	// agentRegistriesFile does not exist. This field makes the function testable.
+	fallbackRegistriesFiles []string
 }
 
+// NewUtility constructs a Utility and wires defaults.
 func NewUtility(imagesDir, imageCredentialProviderConfig, imageCredentialProviderBinDir, agentRegistriesFile string) *Utility {
-	var u Utility
-
-	if imagesDir != "" {
-		u.imagesDir = imagesDir
-	} else {
-		u.imagesDir = defaultImagesDir
+	u := Utility{
+		imagesDir:                     firstNonEmpty(imagesDir, defaultImagesDir),
+		imageCredentialProviderConfig: firstNonEmpty(imageCredentialProviderConfig, defaultImageCredentialProviderConfig),
+		imageCredentialProviderBinDir: firstNonEmpty(imageCredentialProviderBinDir, defaultImageCredentialProviderBinDir),
+		agentRegistriesFile:           firstNonEmpty(agentRegistriesFile, defaultAgentRegistriesFile),
+		fallbackRegistriesFiles:       []string{rke2RegistriesFile, k3sRegistriesFile},
 	}
 
-	if imageCredentialProviderConfig != "" {
-		u.imageCredentialProviderConfig = imageCredentialProviderConfig
-	} else {
-		u.imageCredentialProviderConfig = defaultImageCredentialProviderConfig
-	}
-
-	if imageCredentialProviderBinDir != "" {
-		u.imageCredentialProviderBinDir = imageCredentialProviderBinDir
-	} else {
-		u.imageCredentialProviderBinDir = defaultImageCredentialProviderBinDir
-	}
-
-	if agentRegistriesFile != "" {
-		u.agentRegistriesFile = agentRegistriesFile
-	} else {
-		u.agentRegistriesFile = defaultAgentRegistriesFile
-	}
-
-	logrus.Debugf("Instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
+	logrus.Debugf("[image] instantiated new image utility with imagesDir: %s, imageCredentialProviderConfig: %s, imageCredentialProviderBinDir: %s, agentRegistriesFile: %s", u.imagesDir, u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir, u.agentRegistriesFile)
 
 	return &u
 }
 
+// Stage ensures destDir exists and extracts imgString into it.
+// It first searches local tar archives, then pulls from registries when needed.
 func (u *Utility) Stage(destDir string, imgString string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
@@ -94,8 +83,8 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			return err
 		}
 
-		if _, err := os.Stat(u.imageCredentialProviderConfig); os.IsExist(err) {
-			logrus.Debugf("Image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
+		if _, err := os.Stat(u.imageCredentialProviderConfig); err == nil {
+			logrus.Debugf("[image] image Credential Provider Configuration file %s existed, using plugins from directory %s", u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			plugins, err := plugin.RegisterCredentialProviderPlugins(u.imageCredentialProviderConfig, u.imageCredentialProviderBinDir)
 			if err != nil {
 				return err
@@ -110,7 +99,7 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			}
 		}
 
-		logrus.Infof("Pulling image %s", image.Name())
+		logrus.Infof("[image] pulling image %s", image.Name())
 		img, err = registry.Image(image,
 			remote.WithPlatform(v1.Platform{
 				Architecture: runtime.GOARCH,
@@ -118,22 +107,33 @@ func (u *Utility) Stage(destDir string, imgString string) error {
 			}),
 		)
 		if err != nil {
-			return fmt.Errorf("%v: failed to get image %s", err, image.Name())
+			return fmt.Errorf("failed to get image %s: %w", image.Name(), err)
 		}
 	}
 
 	return extractFiles(img, destDir)
 }
 
+// findRegistriesYaml returns the first existing registries.yaml path or empty.
 func (u *Utility) findRegistriesYaml() string {
-	if _, err := os.Stat(u.agentRegistriesFile); err == nil {
-		return u.agentRegistriesFile
-	}
-	if _, err := os.Stat(rke2RegistriesFile); err == nil {
-		return rke2RegistriesFile
-	}
-	if _, err := os.Stat(k3sRegistriesFile); err == nil {
-		return k3sRegistriesFile
+	return findFirstExisting(append([]string{u.agentRegistriesFile}, u.fallbackRegistriesFiles...)...)
+}
+
+// findFirstExisting returns the first path that exists from candidates.
+// It returns an empty string when none exist.
+func findFirstExisting(candidates ...string) string {
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	return ""
+}
+
+// firstNonEmpty returns v when non-empty, otherwise def.
+func firstNonEmpty(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }

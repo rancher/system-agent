@@ -32,8 +32,9 @@ const (
 	// ShortTestLabel is used to filter tests for PR gate (fast tests).
 	ShortTestLabel = "short"
 
-	// FullTestLabel is used for nightly (all tests).
-	FullTestLabel = "full"
+	// LongTestLabel is used for nightly (extended tests). No spec carries it today -- see the
+	// "Known Coverage Gaps" section in test/README.md.
+	LongTestLabel = "long"
 
 	// DefaultPollInterval is the default interval for polling conditions.
 	DefaultPollInterval = "2s"

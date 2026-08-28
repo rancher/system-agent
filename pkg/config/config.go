@@ -32,7 +32,9 @@ type ConnectionInfo struct {
 	SecretName string `json:"secretName"`
 }
 
-func Parse(path string, result interface{}) error {
+// Parse reads path and decodes its content into result.
+// It enforces file permissions and ownership before decoding.
+func Parse(path string, result any) error {
 	if path == "" {
 		return fmt.Errorf("empty file passed")
 	}

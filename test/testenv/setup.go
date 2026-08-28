@@ -162,7 +162,7 @@ func generateAgentKubeconfig(ctx context.Context, kubeconfigPath string) string 
 	Expect(cmdResult.Error).NotTo(HaveOccurred(), "Failed to create SA token: %s", string(cmdResult.Stderr))
 	token := string(cmdResult.Stdout)
 
-	// Get the CA data.
+	// Get the CAData.
 	cmdResult = &framework.RunCommandResult{}
 	framework.RunCommand(ctx, framework.RunCommandInput{
 		Command: "kubectl",
@@ -172,7 +172,7 @@ func generateAgentKubeconfig(ctx context.Context, kubeconfigPath string) string 
 			"-o", "jsonpath={.clusters[0].cluster.certificate-authority-data}",
 		},
 	}, cmdResult)
-	Expect(cmdResult.Error).NotTo(HaveOccurred(), "Failed to get CA data")
+	Expect(cmdResult.Error).NotTo(HaveOccurred(), "Failed to get CAData")
 	caData := string(cmdResult.Stdout)
 
 	// Use the in-cluster Kubernetes service endpoint since the agent runs as a pod.

@@ -59,7 +59,7 @@ var _ = Describe("Remote Plan - Probes", Label(framework.ShortTestLabel), func()
 			if !ok {
 				return false
 			}
-			sMap, ok := s.(map[string]interface{})
+			sMap, ok := s.(map[string]any)
 			if !ok {
 				return false
 			}
@@ -101,7 +101,7 @@ var _ = Describe("Remote Plan - Probes", Label(framework.ShortTestLabel), func()
 			if !ok {
 				return false
 			}
-			sMap, ok := s.(map[string]interface{})
+			sMap, ok := s.(map[string]any)
 			if !ok {
 				return false
 			}
@@ -165,7 +165,7 @@ var _ = Describe("Remote Plan - Probes", Label(framework.ShortTestLabel), func()
 		Expect(statuses).NotTo(BeNil(), "probe-statuses should be present")
 		s, ok := statuses["delayed-probe"]
 		Expect(ok).To(BeTrue(), "delayed-probe should be in probe-statuses")
-		sMap, ok := s.(map[string]interface{})
+		sMap, ok := s.(map[string]any)
 		Expect(ok).To(BeTrue())
 		healthy, _ := sMap["healthy"]
 		Expect(healthy).To(Equal(true),
@@ -199,7 +199,7 @@ var _ = Describe("Remote Plan - Probes", Label(framework.ShortTestLabel), func()
 			if !ok {
 				return false
 			}
-			sMap, ok := s.(map[string]interface{})
+			sMap, ok := s.(map[string]any)
 			if !ok {
 				return false
 			}
@@ -211,7 +211,7 @@ var _ = Describe("Remote Plan - Probes", Label(framework.ShortTestLabel), func()
 		By("Verifying success count is at least 3")
 		statuses := framework.GetProbeStatuses(ctx, cl,
 			framework.E2ENamespace, framework.PlanSecretName)
-		sMap := statuses["threshold-probe"].(map[string]interface{})
+		sMap := statuses["threshold-probe"].(map[string]any)
 		successCount := sMap["successCount"].(float64)
 		Expect(successCount).To(BeNumerically(">=", 3),
 			"Success count should be at least the threshold value")

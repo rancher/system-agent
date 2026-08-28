@@ -16,11 +16,13 @@ import (
 	k8shttp "k8s.io/kubernetes/pkg/probe/http"
 )
 
+// DoProbe executes a single probe and updates probeStatus.
+// When initial=true, sleep initialDelaySeconds before running.
 func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool) error {
-	logrus.Tracef("Running probe %+v", probe)
+	logrus.Tracef("[prober] running probe %+v", probe)
 	if initial {
 		initialDelayDuration := time.Duration(probe.InitialDelaySeconds) * time.Second
-		logrus.Debugf("[Probe: %s] Sleeping for %.0f seconds before running probe", probe.Name, initialDelayDuration.Seconds())
+		logrus.Debugf("[prober] probe %s sleeping for %.0f seconds before running", probe.Name, initialDelayDuration.Seconds())
 		time.Sleep(initialDelayDuration)
 	}
 
@@ -33,25 +35,27 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 		if probe.HTTPGetAction.ClientCert != "" && probe.HTTPGetAction.ClientKey != "" {
 			clientCert, err := tls.LoadX509KeyPair(probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey)
 			if err != nil {
-				logrus.Errorf("error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
+				logrus.Errorf("[prober] error loading x509 client cert/key for probe %s (%s/%s): %v", probe.Name, probe.HTTPGetAction.ClientCert, probe.HTTPGetAction.ClientKey, err)
+			} else {
+				tlsConfig.Certificates = []tls.Certificate{clientCert}
 			}
-			tlsConfig.Certificates = []tls.Certificate{clientCert}
 		}
 
 		caCertPool, err := GetSystemCertPool(probe.Name)
 		if err != nil || caCertPool == nil {
 			caCertPool = x509.NewCertPool()
-			logrus.Errorf("error loading system cert pool for probe (%s): %v", probe.Name, err)
+			logrus.Errorf("[prober] error loading system cert pool for probe %s: %v", probe.Name, err)
 		}
 
 		if probe.HTTPGetAction.CACert != "" {
-			logrus.Debugf("[DoProbe] adding CA certificate [%s] for probe (%s)", probe.HTTPGetAction.CACert, probe.Name)
+			logrus.Debugf("[prober] adding CA certificate %s for probe %s", probe.HTTPGetAction.CACert, probe.Name)
 			caCert, err := os.ReadFile(probe.HTTPGetAction.CACert)
 			if err != nil {
-				logrus.Errorf("error loading CA cert for probe (%s) %s: %v", probe.Name, probe.HTTPGetAction.CACert, err)
-			}
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				logrus.Errorf("error while appending ca cert to pool for probe %s", probe.Name)
+				logrus.Errorf("[prober] error loading CA cert %s for probe %s: %v", probe.HTTPGetAction.CACert, probe.Name, err)
+				// Skip the append rather than falling through with a nil caCert, which would
+				// produce a second, misleading "error appending" log on top of the real cause.
+			} else if !caCertPool.AppendCertsFromPEM(caCert) {
+				logrus.Errorf("[prober] error while appending CA cert to pool for probe %s", probe.Name)
 			}
 		}
 
@@ -69,55 +73,27 @@ func DoProbe(probe planapi.Probe, probeStatus *planapi.ProbeStatus, initial bool
 		return err
 	}
 
-	probeDuration := time.Duration(probe.TimeoutSeconds) * time.Second
-	logrus.Tracef("[Probe: %s] timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
+	probeDuration := time.Duration(orDefault(probe.TimeoutSeconds, defaultTimeoutSeconds)) * time.Second
+	logrus.Tracef("[prober] probe %s timeout duration: %.0f seconds", probe.Name, probeDuration.Seconds())
 
 	probeResult, output, err := k8sProber.Probe(probeRequest, probeDuration)
 	if err != nil {
-		logrus.Errorf("error while running probe (%s): %v", probe.Name, err)
+		logrus.Errorf("[prober] error while running probe %s: %v", probe.Name, err)
 		return err
 	}
 
-	logrus.Debugf("[Probe: %s] output was %s", probe.Name, output)
+	logrus.Debugf("[prober] probe %s output was %s", probe.Name, output)
 
-	var successThreshold, failureThreshold int
+	successThreshold := orDefault(probe.SuccessThreshold, defaultSuccessThreshold)
+	failureThreshold := orDefault(probe.FailureThreshold, defaultFailureThreshold)
 
-	if probe.SuccessThreshold == 0 {
-		logrus.Tracef("[Probe: %s] Setting success threshold to default", probe.Name)
-		successThreshold = 1
+	succeeded := probeResult == k8sprobe.Success
+	if succeeded {
+		logrus.Debugf("[prober] probe %s succeeded", probe.Name)
 	} else {
-		logrus.Tracef("[Probe: %s] Setting success threshold to %d", probe.Name, probe.SuccessThreshold)
-		successThreshold = probe.SuccessThreshold
+		logrus.Debugf("[prober] probe %s failed", probe.Name)
 	}
-
-	if probe.FailureThreshold == 0 {
-		logrus.Tracef("[Probe: %s] Setting failure threshold to default", probe.Name)
-		failureThreshold = 3
-	} else {
-		logrus.Tracef("Setting failure threshold to %d", probe.FailureThreshold)
-		failureThreshold = probe.FailureThreshold
-	}
-
-	switch probeResult {
-	case k8sprobe.Success:
-		logrus.Debugf("[Probe: %s] succeeded", probe.Name)
-		if probeStatus.SuccessCount < successThreshold {
-			probeStatus.SuccessCount = probeStatus.SuccessCount + 1
-			if probeStatus.SuccessCount >= successThreshold {
-				probeStatus.Healthy = true
-			}
-		}
-		probeStatus.FailureCount = 0
-	default:
-		logrus.Debugf("[Probe: %s] failed", probe.Name)
-		if probeStatus.FailureCount < failureThreshold {
-			probeStatus.FailureCount = probeStatus.FailureCount + 1
-			if probeStatus.FailureCount >= failureThreshold {
-				probeStatus.Healthy = false
-			}
-		}
-		probeStatus.SuccessCount = 0
-	}
+	applyProbeResult(probeStatus, succeeded, successThreshold, failureThreshold)
 
 	return nil
 }
@@ -128,10 +104,10 @@ func GetSystemCertPool(probeName string) (*x509.CertPool, error) {
 	caCertPool, err := x509.SystemCertPool()
 	if err != nil {
 		caCertPool = x509.NewCertPool()
-		logrus.Errorf("[GetSystemCertPoolUnix] error loading system cert pool for probe (%s): %v", probeName, err)
+		logrus.Errorf("[prober] error loading system cert pool for probe %s: %v", probeName, err)
 	}
 	if caCertPool == nil {
-		return nil, fmt.Errorf("[GetSystemCertPoolWindows] x509 returned a nil certpool for probe (%s)", probeName)
+		return nil, fmt.Errorf("x509 returned a nil certpool for probe %s", probeName)
 	}
 	return caCertPool, nil
 }
