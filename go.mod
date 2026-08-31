@@ -50,7 +50,7 @@ require (
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.1-rc.2
+	github.com/rancher/wrangler/v3 v3.7.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
