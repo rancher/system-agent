@@ -9,14 +9,17 @@ import (
 )
 
 // reconcileFilePermissions abstracts out the file permissions checks that only works on Linux.
+// It sets the mode then chowns the path to uid:gid.
 func reconcileFilePermissions(path string, uid int, gid int, perm os.FileMode) error {
-	logrus.Debugf("[Applyinator] Reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)
+	logrus.Debugf("[applyinator] reconciling file permissions for %s to %d:%d %d", path, uid, gid, perm)
 	if err := os.Chmod(path, perm); err != nil {
 		return err
 	}
 	return os.Chown(path, uid, gid)
 }
 
+// getPermissions returns the file mode for path. It is used in tests.
+//
 //nolint:unused // used in tests
 func getPermissions(path string) (os.FileMode, error) {
 	fileInfo, err := os.Stat(path)

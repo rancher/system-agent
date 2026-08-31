@@ -22,8 +22,8 @@ set -ex
 
 make build
 
-mkdir -p /usr/share/rancher/ui/assets
-cp "${SYSTEM_AGENT_DIR}/install.sh" /usr/share/rancher/ui/assets/system-agent-install.sh
+mkdir -p /usr/share/rancher/ui-dashboard/assets
+cp "${SYSTEM_AGENT_DIR}/install.sh" /usr/share/rancher/ui-dashboard/assets/system-agent-install.sh
 
 source ./scripts/fetch-provisioning-tests
 
@@ -43,9 +43,9 @@ cd "$RANCHER_DIR"
 sed -i -e '3,5d' ./scripts/provisioning-tests
 
 # Use local system-agent binary instead of downloading from release server.
-sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/rancher-system-agent-amd64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui/assets/rancher-system-agent-amd64|" ./scripts/provisioning-tests
-sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/rancher-system-agent-arm64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui/assets/rancher-system-agent-arm64|" ./scripts/provisioning-tests
-sed -i "s|curl -sLf .* -o /usr/share/rancher/ui/assets/system-agent-uninstall.sh$|cp ${SYSTEM_AGENT_DIR}/system-agent-uninstall.sh /usr/share/rancher/ui/assets/system-agent-uninstall.sh|" ./scripts/provisioning-tests
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui-dashboard/assets/rancher-system-agent-amd64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui-dashboard/assets/rancher-system-agent-amd64|" ./scripts/provisioning-tests
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui-dashboard/assets/rancher-system-agent-arm64$|cp ${SYSTEM_AGENT_DIR}/bin/rancher-system-agent /usr/share/rancher/ui-dashboard/assets/rancher-system-agent-arm64|" ./scripts/provisioning-tests
+sed -i "s|curl -sLf .* -o /usr/share/rancher/ui-dashboard/assets/system-agent-uninstall.sh$|cp ${SYSTEM_AGENT_DIR}/system-agent-uninstall.sh /usr/share/rancher/ui-dashboard/assets/system-agent-uninstall.sh|" ./scripts/provisioning-tests
 
 # Increase timeouts for 2-core GHA runners.
 sed -i 's|--timeout 300 "curl -sf -o /dev/null http://localhost:8080/ping"|--timeout 1200 "curl -sf -o /dev/null http://localhost:8080/ping"|' ./scripts/provisioning-tests
@@ -63,7 +63,7 @@ fi
 mkdir -p "${HOME}/.kube"
 ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 
-export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head}
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.16-c234bc1ccd804c9a00425c6cf7f9a4ead1120958-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
 export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}

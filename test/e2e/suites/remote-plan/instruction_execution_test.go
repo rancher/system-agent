@@ -68,6 +68,35 @@ var _ = Describe("Remote Plan - Instruction Execution", Label(framework.ShortTes
 		Expect(decoded).To(ContainSubstring("second"))
 	})
 
+	It("should capture both stdout and stderr for a one-time instruction", func() {
+		ctx := context.Background()
+
+		By("Creating a plan with an instruction that writes to both stdout and stderr")
+		plan := framework.NewPlan().
+			WithInstruction("combined-output", "/bin/sh",
+				[]string{"-c", "echo 'stdout-line'; echo 'stderr-line' 1>&2"}, true).
+			Build()
+
+		By("Creating the plan Secret")
+		err := framework.CreatePlanSecret(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Waiting for applied-output")
+		appliedOutput := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedOutputKey, framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying both stdout and stderr are present in the saved output")
+		outputMap, err := framework.GetOutputMap(appliedOutput)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(outputMap).To(HaveKey("combined-output"))
+		Expect(outputMap["combined-output"]).To(ContainSubstring("stdout-line"),
+			"one-time instruction output should contain stdout")
+		Expect(outputMap["combined-output"]).To(ContainSubstring("stderr-line"),
+			"one-time instruction output should also contain stderr (execute() must merge stderr into stdout when combinedOutput is true)")
+	})
+
 	It("should stop executing instructions after a failure", func() {
 		ctx := context.Background()
 

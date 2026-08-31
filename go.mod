@@ -50,11 +50,12 @@ require (
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.2.9
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260508124826-0b6b24d9811e
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.0
+	github.com/rancher/wrangler/v3 v3.7.1-rc.2
 	github.com/sirupsen/logrus v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
+	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.22.0
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0

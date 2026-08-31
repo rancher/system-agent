@@ -46,7 +46,7 @@ replace (
 require (
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.40.0
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260508124826-0b6b24d9811e
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
 	github.com/rancher/system-agent v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
@@ -153,7 +153,7 @@ require (
 	github.com/rancher/lasso v0.2.9 // indirect
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065 // indirect
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa // indirect
-	github.com/rancher/wrangler/v3 v3.7.0 // indirect
+	github.com/rancher/wrangler/v3 v3.7.1-rc.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect

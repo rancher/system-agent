@@ -116,13 +116,13 @@ func GetAppliedChecksum(ctx context.Context, cl client.Client, namespace, name s
 }
 
 // GetProbeStatuses retrieves and unmarshals the probe-statuses field from a plan Secret.
-func GetProbeStatuses(ctx context.Context, cl client.Client, namespace, name string) map[string]interface{} {
+func GetProbeStatuses(ctx context.Context, cl client.Client, namespace, name string) map[string]any {
 	data := GetSecretData(ctx, cl, namespace, name)
 	raw, ok := data[k8splan.ProbeStatusesKey]
 	if !ok {
 		return nil
 	}
-	var result map[string]interface{}
+	var result map[string]any
 	err := json.Unmarshal(raw, &result)
 	Expect(err).NotTo(HaveOccurred(), "Failed to unmarshal probe-statuses")
 	return result

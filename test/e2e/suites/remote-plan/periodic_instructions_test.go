@@ -114,4 +114,35 @@ var _ = Describe("Remote Plan - Periodic Instructions", Label(framework.ShortTes
 		Expect(string(pio.Stderr)).To(ContainSubstring("stderr-data"),
 			"Stderr should contain the expected output")
 	})
+
+	It("should not capture stderr by default (saveStderrOutput unset)", func() {
+		ctx := context.Background()
+
+		By("Creating a plan with a periodic instruction that writes to stderr, without opting into saveStderrOutput")
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("periodic-no-stderr", "/bin/sh",
+				[]string{"-c", "echo 'should-not-be-saved' >&2"}, 5).
+			Build()
+
+		By("Creating the plan Secret")
+		err := framework.CreatePlanSecret(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Waiting for applied-periodic-output")
+		periodicOutput := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedPeriodicOutputKey, framework.WaitTimeout, 5*time.Second)
+
+		By("Verifying stderr was NOT captured")
+		outputMap, err := framework.DecodePeriodicOutput(periodicOutput)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(outputMap).To(HaveKey("periodic-no-stderr"))
+
+		pio := outputMap["periodic-no-stderr"]
+		Expect(pio.ExitCode).To(Equal(0),
+			"Periodic instruction should have succeeded")
+		Expect(pio.Stderr).To(BeEmpty(),
+			"Stderr should NOT be captured when saveStderrOutput is unset (default false)")
+	})
 })

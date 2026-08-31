@@ -28,7 +28,7 @@ import (
 // DecodeOutput decodes a gzip-compressed output,
 // as produced by the system-agent for applied-output and periodicOutput fields.
 // The data is stored as raw gzip bytes containing JSON with base64-encoded values.
-// Returns a formatted string with all instruction outputs.
+// It returns a formatted string with all instruction outputs.
 func DecodeOutput(encoded []byte) (string, error) {
 	if len(encoded) == 0 {
 		return "", nil

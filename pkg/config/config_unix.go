@@ -9,7 +9,8 @@ import (
 	"syscall"
 )
 
-// pathOwnedByCurrentUser is abstracted out for Linux as root is a Linux only concept.
+// pathOwnedByCurrentUser verifies the file is owned by the current user.
+// It returns an error when the owner differs.
 func pathOwnedByCurrentUser(path string) error {
 	var stat syscall.Stat_t
 	err := syscall.Stat(path, &stat)
@@ -26,7 +27,8 @@ func pathOwnedByCurrentUser(path string) error {
 	return nil
 }
 
-// permissionsCheck is abstracted out for Linux as root is a Linux only concept.
+// permissionsCheck ensures the file mode equals 0600.
+// It returns an error when the mode differs.
 func permissionsCheck(fi os.FileInfo, path string) error {
 	if fi.Mode().Perm() != 0600 {
 		return fmt.Errorf("file %s had permission %#o which was not expected 0600", path, fi.Mode().Perm())

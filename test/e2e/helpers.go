@@ -92,7 +92,7 @@ func getEnvOrDefault(key, defaultVal string) string {
 }
 
 // getBoolEnv returns true only when the environment variable is explicitly set to "true".
-// Defaults to false for unset or any other value.
+// It defaults to false for unset or any other value.
 func getBoolEnv(key string) bool {
 	return strings.EqualFold(os.Getenv(key), "true")
 }
