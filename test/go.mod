@@ -210,17 +210,17 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apiextensions-apiserver v0.37.0 // indirect
 	k8s.io/apiserver v0.37.0 // indirect
-	k8s.io/cloud-provider v0.34.0 // indirect
-	k8s.io/cluster-bootstrap v0.36.3 // indirect
+	k8s.io/cloud-provider v0.37.0 // indirect
+	k8s.io/cluster-bootstrap v0.37.0 // indirect
 	k8s.io/component-base v0.37.0 // indirect
 	k8s.io/component-helpers v0.37.0 // indirect
 	k8s.io/controller-manager v0.37.0 // indirect
 	k8s.io/cri-api v0.37.0 // indirect
-	k8s.io/cri-client v0.34.0 // indirect
+	k8s.io/cri-client v0.37.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kms v0.37.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
-	k8s.io/kubelet v0.34.0 // indirect
+	k8s.io/kubelet v0.37.0 // indirect
 	k8s.io/kubernetes v1.37.0 // indirect
 	k8s.io/streaming v0.37.0 // indirect
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
