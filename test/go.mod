@@ -1,8 +1,6 @@
 module github.com/rancher/system-agent/test
 
-go 1.26.0
-
-toolchain go1.26.7
+go 1.26.7
 
 replace (
 	github.com/rancher/system-agent => ../
@@ -44,7 +42,7 @@ replace (
 require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260828155108-93802792d0f6
 	github.com/rancher/system-agent v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
@@ -143,7 +141,7 @@ require (
 	github.com/rancher/lasso v0.2.9 // indirect
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065 // indirect
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa // indirect
-	github.com/rancher/wrangler/v3 v3.7.1-rc.2 // indirect
+	github.com/rancher/wrangler/v3 v3.7.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
@@ -174,7 +172,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/mod v0.38.0 // indirect
@@ -209,7 +207,7 @@ require (
 	k8s.io/kms v0.36.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
 	k8s.io/kubelet v0.34.0 // indirect
-	k8s.io/kubernetes v1.36.0 // indirect
+	k8s.io/kubernetes v1.36.3 // indirect
 	k8s.io/streaming v0.36.3 // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect
