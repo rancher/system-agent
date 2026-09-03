@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -133,6 +135,10 @@ func TestAppliedPlanRetentionPolicy(t *testing.T) {
 	}
 }
 
+// TestExecuteCapturesStdoutStderrAndExitCode is also the happy-path guard for the termination
+// watchdog execute arms on every command: a command that is never canceled must have its output
+// captured in full and its exit code reported unchanged, so the watchdog neither truncates output
+// by closing the pipes early nor interferes with exit reporting.
 func TestExecuteCapturesStdoutStderrAndExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
@@ -184,7 +190,8 @@ func TestExecuteCapturesStdoutStderrAndExitCode(t *testing.T) {
 				Args:    []string{"-c", tc.script},
 			}
 
-			stdout, stderr, exitCode, err := a.execute(context.Background(), "test", t.TempDir(), instruction, tc.combinedOutput, 1)
+			result, err := a.execute(context.Background(), "test", t.TempDir(), instruction, tc.combinedOutput, 1)
+			stdout, stderr, exitCode := result.Stdout, result.Stderr, result.ExitCode
 			if exitCode != tc.wantExitCode {
 				t.Errorf("expected exit code %d, got %d (err: %v)", tc.wantExitCode, exitCode, err)
 			}
@@ -228,12 +235,12 @@ func TestExecuteInjectsEnvironmentVariables(t *testing.T) {
 		Env:     []string{"FOO=bar"},
 	}
 
-	stdout, _, exitCode, err := a.execute(context.Background(), "test", executionDir, instruction, false, 5)
-	if err != nil || exitCode != 0 {
-		t.Fatalf("unexpected failure: exitCode=%d err=%v", exitCode, err)
+	result, err := a.execute(context.Background(), "test", executionDir, instruction, false, 5)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("unexpected failure: exitCode=%d err=%v", result.ExitCode, err)
 	}
 
-	got := string(stdout)
+	got := string(result.Stdout)
 	for _, want := range []string{"pwd=" + executionDir, "attempt=5", "foo=bar"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %q, got %q", want, got)
@@ -255,12 +262,12 @@ func TestExecuteDefaultsToRunShInExecutionDir(t *testing.T) {
 	a := NewApplyinator(t.TempDir(), false, "", "", nil)
 	instruction := planapi.CommonInstruction{} // no Command set
 
-	stdout, _, exitCode, err := a.execute(context.Background(), "test", executionDir, instruction, false, 1)
-	if err != nil || exitCode != 0 {
-		t.Fatalf("unexpected failure: exitCode=%d err=%v", exitCode, err)
+	result, err := a.execute(context.Background(), "test", executionDir, instruction, false, 1)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("unexpected failure: exitCode=%d err=%v", result.ExitCode, err)
 	}
-	if !strings.Contains(string(stdout), "ran-default") {
-		t.Errorf("expected default run.sh to execute, got stdout=%q", stdout)
+	if !strings.Contains(string(result.Stdout), "ran-default") {
+		t.Errorf("expected default run.sh to execute, got stdout=%q", result.Stdout)
 	}
 }
 
@@ -682,15 +689,21 @@ func TestRunOneTimeInstructionsStopsAtFirstFailure(t *testing.T) {
 		},
 	}
 
-	output, succeeded, err := a.runOneTimeInstructions(context.Background(), executionDir, cp, nil, 1)
+	result, err := a.runOneTimeInstructions(context.Background(), executionDir, cp, nil, 1, 0, nil, nil)
 	if err != nil {
 		t.Fatalf("runOneTimeInstructions returned error: %v", err)
 	}
-	if succeeded {
+	if result.Succeeded {
 		t.Error("expected succeeded=false because the second instruction failed")
 	}
+	if result.Completed != 1 {
+		t.Errorf("expected Completed=1 (only the first instruction ran to completion), got %d", result.Completed)
+	}
+	if result.Interruption != InterruptionNone {
+		t.Errorf("expected a plain failure to report no interruption, got %q", result.Interruption)
+	}
 
-	outputs := decodeOneTimeOutputs(t, output)
+	outputs := decodeOneTimeOutputs(t, result.Output)
 	if !strings.Contains(string(outputs["ok"]), "ok-output") {
 		t.Errorf("expected saved output for %q to contain %q, got %q", "ok", "ok-output", outputs["ok"])
 	}
@@ -901,10 +914,11 @@ func TestRunPeriodicInstructionsSkipsWhenNotDue(t *testing.T) {
 		"steady": {Name: "steady", LastSuccessfulRunTime: now.Add(-1 * time.Second).Format(time.UnixDate)},
 	})
 
-	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
+	periodic, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now, nil, nil)
 	if err != nil {
 		t.Fatalf("runPeriodicInstructions returned error: %v", err)
 	}
+	output, succeeded := periodic.Output, periodic.Succeeded
 	if !succeeded {
 		t.Error("expected succeeded=true when nothing ran")
 	}
@@ -934,10 +948,11 @@ func TestRunPeriodicInstructionsRunsWhenDue(t *testing.T) {
 		},
 	}
 
-	output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, nil, false, time.Now())
+	periodic, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, nil, false, time.Now(), nil, nil)
 	if err != nil {
 		t.Fatalf("runPeriodicInstructions returned error: %v", err)
 	}
+	output, succeeded := periodic.Output, periodic.Succeeded
 	if !succeeded {
 		t.Error("expected succeeded=true")
 	}
@@ -1051,10 +1066,11 @@ func TestRunPeriodicInstructionsRecordsFailure(t *testing.T) {
 				"flaky": {Name: "flaky", LastSuccessfulRunTime: previousSuccess},
 			})
 
-			output, succeeded, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now)
+			periodic, err := a.runPeriodicInstructions(context.Background(), executionDir, cp, existing, false, now, nil, nil)
 			if err != nil {
 				t.Fatalf("runPeriodicInstructions returned error: %v", err)
 			}
+			output, succeeded := periodic.Output, periodic.Succeeded
 			if succeeded {
 				t.Error("expected succeeded=false because the instruction failed")
 			}
@@ -1122,5 +1138,981 @@ func TestApplyBlockedByInterlock(t *testing.T) {
 	activePath := filepath.Join(interlockDir, applyinatorActiveInterlockFile)
 	if _, statErr := os.Stat(activePath); !os.IsNotExist(statErr) {
 		t.Errorf("expected applyinator-active file to not be created when blocked, stat err: %v", statErr)
+	}
+}
+
+// signalState describes how a Cancel/Pause channel is constructed for a test case.
+type signalState int
+
+const (
+	signalNil signalState = iota
+	signalOpen
+	signalClosed
+)
+
+func newSignal(s signalState) <-chan struct{} {
+	if s == signalNil {
+		return nil
+	}
+	ch := make(chan struct{})
+	if s == signalClosed {
+		close(ch)
+	}
+	return ch
+}
+
+func TestCheckInterruptionPrecedence(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		cancel signalState
+		pause  signalState
+		want   Interruption
+	}{
+		{name: "nil channels are never ready", cancel: signalNil, pause: signalNil, want: InterruptionNone},
+		{name: "closed cancel reports a cancellation", cancel: signalClosed, pause: signalNil, want: InterruptionCanceled},
+		{name: "closed pause reports a pause", cancel: signalNil, pause: signalClosed, want: InterruptionPaused},
+		{name: "cancel wins over a simultaneously closed pause", cancel: signalClosed, pause: signalClosed, want: InterruptionCanceled},
+		{name: "open channels are not ready", cancel: signalOpen, pause: signalOpen, want: InterruptionNone},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cancel, pause := newSignal(tc.cancel), newSignal(tc.pause)
+			// Repeated because a select over two ready channels picks pseudo-randomly: a single
+			// observation would not prove that cancel deterministically wins over pause.
+			for i := range 200 {
+				if got := checkInterruption(cancel, pause); got != tc.want {
+					t.Fatalf("iteration %d: expected %q, got %q", i, tc.want, got)
+				}
+			}
+		})
+	}
+}
+
+// waitForPath polls until path exists, failing the test if it has not appeared before the deadline.
+func waitForPath(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for %s to exist", timeout, path)
+}
+
+// waitForGlob polls until at least one path matches pattern, failing the test if none does before
+// the deadline. Used to observe an instruction starting: execute() creates the instruction's
+// execution directory immediately before launching the command.
+func waitForGlob(t *testing.T, pattern string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatalf("bad glob pattern %q: %v", pattern, err)
+		}
+		if len(matches) > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for a path matching %s", timeout, pattern)
+}
+
+func assertPathAbsent(t *testing.T, path, reason string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected %s to not exist (%s), stat err: %v", path, reason, err)
+	}
+}
+
+// touchCommand returns a command that creates sentinel and returns immediately.
+func touchCommand(name, sentinel string) planapi.CommonInstruction {
+	return planapi.CommonInstruction{Name: name, Command: "sh", Args: []string{"-c", "touch " + sentinel}}
+}
+
+// gatedTouchCommand returns a command that creates sentinel and then blocks until gate exists,
+// giving a test a deterministic window during which the instruction is still running.
+func gatedTouchCommand(name, sentinel, gate string) planapi.CommonInstruction {
+	script := "touch " + sentinel + "; while [ ! -e " + gate + " ]; do sleep 0.02; done"
+	return planapi.CommonInstruction{Name: name, Command: "sh", Args: []string{"-c", script}}
+}
+
+func touchInstruction(name, sentinel string) planapi.OneTimeInstruction {
+	return planapi.OneTimeInstruction{CommonInstruction: touchCommand(name, sentinel)}
+}
+
+func gatedTouchInstruction(name, sentinel, gate string) planapi.OneTimeInstruction {
+	return planapi.OneTimeInstruction{CommonInstruction: gatedTouchCommand(name, sentinel, gate)}
+}
+
+type applyResult struct {
+	output ApplyOutput
+	err    error
+}
+
+// applyAsync runs Apply on its own goroutine so the test can drive Cancel/Pause while it is in flight.
+func applyAsync(a *Applyinator, input ApplyInput) <-chan applyResult {
+	results := make(chan applyResult, 1)
+	go func() {
+		output, err := a.Apply(context.Background(), input)
+		results <- applyResult{output: output, err: err}
+	}()
+	return results
+}
+
+func awaitApply(t *testing.T, results <-chan applyResult, timeout time.Duration) ApplyOutput {
+	t.Helper()
+	select {
+	case result := <-results:
+		if result.err != nil {
+			t.Fatalf("Apply returned error: %v", result.err)
+		}
+		return result.output
+	case <-time.After(timeout):
+		t.Fatalf("Apply did not return within %s", timeout)
+		return ApplyOutput{}
+	}
+}
+
+func TestApplyPreClosedCancelShortCircuitsBeforeTheLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	sentinel := filepath.Join(t.TempDir(), "instruction-ran")
+	a := newTestApplyinator(t, "", false, "", "")
+	// Holding the apply lock is what makes this test pin the short-circuit above a.mu.Lock():
+	// Apply cannot reach any other code path while the lock is held.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	cancel := make(chan struct{})
+	close(cancel)
+	plan := planapi.Plan{OneTimeInstructions: []planapi.OneTimeInstruction{touchInstruction("should-not-run", sentinel)}}
+
+	output := awaitApply(t, applyAsync(a, ApplyInput{
+		CalculatedPlan:               CalculatedPlan{Plan: plan, Checksum: "checksum-cancel-prelock"},
+		RunOneTimeInstructions:       true,
+		OneTimeInstructionAttempts:   1,
+		ReconcileFiles:               true,
+		Cancel:                       cancel,
+		ResumeFromOneTimeInstruction: 3,
+	}), 5*time.Second)
+
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+	if output.CompletedOneTimeInstructions != 3 {
+		t.Errorf("expected the incoming checkpoint (3) to be reported unchanged, got %d", output.CompletedOneTimeInstructions)
+	}
+	assertPathAbsent(t, sentinel, "no instruction may run once the apply is already canceled")
+}
+
+func TestApplyPauseStopsBeforeTheNextInstruction(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	firstSentinel := filepath.Join(dir, "first-ran")
+	secondSentinel := filepath.Join(dir, "second-ran")
+	periodicSentinel := filepath.Join(dir, "periodic-ran")
+	gate := filepath.Join(dir, "gate")
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			gatedTouchInstruction("first", firstSentinel, gate),
+			touchInstruction("second", secondSentinel),
+		},
+		// Present so this test also pins the rule that an interrupted one-time set suppresses the
+		// periodic instructions: running them would execute work the operator asked to stop.
+		PeriodicInstructions: []planapi.PeriodicInstruction{
+			{CommonInstruction: touchCommand("periodic", periodicSentinel)},
+		},
+	}
+
+	pause := make(chan struct{})
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum-pause"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		Pause:                      pause,
+	})
+
+	// Pause while instruction 0 is still running: it must be allowed to finish, and instruction 1
+	// must never start.
+	waitForPath(t, firstSentinel, 30*time.Second)
+	close(pause)
+	if err := os.WriteFile(gate, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := awaitApply(t, results, 30*time.Second)
+	if output.Interruption != InterruptionPaused {
+		t.Errorf("expected %q, got %q", InterruptionPaused, output.Interruption)
+	}
+	if output.CompletedOneTimeInstructions != 1 {
+		t.Errorf("expected CompletedOneTimeInstructions=1, got %d", output.CompletedOneTimeInstructions)
+	}
+	if !output.OneTimeApplySucceeded {
+		t.Error("expected a pause with no failure to still report OneTimeApplySucceeded=true")
+	}
+	assertPathAbsent(t, secondSentinel, "a pause stops before the next instruction")
+	assertPathAbsent(t, periodicSentinel, "an interrupted one-time set skips the periodic instructions entirely")
+	// The sentinel above cannot distinguish "Apply returned before calling runPeriodicInstructions"
+	// from "runPeriodicInstructions ran and broke at its own boundary check", because the pause is
+	// still pending either way. These two assertions can: a periodic pass that runs -- even a
+	// no-op one -- replaces PeriodicOutput with an encoded empty map and sets PeriodicApplySucceeded.
+	// An abandoned one-time set must leave the caller's recorded periodic state untouched instead.
+	if output.PeriodicOutput != nil {
+		t.Errorf("expected PeriodicOutput to be left as the caller passed it (nil), got %d bytes", len(output.PeriodicOutput))
+	}
+	if output.PeriodicApplySucceeded {
+		t.Error("expected PeriodicApplySucceeded=false: no periodic pass may run once the one-time set is interrupted")
+	}
+}
+
+func TestApplyResumeFromSkipsAlreadyCompletedInstructions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	firstSentinel := filepath.Join(dir, "first-ran")
+	secondSentinel := filepath.Join(dir, "second-ran")
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			touchInstruction("first", firstSentinel),
+			touchInstruction("second", secondSentinel),
+		},
+	}
+
+	output, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:               CalculatedPlan{Plan: plan, Checksum: "checksum-resume"},
+		RunOneTimeInstructions:       true,
+		OneTimeInstructionAttempts:   1,
+		ResumeFromOneTimeInstruction: 1,
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if output.Interruption != InterruptionNone {
+		t.Errorf("expected no interruption, got %q", output.Interruption)
+	}
+	if output.CompletedOneTimeInstructions != 2 {
+		t.Errorf("expected CompletedOneTimeInstructions=2, got %d", output.CompletedOneTimeInstructions)
+	}
+	assertPathAbsent(t, firstSentinel, "instructions below the resume index are treated as complete")
+	waitForPath(t, secondSentinel, time.Second)
+}
+
+func TestApplyCompletedOneTimeInstructionsIsAbsoluteAcrossResume(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	sentinel := func(i int) string { return filepath.Join(dir, "ran-"+strconv.Itoa(i)) }
+	firstGate := filepath.Join(dir, "gate-1")
+	secondGate := filepath.Join(dir, "gate-2")
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			touchInstruction("zero", sentinel(0)),
+			gatedTouchInstruction("one", sentinel(1), firstGate),
+			gatedTouchInstruction("two", sentinel(2), secondGate),
+			touchInstruction("three", sentinel(3)),
+		},
+	}
+	cp := CalculatedPlan{Plan: plan, Checksum: "checksum-absolute-checkpoint"}
+
+	// First cycle: pause while instruction 1 runs, so it completes and instruction 2 never starts.
+	pause := make(chan struct{})
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan:             cp,
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		Pause:                      pause,
+	})
+	waitForPath(t, sentinel(1), 30*time.Second)
+	close(pause)
+	if err := os.WriteFile(firstGate, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	first := awaitApply(t, results, 30*time.Second)
+	if first.Interruption != InterruptionPaused {
+		t.Fatalf("expected the first cycle to report %q, got %q", InterruptionPaused, first.Interruption)
+	}
+	if first.CompletedOneTimeInstructions != 2 {
+		t.Fatalf("expected the first cycle checkpoint to be 2, got %d", first.CompletedOneTimeInstructions)
+	}
+	assertPathAbsent(t, sentinel(2), "the first cycle paused before instruction 2")
+
+	// Second cycle: resume at the reported checkpoint and pause again one instruction later. The
+	// checkpoint must compose (3), not restart from this cycle's own count (1).
+	resumePause := make(chan struct{})
+	results = applyAsync(a, ApplyInput{
+		CalculatedPlan:               cp,
+		RunOneTimeInstructions:       true,
+		OneTimeInstructionAttempts:   1,
+		Pause:                        resumePause,
+		ResumeFromOneTimeInstruction: first.CompletedOneTimeInstructions,
+	})
+	waitForPath(t, sentinel(2), 30*time.Second)
+	close(resumePause)
+	if err := os.WriteFile(secondGate, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	second := awaitApply(t, results, 30*time.Second)
+
+	if second.Interruption != InterruptionPaused {
+		t.Errorf("expected the second cycle to report %q, got %q", InterruptionPaused, second.Interruption)
+	}
+	if second.CompletedOneTimeInstructions != 3 {
+		t.Errorf("expected the resumed checkpoint to be absolute (3), got %d", second.CompletedOneTimeInstructions)
+	}
+	assertPathAbsent(t, sentinel(3), "the second cycle paused before instruction 3")
+}
+
+func TestApplyCancelDuringLongRunningInstructionReturnsPromptly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	const checksum = "checksum-cancel-inflight"
+	workDir := t.TempDir()
+	a := newTestApplyinator(t, workDir, false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "sleeper", Command: "sh", Args: []string{"-c", "sleep 60"}}},
+		},
+	}
+
+	cancel := make(chan struct{})
+	started := time.Now()
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: checksum},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		Cancel:                     cancel,
+	})
+
+	// execute() creates the instruction's execution directory immediately before launching the
+	// command, so its appearance means the sleep is about to be (or already is) in flight.
+	waitForGlob(t, filepath.Join(workDir, "*", checksum+"_0"), 30*time.Second)
+	close(cancel)
+
+	output := awaitApply(t, results, 10*time.Second)
+	if elapsed := time.Since(started); elapsed > 30*time.Second {
+		t.Errorf("expected Apply to return well inside the 60s sleep, took %s", elapsed)
+	}
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+	if output.CompletedOneTimeInstructions != 0 {
+		t.Errorf("expected the killed instruction to not advance the checkpoint, got %d", output.CompletedOneTimeInstructions)
+	}
+	// A killed instruction is still a failed instruction, so OneTimeApplySucceeded is false here.
+	// "A cancel-induced kill must not be reported as a plan failure" is therefore an obligation on
+	// the caller: it has to test Interruption BEFORE OneTimeApplySucceeded, or it will record a
+	// canceled plan as failed. Pinned so the downstream reconcile task can rely on this ordering.
+	if output.OneTimeApplySucceeded {
+		t.Error("expected OneTimeApplySucceeded=false for a cancel-killed instruction; callers must check Interruption first")
+	}
+}
+
+func TestApplyFailureIsNotReportedAsAnInterruption(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "fails", Command: "sh", Args: []string{"-c", "exit 1"}}},
+		},
+	}
+
+	output, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum-failure-not-interruption"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if output.OneTimeApplySucceeded {
+		t.Error("expected OneTimeApplySucceeded=false")
+	}
+	if output.Interruption != InterruptionNone {
+		t.Errorf("expected a plain failure to report no interruption, got %q", output.Interruption)
+	}
+	if output.CompletedOneTimeInstructions != 0 {
+		t.Errorf("expected a failed instruction to not advance the checkpoint, got %d", output.CompletedOneTimeInstructions)
+	}
+}
+
+func TestRunOneTimeInstructionsOutOfRangeResumeIndex(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		resumeFrom   int
+		wantExecuted bool
+	}{
+		{name: "resume exactly at the instruction count runs nothing", resumeFrom: 2, wantExecuted: false},
+		{name: "resume past the last instruction runs nothing", resumeFrom: 5, wantExecuted: false},
+		{name: "negative resume index starts from the first instruction", resumeFrom: -1, wantExecuted: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			first, second := filepath.Join(dir, "first-ran"), filepath.Join(dir, "second-ran")
+			a := NewApplyinator(t.TempDir(), false, "", "", nil)
+			cp := CalculatedPlan{
+				Checksum: "checksum-resume-range",
+				Plan: planapi.Plan{
+					OneTimeInstructions: []planapi.OneTimeInstruction{
+						touchInstruction("first", first),
+						touchInstruction("second", second),
+					},
+				},
+			}
+
+			result, err := a.runOneTimeInstructions(context.Background(), t.TempDir(), cp, nil, 1, tc.resumeFrom, nil, nil)
+			if err != nil {
+				t.Fatalf("runOneTimeInstructions returned error: %v", err)
+			}
+			if !result.Succeeded {
+				t.Error("expected Succeeded=true")
+			}
+			if result.Interruption != InterruptionNone {
+				t.Errorf("expected no interruption, got %q", result.Interruption)
+			}
+			// Either nothing ran or everything ran, so the checkpoint is the full instruction count both ways.
+			if result.Completed != 2 {
+				t.Errorf("expected Completed=2, got %d", result.Completed)
+			}
+			if !tc.wantExecuted {
+				assertPathAbsent(t, first, "an out-of-range resume index must not execute anything")
+				assertPathAbsent(t, second, "an out-of-range resume index must not execute anything")
+				return
+			}
+			waitForPath(t, first, time.Second)
+			waitForPath(t, second, time.Second)
+		})
+	}
+}
+
+func TestRunPeriodicInstructionsStopsWhenInterrupted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		cancel signalState
+		pause  signalState
+	}{
+		{name: "a pending pause stops before the next instruction", cancel: signalNil, pause: signalClosed},
+		{name: "a pending cancel stops before the next instruction", cancel: signalClosed, pause: signalNil},
+		{name: "open channels do not stop anything", cancel: signalOpen, pause: signalOpen},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			first, second := filepath.Join(dir, "first-ran"), filepath.Join(dir, "second-ran")
+			a := NewApplyinator(t.TempDir(), false, "", "", nil)
+			cp := CalculatedPlan{
+				Checksum: "checksum-periodic-interrupted",
+				Plan: planapi.Plan{
+					PeriodicInstructions: []planapi.PeriodicInstruction{
+						{CommonInstruction: touchCommand("first", first)},
+						{CommonInstruction: touchCommand("second", second)},
+					},
+				},
+			}
+
+			periodic, err := a.runPeriodicInstructions(context.Background(), t.TempDir(), cp, nil, false, time.Now(),
+				newSignal(tc.cancel), newSignal(tc.pause))
+			if err != nil {
+				t.Fatalf("runPeriodicInstructions returned error: %v", err)
+			}
+			output, succeeded := periodic.Output, periodic.Succeeded
+			if !succeeded {
+				t.Error("expected succeeded=true: an interruption is not a failure, and nothing that ran failed")
+			}
+
+			outputs := decodePeriodicOutputs(t, output)
+			interrupted := tc.cancel == signalClosed || tc.pause == signalClosed
+			if !interrupted {
+				waitForPath(t, first, time.Second)
+				waitForPath(t, second, time.Second)
+				if len(outputs) != 2 {
+					t.Errorf("expected both instructions to be recorded, got %v", outputs)
+				}
+				return
+			}
+			assertPathAbsent(t, first, "an interruption pending at entry stops before the first periodic instruction")
+			assertPathAbsent(t, second, "an interruption pending at entry stops before the first periodic instruction")
+			if len(outputs) != 0 {
+				t.Errorf("expected no periodic instruction to be recorded, got %v", outputs)
+			}
+		})
+	}
+}
+
+func TestApplyPauseDuringPeriodicInstructionsIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	firstSentinel := filepath.Join(dir, "first-ran")
+	secondSentinel := filepath.Join(dir, "second-ran")
+	gate := filepath.Join(dir, "gate")
+
+	a := newTestApplyinator(t, "", false, "", "")
+	// RunOneTimeInstructions is false, so the interruption below can only reach ApplyOutput through
+	// Apply's re-check after runPeriodicInstructions returns: periodic instructions have no
+	// checkpoint and their runner does not report an interruption itself.
+	plan := planapi.Plan{
+		PeriodicInstructions: []planapi.PeriodicInstruction{
+			{CommonInstruction: gatedTouchCommand("first", firstSentinel, gate)},
+			{CommonInstruction: touchCommand("second", secondSentinel)},
+		},
+	}
+
+	pause := make(chan struct{})
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan:               CalculatedPlan{Plan: plan, Checksum: "checksum-periodic-pause"},
+		RunOneTimeInstructions:       false,
+		Pause:                        pause,
+		ResumeFromOneTimeInstruction: 2,
+	})
+
+	waitForPath(t, firstSentinel, 30*time.Second)
+	close(pause)
+	if err := os.WriteFile(gate, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := awaitApply(t, results, 30*time.Second)
+	if output.Interruption != InterruptionPaused {
+		t.Errorf("expected %q, got %q", InterruptionPaused, output.Interruption)
+	}
+	if !output.PeriodicApplySucceeded {
+		t.Error("expected a pause with no failure to still report PeriodicApplySucceeded=true")
+	}
+	if output.CompletedOneTimeInstructions != 2 {
+		t.Errorf("expected the one-time checkpoint to be reported unchanged (2), got %d", output.CompletedOneTimeInstructions)
+	}
+	assertPathAbsent(t, secondSentinel, "a pause stops before the next periodic instruction")
+}
+
+// assertFileStopsGrowing samples path's size and fails as soon as it grows during window. Used to
+// prove a backgrounded descendant of a canceled instruction is really dead rather than orphaned:
+// a fixed wait followed by a single comparison would prove the same thing, but this reports the
+// failure the moment it happens instead of always burning the whole window.
+func assertFileStopsGrowing(t *testing.T, path string, window time.Duration) {
+	t.Helper()
+	initial, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		current, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if current.Size() != initial.Size() {
+			t.Fatalf("expected %s to stop growing once the instruction was canceled, but it grew from %d to %d bytes: "+
+				"a descendant of the canceled instruction is still running", path, initial.Size(), current.Size())
+		}
+	}
+}
+
+// trappingCommand returns a command that installs a SIGTERM trap, announces itself by creating
+// started, and then idles. On SIGTERM it creates marker and exits 143 (128+SIGTERM), the exit
+// status a shell reports for a terminated process. The idle loop sleeps in short bursts because a
+// POSIX shell defers trap handlers until the current foreground command finishes.
+func trappingCommand(name, marker, started string) planapi.CommonInstruction {
+	script := "trap 'touch " + marker + "; exit 143' TERM; touch " + started + "; while true; do sleep 0.05; done"
+	return planapi.CommonInstruction{Name: name, Command: "sh", Args: []string{"-c", script}}
+}
+
+// backgroundedWriterCommand returns a command whose *grandchild* appends to sentinel forever while
+// the direct child sleeps for a minute. Cancelling it exercises two mechanisms at once: the signal
+// has to reach the whole process tree (the grandchild is not the process *exec.Cmd knows about),
+// and the grandchild inherits the stdout/stderr pipes, so execute's eg.Wait() cannot return while
+// it is alive.
+//
+// started is created by the grandchild rather than by the direct child, and only after its first
+// append, so waiting on it proves the grandchild is genuinely running and sentinel already exists.
+func backgroundedWriterCommand(name, sentinel, started string) planapi.CommonInstruction {
+	script := "sh -c 'while true; do echo x >> " + sentinel + "; touch " + started + "; sleep 0.05; done' & sleep 60"
+	return planapi.CommonInstruction{Name: name, Command: "sh", Args: []string{"-c", script}}
+}
+
+// cancelDuringInstruction runs a single-instruction plan, waits for started to appear, closes
+// Cancel, and returns the ApplyOutput. Shared by the process-tree termination tests below.
+func cancelDuringInstruction(t *testing.T, checksum string, instruction planapi.CommonInstruction, started string) ApplyOutput {
+	t.Helper()
+
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{OneTimeInstructions: []planapi.OneTimeInstruction{{CommonInstruction: instruction}}}
+
+	cancel := make(chan struct{})
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: checksum},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		Cancel:                     cancel,
+	})
+
+	waitForPath(t, started, 30*time.Second)
+	close(cancel)
+
+	// This deadline is the real assertion that the apply does not hang: the instructions used here
+	// outlive it by design (sleep 60), so awaitApply fails the test if termination did not work.
+	// 20s rather than a tight bound because the watchdog's escalation path can legitimately take
+	// instructionTerminationGrace before the kill, and this must not be flaky on a loaded machine.
+	return awaitApply(t, results, 20*time.Second)
+}
+
+func TestApplyCancelSendsSIGTERMBeforeKilling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	// Signal files live outside the work directory because Apply wipes the work directory.
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "term-received")
+	started := filepath.Join(dir, "started")
+
+	output := cancelDuringInstruction(t, "checksum-cancel-sigterm", trappingCommand("trapper", marker, started), started)
+
+	// The trap has run by the time Apply returns, but poll anyway so this never depends on the
+	// exact interleaving of the shell's exit and cmd.Wait() returning.
+	waitForPath(t, marker, 5*time.Second)
+
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+}
+
+func TestApplyCancelKillsTheInstructionsGrandchildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "grandchild-writes")
+	started := filepath.Join(dir, "started")
+
+	instruction := backgroundedWriterCommand("backgrounder", sentinel, started)
+	output := cancelDuringInstruction(t, "checksum-cancel-grandchild", instruction, started)
+
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+	// The grandchild appends every 50ms, so a full second of a static file size means it is gone
+	// rather than merely descheduled.
+	assertFileStopsGrowing(t, sentinel, time.Second)
+	if output.TerminationIncomplete {
+		t.Error("expected the process tree to be confirmed gone, got TerminationIncomplete=true")
+	}
+}
+
+// TestApplyCancelKillsAGrandchildThatIgnoresSIGTERM drives the escalation path all the way through
+// Apply: the grandchild ignores the graceful signal, so only the SIGKILL that follows the grace
+// period can stop it.
+//
+// What it covers depends on the platform, so do not read a pass on Linux as proof of more than it is.
+// By the time the watchdog escalates, the direct child has already died from the SIGTERM but
+// cmd.Wait() has not reaped it, because it is blocked behind output pipes the grandchild still holds,
+// leaving a zombie group leader. On darwin getpgid reports ESRCH for that zombie, so before the group
+// id was captured at start the kill degraded into a signal aimed at the already-dead direct child and
+// this test failed with the grandchild still writing. Linux answers getpgid for a zombie, so it passed
+// there either way, and on the deployment platforms this is coverage of the escalation path rather
+// than a reproduction of a bug they had.
+func TestApplyCancelKillsAGrandchildThatIgnoresSIGTERM(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	// Not parallel: withTerminationGrace writes a package-level var. Shortened so the test does not
+	// wait out the full production grace period before the kill.
+	withTerminationGrace(t, 500*time.Millisecond)
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "grandchild-writes")
+	started := filepath.Join(dir, "started")
+
+	// `trap "" TERM` makes SIGTERM ignored rather than merely handled, so no amount of waiting will
+	// end this grandchild. The direct child sleeps in the foreground, as in backgroundedWriterCommand.
+	script := `sh -c 'trap "" TERM; while true; do echo x >> ` + sentinel + `; touch ` + started + `; sleep 0.05; done' & sleep 60`
+	instruction := planapi.CommonInstruction{Name: "term-ignorer", Command: "sh", Args: []string{"-c", script}}
+
+	output := cancelDuringInstruction(t, "checksum-cancel-sigterm-ignored", instruction, started)
+
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+	assertFileStopsGrowing(t, sentinel, time.Second)
+	if output.TerminationIncomplete {
+		t.Error("expected the killed process tree to be confirmed gone, got TerminationIncomplete=true")
+	}
+}
+
+// recordingCloser stands in for one of execute's stdout/stderr pipes and records whether
+// watchForTermination closed it. Closing the pipes is the watchdog's escalation-only behaviour, so
+// the call count is the only observable difference between the graceful and the escalated path.
+type recordingCloser struct {
+	mu      sync.Mutex
+	closes  int
+	closedA time.Time
+}
+
+func (r *recordingCloser) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closes++
+	if r.closes == 1 {
+		r.closedA = time.Now()
+	}
+	return nil
+}
+
+func (r *recordingCloser) state() (int, time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closes, r.closedA
+}
+
+// startWatchedCommand launches a shell that installs trapAction as its SIGTERM handler and then
+// idles, under the same process-group setup execute uses, and arms a watchdog on it. It returns the
+// cancel func, the recorded pipe, a channel carrying cmd.Wait()'s result, and the watchdog's stop
+// func.
+//
+// It does not return until the trap is demonstrably installed. cmd.Start() returns as soon as
+// fork/exec succeeds, well before sh has parsed the trap, so a test that canceled immediately
+// would signal a shell still running the *default* SIGTERM disposition: it would die instantly and
+// every case would silently observe the graceful path, whichever handler it asked for.
+func startWatchedCommand(t *testing.T, trapAction string) (context.CancelFunc, *recordingCloser, <-chan error, func() bool) {
+	t.Helper()
+
+	installed := filepath.Join(t.TempDir(), "trap-installed")
+	script := "trap " + trapAction + " TERM; touch " + installed + "; while true; do sleep 0.02; done"
+
+	cmd := exec.Command("sh", "-c", script)
+	if err := configureProcessGroup(cmd); err != nil {
+		t.Fatalf("configureProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := assignProcessTree(cmd); err != nil {
+		t.Fatalf("assignProcessTree: %v", err)
+	}
+
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+
+	waitForPath(t, installed, 30*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pipe := &recordingCloser{}
+	stop := watchForTermination(ctx, cmd, pipe)
+	t.Cleanup(func() {
+		cancel()
+		stop()
+	})
+	return cancel, pipe, waited, stop
+}
+
+// withTerminationGrace shortens the watchdog's escalation grace for the duration of the test and
+// restores it afterwards.
+//
+// The t.Setenv call sets nothing anybody reads: it is a tripwire. t.Setenv panics if the test, or
+// any ancestor of it, has called t.Parallel() — which is exactly the condition under which writing
+// this package-level var from a test becomes a data race with every other watchdog the package
+// arms. CI runs no -race job, so this panic is the only thing that would catch a future parallel
+// test reaching for this helper.
+//
+// Call it before anything whose cleanup reads the var — the watchdog's own cancel()/stop() — so
+// LIFO restores the original only after those have finished.
+func withTerminationGrace(t *testing.T, d time.Duration) {
+	t.Helper()
+	t.Setenv("APPLYINATOR_GRACE_GUARD", "1")
+
+	original := instructionTerminationGrace
+	instructionTerminationGrace = d
+	t.Cleanup(func() { instructionTerminationGrace = original })
+}
+
+// withProcessTreeExitTimeout bounds the watchdog's final exit confirmation for the duration of the
+// test and restores it afterwards. Same t.Setenv tripwire, for the same reason, as
+// withTerminationGrace.
+func withProcessTreeExitTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	t.Setenv("APPLYINATOR_EXIT_TIMEOUT_GUARD", "1")
+
+	original := processTreeExitTimeout
+	processTreeExitTimeout = d
+	t.Cleanup(func() { processTreeExitTimeout = original })
+}
+
+// TestWatchForTerminationClosesThePipesOnlyWhenItEscalates pins both halves of the watchdog's pipe
+// handling, which is the one part of it a canceled Apply cannot observe: on Unix the graceful
+// SIGTERM already reaches the whole process group, so the pipes reach EOF on their own and closing
+// them explicitly makes no observable difference at the Apply level.
+//
+// The two halves matter for different reasons. Closing on escalation is what stops a surviving
+// descendant that inherited the write ends from blocking execute's eg.Wait() forever. NOT closing
+// on the graceful path is what stops a well-behaved instruction's final output being truncated.
+//
+// Not parallel: it rewrites the package-level instructionTerminationGrace, and Go runs every
+// non-parallel test body to completion before resuming any parallel one, so this cannot race with
+// the watchdogs the other tests arm. withTerminationGrace enforces that rather than merely
+// documenting it.
+func TestWatchForTerminationClosesThePipesOnlyWhenItEscalates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+
+	testCases := []struct {
+		name string
+		// trapAction is the command's response to SIGTERM, and is what selects the path under test.
+		trapAction string
+		grace      time.Duration
+		wantClosed bool
+		reason     string
+	}{
+		{
+			name:       "graceful exit leaves the pipes open",
+			trapAction: `'exit 0'`,
+			grace:      5 * time.Second,
+			wantClosed: false,
+			reason:     "a well-behaved instruction's final output must not be truncated",
+		},
+		{
+			name:       "ignoring SIGTERM escalates to a kill and closes the pipes",
+			trapAction: `''`,
+			grace:      200 * time.Millisecond,
+			wantClosed: true,
+			reason:     "a descendant holding the write ends would block execute's eg.Wait() forever",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Registered before startWatchedCommand, whose cleanup cancels the watchdog and waits
+			// for it: LIFO means the grace is restored only once nothing is still reading it.
+			withTerminationGrace(t, tc.grace)
+
+			cancel, pipe, waited, stop := startWatchedCommand(t, tc.trapAction)
+
+			canceledAt := time.Now()
+			cancel()
+
+			// The command idles forever on its own, so this only returns because the watchdog
+			// terminated or killed it.
+			select {
+			case <-waited:
+			case <-time.After(30 * time.Second):
+				t.Fatal("the watchdog neither terminated nor killed the command")
+			}
+
+			// stop() waits for the watchdog goroutine to finish, and the pipe closes are the last
+			// thing it does, so no polling is needed: the count is final once stop() returns.
+			stop()
+
+			closes, closedAt := pipe.state()
+			if tc.wantClosed && closes == 0 {
+				t.Fatalf("expected the pipes to be closed when the watchdog escalated to a kill: %s", tc.reason)
+			}
+			if !tc.wantClosed && closes != 0 {
+				t.Fatalf("expected the pipes to be left open on the graceful path, got %d Close calls: %s", closes, tc.reason)
+			}
+			if !tc.wantClosed {
+				return
+			}
+			if elapsed := closedAt.Sub(canceledAt); elapsed < tc.grace {
+				t.Errorf("expected the pipes to be closed only after the %s grace elapsed, closed after %s", tc.grace, elapsed)
+			}
+		})
+	}
+}
+
+func TestWatchForTerminationStopIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		alreadyCanceled bool
+	}{
+		{name: "context still open", alreadyCanceled: false},
+		{name: "context already canceled", alreadyCanceled: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.alreadyCanceled {
+				cancel()
+			}
+
+			// Deliberately never started: every platform helper has to tolerate a nil Process
+			// rather than panicking a root daemon.
+			stop := watchForTermination(ctx, exec.Command("true"))
+
+			returned := make(chan struct{})
+			go func() {
+				defer close(returned)
+				stop()
+				stop()
+			}()
+
+			select {
+			case <-returned:
+			case <-time.After(5 * time.Second):
+				t.Fatal("stop() did not return: it must be idempotent and must not block on the termination grace period")
+			}
+		})
 	}
 }
