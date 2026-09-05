@@ -200,7 +200,7 @@ func TestDecidePlanStateAction(t *testing.T) {
 		},
 		{
 			name:  "cancelled is terminal",
-			state: planapi.PlanStateCancelled,
+			state: planapi.PlanStateCanceled,
 			want:  planStateResult{NeedsApplied: false, ResetPlanAttempt: false},
 		},
 		{

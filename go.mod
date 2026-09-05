@@ -1,8 +1,6 @@
 module github.com/rancher/system-agent
 
-go 1.26.0
-
-toolchain go1.26.7
+go 1.26.7
 
 replace (
 	// replace those modules from go.opentelemetry.io to elimilate CVEs
@@ -48,17 +46,18 @@ require (
 	github.com/mattn/go-colorable v0.1.13
 	github.com/rancher/lasso v0.2.9
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260828155108-93802792d0f6
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.1-rc.2
+	github.com/rancher/wrangler/v3 v3.7.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.22.0
+	golang.org/x/sys v0.47.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
-	k8s.io/kubernetes v1.36.0
+	k8s.io/kubernetes v1.36.3
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -142,12 +141,11 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.14.0 // indirect

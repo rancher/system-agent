@@ -216,6 +216,33 @@ func TestConnectWithCAFallback(t *testing.T) {
 	})
 }
 
+// conflictedUpdate drives updateSecret through a single Update conflict: the first Update fails
+// with a conflict, and sc.Get returns latest when updateSecret re-fetches. It returns the Secrets
+// handed to each Update call, so callers can assert on what the retry actually wrote.
+func conflictedUpdate(t *testing.T, ours, latest *corev1.Secret) ([]*corev1.Secret, error) {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+	sc.EXPECT().Get(testNamespace, testSecret, gomock.Any()).Return(latest, nil).AnyTimes()
+
+	var updates []*corev1.Secret
+	gomock.InOrder(
+		sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+			updates = append(updates, s.DeepCopy())
+			return nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, testSecret, errors.New("conflict"))
+		}),
+		sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+			updates = append(updates, s.DeepCopy())
+			return s, nil
+		}).MaxTimes(1),
+	)
+
+	w := newTestWatcher(t, true, "")
+	_, err := w.updateSecret(sc, ours)
+	return updates, err
+}
+
 // TestUpdateSecretConflictHandling drives updateSecret's conflict path for real. The negative
 // case is the one that matters most: when the re-fetched Secret carries a *different* plan, the
 // write must be abandoned rather than clobbering a newer plan's status.
@@ -256,9 +283,6 @@ func TestUpdateSecretConflictHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctrl := gomock.NewController(t)
-			sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
-
 			ours := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "1"},
 				Data: map[string][]byte{
@@ -285,22 +309,7 @@ func TestUpdateSecretConflictHandling(t *testing.T) {
 				latest.Data[key] = []byte("stale:" + key)
 			}
 
-			sc.EXPECT().Get(testNamespace, testSecret, gomock.Any()).Return(latest, nil).AnyTimes()
-
-			var updates []*corev1.Secret
-			gomock.InOrder(
-				sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
-					updates = append(updates, s.DeepCopy())
-					return nil, apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, testSecret, errors.New("conflict"))
-				}),
-				sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
-					updates = append(updates, s.DeepCopy())
-					return s, nil
-				}).MaxTimes(1),
-			)
-
-			w := newTestWatcher(t, true, "")
-			_, err := w.updateSecret(sc, ours)
+			updates, err := conflictedUpdate(t, ours, latest)
 
 			if tt.wantErr && err == nil {
 				t.Error("expected updateSecret to return the conflict error, got nil")
@@ -332,12 +341,111 @@ func TestUpdateSecretConflictHandling(t *testing.T) {
 	}
 }
 
-// TestSecretConflictMergeKeyCount pins the merge key set against the pre-refactor updateSecret.
+// TestUpdateSecretConflictMergeSkipsKeysAbsentFromOurCopy pins the merge loop's guard. The loop
+// used to write secret.Data[key] unconditionally, which materialized a nil value on the fresh
+// object for every merge key the agent never wrote — inventing empty Secret data keys, and
+// blanking values only the fresh copy carried.
+func TestUpdateSecretConflictMergeSkipsKeysAbsentFromOurCopy(t *testing.T) {
+	t.Parallel()
+
+	ourPlan, ourChecksum := marshalPlan(t, planapi.Plan{})
+	progress := marshalPlanCheckpoint(PlanCheckpoint{Checksum: ourChecksum, Completed: 1, Total: 3, Paused: true})
+
+	// Our in-hand copy deliberately carries neither FailedOutputKey nor SuccessCountKey.
+	ours := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "1"},
+		Data: map[string][]byte{
+			PlanKey:                   ourPlan,
+			AppliedChecksumKey:        []byte(ourChecksum),
+			planapi.PlanCheckpointKey: progress,
+		},
+	}
+	latest := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "2"},
+		Data: map[string][]byte{
+			PlanKey: ourPlan,
+			// FailedOutputKey is absent from both copies; SuccessCountKey is present only here.
+			SuccessCountKey: []byte("7"),
+		},
+	}
+
+	updates, err := conflictedUpdate(t, ours, latest)
+	if err != nil {
+		t.Fatalf("expected updateSecret to succeed after retry, got %v", err)
+	}
+	if len(updates) != 2 {
+		t.Fatalf("expected 2 Update calls, got %d", len(updates))
+	}
+
+	retried := updates[1]
+	if v, ok := retried.Data[FailedOutputKey]; ok {
+		t.Errorf("expected merge key %q, absent from our copy, to stay absent rather than be materialized as %q", FailedOutputKey, v)
+	}
+	if string(retried.Data[SuccessCountKey]) != "7" {
+		t.Errorf("expected merge key %q, absent from our copy, to keep the fetched Secret's value, got %q", SuccessCountKey, retried.Data[SuccessCountKey])
+	}
+	// The reason planapi.PlanCheckpointKey was added to the merge list: the checkpoint must survive a retry.
+	if string(retried.Data[planapi.PlanCheckpointKey]) != string(progress) {
+		t.Errorf("expected merge key %q to carry our checkpoint %q, got %q", planapi.PlanCheckpointKey, progress, retried.Data[planapi.PlanCheckpointKey])
+	}
+}
+
+// TestUpdateSecretConflictMergeCarriesAnEmptyClear pins the empty-value path through the conflict
+// merge. Every clear in secret_outcome.go is written as []byte{} rather than a delete, precisely
+// because the merge loop only carries over keys present in the in-hand copy: a delete would leave
+// the server's stale value in place and the clear would be silently lost on a retry.
+//
+// This passes today. Its job is to stop a future tidy-up of the loop's presence check from
+// `if v, ok := ...` to `if len(v) > 0` from re-breaking every one of those clears at once — a
+// change that looks like a simplification and would leave a stale resume checkpoint on the wire.
+func TestUpdateSecretConflictMergeCarriesAnEmptyClear(t *testing.T) {
+	t.Parallel()
+
+	ourPlan, ourChecksum := marshalPlan(t, planapi.Plan{})
+
+	// Our in-hand copy carries the clear buildSecretDataUpdates produces on a terminal outcome.
+	ours := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "1"},
+		Data: map[string][]byte{
+			PlanKey:                   ourPlan,
+			AppliedChecksumKey:        []byte(ourChecksum),
+			planapi.PlanCheckpointKey: {},
+		},
+	}
+	// The server still holds the checkpoint written before the plan finished.
+	latest := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "2"},
+		Data: map[string][]byte{
+			PlanKey:                   ourPlan,
+			planapi.PlanCheckpointKey: marshalPlanCheckpoint(PlanCheckpoint{Checksum: ourChecksum, Completed: 1, Total: 3, Paused: true}),
+		},
+	}
+
+	updates, err := conflictedUpdate(t, ours, latest)
+	if err != nil {
+		t.Fatalf("expected updateSecret to succeed after retry, got %v", err)
+	}
+	if len(updates) != 2 {
+		t.Fatalf("expected 2 Update calls, got %d", len(updates))
+	}
+
+	retried := updates[1]
+	value, ok := retried.Data[planapi.PlanCheckpointKey]
+	if !ok {
+		t.Fatalf("expected merge key %q to still be present on the retried Secret", planapi.PlanCheckpointKey)
+	}
+	if len(value) != 0 {
+		t.Errorf("expected our empty-value clear of %q to survive the conflict retry, got the stale value %q", planapi.PlanCheckpointKey, value)
+	}
+}
+
+// TestSecretConflictMergeKeyCount pins the merge key set: the pre-refactor updateSecret's 11 keys
+// plus the resume checkpoint, whose clear on a terminal outcome must survive a conflict retry.
 func TestSecretConflictMergeKeyCount(t *testing.T) {
 	t.Parallel()
 
-	if len(secretConflictMergeKeys) != 11 {
-		t.Errorf("expected 11 merge keys (matching the pre-refactor updateSecret), got %d: %v", len(secretConflictMergeKeys), secretConflictMergeKeys)
+	if len(secretConflictMergeKeys) != 12 {
+		t.Errorf("expected 12 merge keys, got %d: %v", len(secretConflictMergeKeys), secretConflictMergeKeys)
 	}
 }
 

@@ -27,6 +27,18 @@ func buildSecretDataUpdates(in applyOutcomeInput) map[string][]byte {
 	updates := map[string][]byte{
 		AppliedPeriodicOutputKey: in.PeriodicOutput,
 	}
+	if in.UsesPlanState {
+		// Both outcomes below are terminal for this apply, so the resume checkpoint has been consumed and
+		// must not carry into a later run. Clear it by writing an empty value rather than deleting the key;
+		// see secretConflictMergeKeys. The conflict merge only carries forward keys present in the in-hand
+		// copy, so a deleted key could be silently restored during a retry.
+		//
+		// Apply this only in the plan-state flow. The checksum flow neither writes nor reads checkpoints,
+		// so clearing one there would introduce a Secret data key owned by this agent into a Secret managed
+		// by an orchestrator that does not use the feature. Unlike FailedOutputKey and FailedChecksumKey,
+		// plan-progress is not a key owned by the checksum flow.
+		updates[planapi.PlanCheckpointKey] = []byte{}
+	}
 
 	failed := (in.NeedsApplied && !in.OneTimeApplySucceeded) || (!in.NeedsApplied && in.WasFailedPlan)
 	if failed {
