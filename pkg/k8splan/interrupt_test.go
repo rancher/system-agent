@@ -246,9 +246,12 @@ func TestHandleInterrupt(t *testing.T) {
 			wantProgress:  PlanCheckpoint{Checksum: progressChecksum, Completed: 3, Total: 4, ResumeState: "", Paused: false},
 		},
 		{
-			name:      "cancelling a succeeded plan writes nothing: it is already terminal",
+			// Unlike the other terminal states, a succeeded plan keeps executing periodic
+			// instructions, so a cancellation has something real to stop and must be recorded.
+			name:      "cancelling a succeeded plan records the cancellation: it still runs periodic instructions",
 			interrupt: applyinator.InterruptionCanceled, currentPlanState: planapi.PlanStateSucceeded, total: 4,
-			wantEmpty: true,
+			wantPlanState: planapi.PlanStateCanceled,
+			wantProgress:  PlanCheckpoint{Checksum: progressChecksum, Completed: 0, Total: 4},
 		},
 		{
 			name:      "cancelling an already canceled plan writes nothing: the write-once rule",

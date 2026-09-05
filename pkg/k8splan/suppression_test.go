@@ -227,22 +227,18 @@ func suppressionMatrix() []suppressionRow {
 			wantCheckpoint: &PlanCheckpoint{Completed: 2, Total: 3, ResumeState: planapi.PlanStateCanceled, Paused: true},
 		},
 		{
-			// Cancel's write-once guard, which keys off the terminal plan-state rather than off
-			// the checkpoint: cancel writes no resumable checkpoint to key off.
-			//
 			// A SUCCEEDED plan the operator then cancels, deliberately, rather than an
-			// already-canceled one. On an already-canceled plan the write the guard suppresses
-			// would be byte-identical to what is already stored, so writeInterruptOutcome's
-			// DeepEqual would skip the Update whether the guard fired or not and the row would be
-			// blind to it. Here the suppressed write would move plan-state from succeeded to
-			// canceled, so the guard's absence is visible. Not reachable from any
-			// paused-annotation row, so the row carries its own annotation.
-			name:        "succeeded then canceled: cancel's write-once guard keys off the terminal plan-state",
-			annotation:  planapi.PlanCanceledAnnotation,
-			planState:   planapi.PlanStateSucceeded,
-			checkpoint:  &PlanCheckpoint{Completed: 2, Total: 3},
-			wantUpdates: 0,
-			wantState:   planapi.PlanStateSucceeded,
+			// already-canceled one. Unlike the other terminal states, succeeded keeps executing
+			// periodic instructions, so cancel's write-once guard must NOT treat it as already
+			// inert: the cancellation is recorded, moving plan-state from succeeded to canceled.
+			// Not reachable from any paused-annotation row, so the row carries its own annotation.
+			name:           "succeeded then canceled: still recorded, because a succeeded plan keeps running periodic instructions",
+			annotation:     planapi.PlanCanceledAnnotation,
+			planState:      planapi.PlanStateSucceeded,
+			checkpoint:     &PlanCheckpoint{Completed: 2, Total: 3},
+			wantUpdates:    1,
+			wantState:      planapi.PlanStateCanceled,
+			wantCheckpoint: &PlanCheckpoint{Completed: 2, Total: 3},
 		},
 	}
 }
