@@ -1735,19 +1735,60 @@ func TestReconcileSecretFailedTerminalPlanMonitorsOnly(t *testing.T) {
 	}
 }
 
+// TestReconcileSecretMonitoringOnlyProbeUpdateSurvivesAConflict is a regression test for the
+// monitoring-only path escalating a routine conflict into a Fatalf. A failed or canceled plan
+// normally carries an AppliedChecksumKey that is empty or points at an older plan, so
+// updateSecret's conflict retry — which only re-applies a write when the fresh plan's checksum on
+// the server matches the write's own AppliedChecksumKey — cannot resolve a conflict on this
+// probe-only write. Before this path was routed through writeInterruptOutcome, an ordinary
+// concurrent Secret write landing during this reconcile would hit that un-retried conflict and
+// crash the agent via Fatalf.
+func TestReconcileSecretMonitoringOnlyProbeUpdateSurvivesAConflict(t *testing.T) {
+	t.Parallel()
+
+	probes, hits := countingProbe(t)
+	planBytes, _ := marshalPlan(t, planapi.Plan{Probes: probes})
+
+	secret := newInterruptTestSecret(planBytes, nil, map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStateFailed),
+		AppliedChecksumKey:   []byte(""),
+		ProbeStatusesKey:     []byte("{}"),
+	})
+
+	// The server: the same plan, but at a newer resourceVersion, as if an unrelated concurrent
+	// write (e.g. an orchestrator annotation change) landed between this reconcile's Get and its
+	// Update. That is what makes the probe-status write conflict.
+	server := secret.DeepCopy()
+	server.ResourceVersion = "99"
+	rec := newInterruptRecorder(server)
+	sc := newConflictingInterruptTestController(t, rec, 1)
+
+	w := newTestWatcher(t, true, "42")
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("expected the conflicting probe-status write to be retried rather than escalated, got error: %v", err)
+	}
+
+	if hits() == 0 {
+		t.Error("expected the probe to run during the monitoring-only reconcile")
+	}
+	if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStateFailed {
+		t.Errorf("expected plan-state to remain %q, got %q", planapi.PlanStateFailed, got)
+	}
+	if len(rec.writes()) != 1 {
+		t.Fatalf("expected exactly one successful Update once the conflict was retried, got %d", len(rec.writes()))
+	}
+}
+
 // TestReconcileSecretInterruptDuringAPeriodicApplyOfATerminalPlan pins that the mid-apply
-// interrupt path applies cancel's terminal write-once guard exactly where the reconcile-entry path
-// applies it, and — the other half, which is what makes the guard's cancel-only-ness load-bearing
-// — that pause is NOT subject to it.
+// interrupt path treats a succeeded plan identically to the reconcile-entry path for both
+// annotations: a succeeded plan is reconciled forever (it still runs its periodic instructions on
+// every pass, so an apply is genuinely in flight for part of every cycle even though needsApplied
+// is false), and unlike the other terminal states it has periodic execution that a cancel can
+// actually stop. Both cancel and pause must therefore be recorded here, exactly as
+// TestHandleInterrupt pins for the reconcile-entry path landing on the same plan-state.
 //
-// The window is real, not theoretical. A succeeded plan is reconciled forever: it still runs its
-// periodic instructions on every pass, so an apply is in flight for part of every cycle even
-// though needsApplied is false. Without the guard the same `kubectl annotate canceled=true` on
-// the same node yields "succeeded" (untouched) when it lands at reconcile entry and "canceled"
-// when it lands during that periodic apply — a coin flip decided by which side of a 2s poll the
-// operator's write falls on. Cancel is terminal, so the losing side of that flip is permanent.
-//
-// The pause row additionally pins that applied-output is not materialised when there is no
+// The pause row additionally pins that applied-output is not materialized when there is no
 // one-time output to write: on the periodic-only path it is selectExistingOutput's empty slice,
 // and inventing an empty applied-output on a Secret that never had one writes a key the agent
 // does not own.
@@ -1760,19 +1801,27 @@ func TestReconcileSecretInterruptDuringAPeriodicApplyOfATerminalPlan(t *testing.
 	withInterruptPollInterval(t, 2*time.Millisecond)
 
 	tests := []struct {
-		name       string
-		annotation string
-		// wantRecorded is whether the interrupt should reach the Secret at all.
-		wantRecorded bool
+		name          string
+		annotation    string
+		wantPlanState planapi.PlanState
+		wantProgress  PlanCheckpoint
+		// releaseGate is true only for pause: pause is a boundary and lets the blocked instruction
+		// finish naturally, so the test must open its gate. A cancel kills the instruction where it
+		// stands and must NOT need the gate released.
+		releaseGate bool
 	}{
 		{
-			name:       "cancelling writes nothing: plan-state is already terminal",
-			annotation: planapi.PlanCanceledAnnotation,
+			// A cancellation kills the blocked instruction directly; it does not wait for the gate.
+			name:          "cancelling records the cancellation: a succeeded plan still runs periodic instructions",
+			annotation:    planapi.PlanCanceledAnnotation,
+			wantPlanState: planapi.PlanStateCanceled,
 		},
 		{
-			name:         "pausing still records, because the resume reads the checkpoint back",
-			annotation:   planapi.PlanPausedAnnotation,
-			wantRecorded: true,
+			name:          "pausing records the suspension, because the resume reads the checkpoint back",
+			annotation:    planapi.PlanPausedAnnotation,
+			wantPlanState: planapi.PlanStatePaused,
+			wantProgress:  PlanCheckpoint{ResumeState: planapi.PlanStateSucceeded, Paused: true},
+			releaseGate:   true,
 		},
 	}
 
@@ -1798,12 +1847,11 @@ func TestReconcileSecretInterruptDuringAPeriodicApplyOfATerminalPlan(t *testing.
 					}},
 				},
 			})
+			tt.wantProgress.Checksum = checksum
 
 			// A converged node: the plan succeeded, and this reconcile exists only to run the
 			// periodic instructions and the probes. probe-statuses is pre-seeded at its steady
-			// state so that "no lifecycle write" can be asserted as "no Update at all" — probes
-			// deliberately keep running on the interrupt paths, and an absent key would make the
-			// marshalled empty map a genuine change.
+			// state so that the only write recorded is the interrupt outcome itself.
 			secret := newInterruptTestSecret(planBytes, nil, map[string][]byte{
 				planapi.PlanStateKey: []byte(planapi.PlanStateSucceeded),
 				AppliedChecksumKey:   []byte(checksum),
@@ -1816,7 +1864,7 @@ func TestReconcileSecretInterruptDuringAPeriodicApplyOfATerminalPlan(t *testing.
 				// can reach its next-instruction check. Released on the poll AFTER the one that
 				// served the annotation, by which point pollInterrupts has certainly closed the
 				// pause channel: both polls run on the same goroutine.
-				if tt.wantRecorded && served > 1 {
+				if tt.releaseGate && served > 1 {
 					if writeErr := os.WriteFile(gate, nil, 0600); writeErr != nil {
 						t.Errorf("failed to release the gate: %v", writeErr)
 					}
@@ -1835,33 +1883,21 @@ func TestReconcileSecretInterruptDuringAPeriodicApplyOfATerminalPlan(t *testing.
 			}
 
 			writes := rec.writes()
-			if !tt.wantRecorded {
-				if len(writes) != 0 {
-					t.Errorf("expected no Secret write at all, got %d: %v", len(writes), writes[0].Data)
-				}
-				if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStateSucceeded {
-					t.Errorf("expected plan-state to stay %q, got %q; a converged node must not be downgraded by a cancel it would have ignored a moment earlier",
-						planapi.PlanStateSucceeded, got)
-				}
-				if _, ok := result.Data[planapi.PlanCheckpointKey]; ok {
-					t.Errorf("expected no checkpoint on a terminal plan, got %q", result.Data[planapi.PlanCheckpointKey])
-				}
-				return
-			}
-
 			if len(writes) != 1 {
 				t.Fatalf("expected exactly one Secret write, got %d", len(writes))
 			}
-			if got := planapi.PlanState(writes[0].Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
-				t.Errorf("wrote plan-state %q, want %q; a pause on a terminal plan must still be recorded", got, planapi.PlanStatePaused)
+			if got := planapi.PlanState(writes[0].Data[planapi.PlanStateKey]); got != tt.wantPlanState {
+				t.Errorf("wrote plan-state %q, want %q", got, tt.wantPlanState)
 			}
-			want := PlanCheckpoint{Checksum: checksum, ResumeState: planapi.PlanStateSucceeded, Paused: true}
-			if got := checkpointIn(t, writes[0].Data); got != want {
-				t.Errorf("wrote checkpoint %+v, want %+v; the resume must restore succeeded rather than re-execute the plan", got, want)
+			if got := checkpointIn(t, writes[0].Data); got != tt.wantProgress {
+				t.Errorf("wrote checkpoint %+v, want %+v", got, tt.wantProgress)
 			}
 			if _, ok := writes[0].Data[AppliedOutputKey]; ok {
 				t.Errorf("expected applied-output NOT to be materialised when there is no one-time output, got %q",
 					writes[0].Data[AppliedOutputKey])
+			}
+			if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != tt.wantPlanState {
+				t.Errorf("expected the returned secret to carry the committed plan-state %q, got %q", tt.wantPlanState, got)
 			}
 		})
 	}
@@ -1932,6 +1968,112 @@ func TestReconcileSecretResumeAbandonedWhenANewerPlanLanded(t *testing.T) {
 	}
 }
 
+// TestReconcileSecretResumePreservesConcurrentFields is a regression test for silent data loss on
+// the resume write's happy path (the plan is unchanged, unlike
+// TestReconcileSecretResumeAbandonedWhenANewerPlanLanded's newer-plan case).
+//
+// writeInterruptOutcome's committed return value is the fresh server object the resume write just
+// produced, and it can carry fields a concurrent actor set that this reconcile's stale in-hand
+// copy never saw — an annotation, a label, or an unrelated data key such as probe-period-seconds.
+// Merging only resumeUpdates into the stale copy and adopting committed's resourceVersion would
+// let the final updateSecret overwrite those fields without a conflict, since the resourceVersion
+// it submits would already match the latest one on the server.
+func TestReconcileSecretResumePreservesConcurrentFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "resumed-instruction-ran")
+	planBytes, checksum := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{touchInstruction("only", sentinel)},
+	})
+
+	// The in-hand copy: suspended, annotation just cleared, unaware of the concurrent write below.
+	secret := newInterruptTestSecret(planBytes, nil, map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStatePaused),
+		planapi.PlanCheckpointKey: marshalPlanCheckpoint(PlanCheckpoint{
+			Checksum: checksum, Completed: 0, Total: 1, ResumeState: planapi.PlanStateInProgress, Paused: true,
+		}),
+	})
+
+	// The server: same plan and plan-state, but with a concurrent write's field the in-hand copy
+	// does not have, at a newer resourceVersion — exactly what makes the resume write's Get see
+	// something the reconcile did not start with.
+	server := secret.DeepCopy()
+	server.Data[ProbePeriodKey] = []byte("77")
+	server.ResourceVersion = "99"
+	rec := newInterruptRecorder(server)
+	sc := newInterruptTestControllerWithHook(t, rec, nil)
+
+	w := newTestWatcher(t, true, "42")
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("expected the resumed instruction to have run, sentinel missing: %v", statErr)
+	}
+	if got := string(result.Data[ProbePeriodKey]); got != "77" {
+		t.Errorf("expected the concurrently written %q to survive the resume, got %q", ProbePeriodKey, got)
+	}
+}
+
+// TestReconcileSecretRevalidatesInterruptAfterResumeAdoptsAFreshSecret is a regression test for a
+// race that adopting committed's Data and Annotations on the resume path (see
+// TestReconcileSecretResumePreservesConcurrentFields) makes reachable: the interrupt watch's
+// poller does not observe an annotation until its first tick, up to interruptPollInterval later,
+// which is long enough for a short plan to run to completion entirely unimpeded even though the
+// resume write's own fresh Get already showed the annotation was set again. The synchronous
+// revalidation right before Apply must catch this instead of relying solely on the async watch.
+func TestReconcileSecretRevalidatesInterruptAfterResumeAdoptsAFreshSecret(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "should-not-run")
+	planBytes, checksum := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{touchInstruction("only", sentinel)},
+	})
+
+	// The in-hand copy: suspended, and as far as it shows, the pause annotation has already been
+	// cleared — this is what lets Step A see no interrupt and proceed into the resume.
+	secret := newInterruptTestSecret(planBytes, nil, map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStatePaused),
+		planapi.PlanCheckpointKey: marshalPlanCheckpoint(PlanCheckpoint{
+			Checksum: checksum, Completed: 0, Total: 1, ResumeState: planapi.PlanStateInProgress, Paused: true,
+		}),
+	})
+
+	// The server: same plan and checkpoint, but the operator has already paused it again by the
+	// time the resume write's own Get runs.
+	server := secret.DeepCopy()
+	server.Annotations = map[string]string{planapi.PlanPausedAnnotation: "true"}
+	server.ResourceVersion = "99"
+	rec := newInterruptRecorder(server)
+	sc := newInterruptTestControllerWithHook(t, rec, nil)
+
+	w := newTestWatcher(t, true, "42")
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+
+	assertPathAbsent(t, sentinel, "a plan already re-paused by the time the resume write ran must never execute, "+
+		"even though the interrupt watch has not polled yet")
+	if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+		t.Errorf("expected plan-state %q, got %q", planapi.PlanStatePaused, got)
+	}
+	want := PlanCheckpoint{Checksum: checksum, Completed: 0, Total: 1, ResumeState: planapi.PlanStateInProgress, Paused: true}
+	if got := checkpointIn(t, result.Data); got != want {
+		t.Errorf("expected checkpoint %+v, got %+v", want, got)
+	}
+}
+
 // planChecksumOf returns the checksum of the plan a Secret carries, for asserting which plan a
 // write was made against.
 func planChecksumOf(t *testing.T, secret *corev1.Secret) string {
@@ -1947,7 +2089,7 @@ func planChecksumOf(t *testing.T, secret *corev1.Secret) string {
 // guard cannot reject on its own: a legacy Secret with no plan-state that happens to carry a
 // suspended checkpoint — left behind by a downgrade, or by an orchestrator that stopped writing
 // plan-state. "Is there a suspension to release" answers yes there, so the gate has to be on the
-// flow. Otherwise the agent materialises BOTH plan-state and plan-progress on a Secret owned by an
+// flow. Otherwise, the agent materializes BOTH plan-state and plan-progress on a Secret owned by an
 // orchestrator that understands neither, which Step A forbids twice over.
 func TestReconcileSecretChecksumFlowMakesNoResumeCommit(t *testing.T) {
 	if runtime.GOOS == "windows" {

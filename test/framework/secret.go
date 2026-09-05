@@ -208,7 +208,7 @@ func GetSecretResourceVersion(ctx context.Context, cl client.Client, namespace, 
 }
 
 // GetPlanProgress retrieves and unmarshals the plan-progress checkpoint from a plan Secret.
-// It returns nil when the annotation is missing or empty.
+// It returns nil when the data key is missing or empty.
 func GetPlanProgress(ctx context.Context, cl client.Client, namespace, name string) map[string]any {
 	data := GetSecretData(ctx, cl, namespace, name)
 	raw, ok := data[planapi.PlanCheckpointKey]

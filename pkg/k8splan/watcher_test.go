@@ -342,7 +342,7 @@ func TestUpdateSecretConflictHandling(t *testing.T) {
 }
 
 // TestUpdateSecretConflictMergeSkipsKeysAbsentFromOurCopy pins the merge loop's guard. The loop
-// used to write secret.Data[key] unconditionally, which materialised a nil value on the fresh
+// used to write secret.Data[key] unconditionally, which materialized a nil value on the fresh
 // object for every merge key the agent never wrote — inventing empty Secret data keys, and
 // blanking values only the fresh copy carried.
 func TestUpdateSecretConflictMergeSkipsKeysAbsentFromOurCopy(t *testing.T) {
@@ -379,7 +379,7 @@ func TestUpdateSecretConflictMergeSkipsKeysAbsentFromOurCopy(t *testing.T) {
 
 	retried := updates[1]
 	if v, ok := retried.Data[FailedOutputKey]; ok {
-		t.Errorf("expected merge key %q, absent from our copy, to stay absent rather than be materialised as %q", FailedOutputKey, v)
+		t.Errorf("expected merge key %q, absent from our copy, to stay absent rather than be materialized as %q", FailedOutputKey, v)
 	}
 	if string(retried.Data[SuccessCountKey]) != "7" {
 		t.Errorf("expected merge key %q, absent from our copy, to keep the fetched Secret's value, got %q", SuccessCountKey, retried.Data[SuccessCountKey])

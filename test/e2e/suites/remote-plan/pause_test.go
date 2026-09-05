@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	planapi "github.com/rancher/rancher/pkg/plan"
+	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/test/e2e"
 	"github.com/rancher/system-agent/test/framework"
 )
@@ -18,6 +19,15 @@ import (
 // pauseInvalidRan is the marker for the invalid-value spec, which uses a single-instruction plan
 // rather than the shared three-instruction fixture.
 const pauseInvalidRan = "/tmp/e2e-pause-invalid-ran.txt"
+
+// Node paths used by the periodic-pause spec. periodicFirstMarker records each successful run of
+// the long-period instruction, so a duplicate line is direct evidence of an unwanted re-run.
+const (
+	periodicPauseStarted = "/tmp/e2e-pause-periodic-started"
+	periodicPauseGate    = "/tmp/e2e-pause-periodic-gate"
+	periodicFirstMarker  = "/tmp/e2e-pause-periodic-first-marker.txt"
+	periodicSecondRan    = "/tmp/e2e-pause-periodic-second-ran.txt"
+)
 
 var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() {
 	It("should hold at an instruction boundary and resume without re-running what completed", func() {
@@ -289,6 +299,112 @@ var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() 
 
 		Expect(nodeFileExists(ctx, podName, pauseInvalidRan)).To(BeFalse(),
 			"correcting the value must record the hold, not release it")
+	})
+
+	It("should preserve a completed periodic instruction's output across a pause, so it is not re-run on resume", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		releaseGateOnCleanup(periodicPauseGate)
+
+		By("Creating a succeeded plan with a long-period gated periodic instruction and an always-due one")
+		// periodic-first only reports success once it returns, so its gate lets the spec pause
+		// while it is genuinely in flight, exactly as the one-time instruction specs do. Its
+		// 300-second period means it must not appear due again anywhere within this spec's
+		// window: a lost LastSuccessfulRunTime is what would make periodicInstructionDue disagree.
+		// periodic-second has never run, so it is always due and proves the plan resumes running
+		// periodic instructions at all, rather than staying stuck.
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("periodic-first", "/bin/sh",
+				[]string{"-c", fmt.Sprintf("touch %s; %s; echo run >> %s",
+					periodicPauseStarted, blockingScript(periodicPauseGate), periodicFirstMarker)},
+				300).
+			WithPeriodicInstruction("periodic-second", "/bin/sh",
+				[]string{"-c", "touch " + periodicSecondRan}, 5).
+			Build()
+
+		By("Creating the plan Secret already at plan-state:succeeded")
+		// plan-state:succeeded is set directly, as plan_state_test.go's "should not re-apply..."
+		// spec does, rather than by first running the plan to completion: what matters here is
+		// the periodic-only Apply pass a succeeded plan keeps running, not how it got there.
+		Expect(framework.CreatePlanSecretWithData(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{
+				planapi.PlanStateKey:       []byte(planapi.PlanStateSucceeded),
+				k8splan.AppliedChecksumKey: []byte("pre-existing-checksum"),
+				k8splan.ProbeStatusesKey:   []byte("{}"),
+			})).To(Succeed())
+
+		By("Waiting for the long-period periodic instruction to start and block on its gate")
+		Eventually(func() bool { return nodeFileExists(ctx, podName, periodicPauseStarted) },
+			framework.WaitTimeout, time.Second).Should(BeTrue())
+
+		By("Setting " + planapi.PlanPausedAnnotation + " while it is still running")
+		Expect(framework.SetSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanPausedAnnotation, "true")).To(Succeed())
+
+		By("Giving the interrupt watch time to observe the annotation before releasing the gate")
+		// Mirrors pauseAtFirstBoundary: ten seconds is comfortably longer than the interrupt
+		// watch's poll interval, so opening the gate below cannot race the pause being observed.
+		Consistently(func() bool { return nodeFileExists(ctx, podName, periodicSecondRan) },
+			10*time.Second, 2*time.Second).Should(BeFalse())
+
+		By("Opening the gate so the long-period instruction completes")
+		execInAgent(ctx, podName, "touch "+periodicPauseGate)
+
+		By("Waiting for plan-state to become paused")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStatePaused },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the always-due periodic instruction never ran: pause is a boundary")
+		Expect(nodeFileExists(ctx, podName, periodicSecondRan)).To(BeFalse(),
+			"a pause lets the running periodic instruction finish but must stop before the next one")
+
+		By("Verifying the completed periodic instruction's output survived the interruption")
+		periodicOutput := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedPeriodicOutputKey, 10*time.Second, time.Second)
+		outputMap, err := framework.DecodePeriodicOutput(periodicOutput)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(outputMap).To(HaveKey("periodic-first"))
+		firstRunTime := outputMap["periodic-first"].LastSuccessfulRunTime
+		Expect(firstRunTime).NotTo(BeEmpty(),
+			"the interrupted apply must persist the periodic output it produced before the interruption, "+
+				"or the stale timestamp left on the Secret will make the instruction look due again on resume")
+
+		By("Removing " + planapi.PlanPausedAnnotation)
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanPausedAnnotation)).To(Succeed())
+
+		By("Waiting for plan-state to become succeeded again")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateSucceeded },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the always-due periodic instruction resumes running")
+		Eventually(func() bool { return nodeFileExists(ctx, podName, periodicSecondRan) },
+			framework.WaitTimeout, 2*time.Second).Should(BeTrue(),
+			"resuming a paused succeeded plan must let periodic instructions run again")
+
+		By("Verifying the long-period instruction was NOT re-run: its timestamp must have survived the pause")
+		Expect(nodeFileContent(ctx, podName, periodicFirstMarker)).To(Equal("run"),
+			"a lost LastSuccessfulRunTime would make periodicInstructionDue treat the instruction as due "+
+				"again, re-running it and producing a second line here")
+
+		updatedOutput := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedPeriodicOutputKey, 10*time.Second, time.Second)
+		updatedMap, err := framework.DecodePeriodicOutput(updatedOutput)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(updatedMap["periodic-first"].LastSuccessfulRunTime).To(Equal(firstRunTime),
+			"the preserved run time must be exactly what the interrupted apply recorded, not recomputed")
 	})
 })
 

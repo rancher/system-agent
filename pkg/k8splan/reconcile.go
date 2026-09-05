@@ -100,35 +100,8 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 				logrus.Warnf("[k8splan] ignoring unsupported annotation in checksum flow key=%s value=%s", key, value)
 			}
 		}
-	} else {
-		interrupt, interruptErr := readInterrupt(secret.Annotations)
-		if interruptErr != nil {
-			// Keep this path deliberately narrow: do not write the Secret, run probes, call Apply, or schedule
-			// an EnqueueAfter. The workqueue's exponential rate limiter handles retries, and correcting the
-			// annotation will arrive through a watch event.
-			logrus.Errorf("[k8splan] refusing to act on plan secret %s/%s: %v", w.connInfo.Namespace, w.connInfo.SecretName, interruptErr)
-			return secret, interruptErr
-		}
-		if interrupt != applyinator.InterruptionNone {
-			updates := handleInterrupt(interrupt, currentPlanState, secret.Data, cp.Checksum, len(cp.Plan.OneTimeInstructions))
-
-			// An interrupt suppresses execution, not observation. Merge probe status into the same update map so
-			// both outcomes can be persisted together. When probe status is unchanged, writeInterruptOutcome's
-			// DeepEqual guard avoids an unnecessary Secret update.
-			mergeProbeStatuses(updates, cp.Plan.Probes, probeStatuses)
-
-			committed, err := w.writeInterruptOutcome(sc, cp.Checksum, fmt.Sprintf("recorded the plan as %s", interrupt), updates)
-			if err != nil {
-				return secret, fmt.Errorf("failed to record the %s interrupt: %w", interrupt, err)
-			}
-			// Re-enqueue on the probe period, the same cadence as an executing plan.
-			// An interrupt suppresses execution, not observation.
-			sc.EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, w.probePeriod)
-			if committed != nil {
-				return committed, nil
-			}
-			return secret, nil
-		}
+	} else if result, done, checkErr := w.checkAndRecordInterrupt(sc, secret, cp, currentPlanState, probeStatuses); done {
+		return result, checkErr
 	}
 
 	// Step B: everything below runs only in two scenarios:
@@ -217,9 +190,16 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 				w.connInfo.Namespace, w.connInfo.SecretName, cp.Checksum)
 			return committed, nil
 		}
-		maps.Copy(secret.Data, resumeUpdates)
 		if committed != nil {
-			secret.ResourceVersion = committed.ResourceVersion
+			// committed is the fresh server object writeInterruptOutcome just wrote, which may carry
+			// concurrent changes (an annotation, a label, an unrelated data key) that this reconcile's
+			// stale in-hand secret does not. Continue from it rather than merging only resumeUpdates
+			// into the stale copy: adopting committed's resourceVersion without also adopting its data
+			// would let the final updateSecret below overwrite those concurrent changes without a
+			// conflict, since the resourceVersion it submits would already match the latest one.
+			secret = committed.DeepCopy()
+		} else {
+			maps.Copy(secret.Data, resumeUpdates)
 		}
 	}
 
@@ -230,27 +210,26 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	if effectiveState.IsTerminal() && effectiveState != planapi.PlanStateSucceeded && !needsApplied {
 		// A non-succeeded terminal plan is monitored only. Do not execute instructions or mutate
 		// lifecycle keys such as applied-checksum and plan-progress until new pending content arrives.
-		beforeMonitoring := secret.DeepCopy()
-		prober.DoProbes(cp.Plan.Probes, probeStatuses, false)
+		//
+		// Persisted through writeInterruptOutcome, like the other interrupt monitoring paths, rather
+		// than updateSecret. updateSecret's conflict retry only re-applies the write when the fresh
+		// plan's checksum matches AppliedChecksumKey, but a failed or canceled plan normally leaves
+		// that key empty or pointing at an older plan, so any concurrent Secret write during this
+		// probe-only update would hit an un-retried conflict and escalate to Fatalf, terminating the
+		// agent over what should be a routine retry.
+		updates := map[string][]byte{}
+		mergeProbeStatuses(updates, cp.Plan.Probes, probeStatuses)
 
-		marshalledProbeStatus, marshalErr := json.Marshal(probeStatuses)
-		if marshalErr != nil {
-			logrus.Errorf("[k8splan] error while marshalling probe statuses: %v", marshalErr)
-		} else {
-			secret.Data[ProbeStatusesKey] = marshalledProbeStatus
+		committed, writeErr := w.writeInterruptOutcome(sc, cp.Checksum,
+			"recorded probe statuses for a monitoring-only terminal plan", updates)
+		if writeErr != nil {
+			return secret, fmt.Errorf("failed to record probe statuses for a monitoring-only terminal plan: %w", writeErr)
 		}
-
-		logrus.Debugf("[k8splan] terminal plan-state %q is in monitoring-only mode; enqueueing after %f seconds", effectiveState, w.probePeriod.Seconds())
+		logrus.Debugf("[k8splan] terminal plan-state %q is in monitoring-only mode; enqueueing after %f seconds",
+			effectiveState, w.probePeriod.Seconds())
 		sc.EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, w.probePeriod)
-
-		if reflect.DeepEqual(beforeMonitoring.Data, secret.Data) && reflect.DeepEqual(beforeMonitoring.StringData, secret.StringData) {
-			logrus.Debugf("[k8splan] monitoring-only reconcile changed nothing, not updating secret")
-			return secret, nil
-		}
-		secret, err = w.updateSecret(sc, secret)
-		if err != nil {
-			logrus.Fatalf("[k8splan] encountered an error while attempting to update the secret: %v", err)
-			return nil, nil
+		if committed != nil {
+			return committed, nil
 		}
 		return secret, nil
 	}
@@ -273,6 +252,22 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 		var inProgressErr error
 		if secret, inProgressErr = w.updateSecret(sc, secret); inProgressErr != nil {
 			return nil, fmt.Errorf("failed to commit plan-state:%s to API server: %w", planapi.PlanStateInProgress, inProgressErr)
+		}
+	}
+
+	// Step D: revalidate the interrupt annotations synchronously, using whatever is currently in
+	// secret.Data/Annotations, before starting the watch that will only observe them asynchronously.
+	//
+	// The resume commit and the pending -> in-progress precommit above can each return a Secret
+	// freshly fetched from (or just written to) the API server, which may already carry a concurrent
+	// pause/cancel update that Step A's earlier, staler read could not have seen. startInterruptWatch's
+	// poller does not observe such an update until its first tick, up to interruptPollInterval later —
+	// long enough for a short plan to run to completion entirely unimpeded despite the annotation
+	// already being set by the time this reconcile reaches Apply. Skipped in the checksum flow, which
+	// does not support these annotations, exactly like Step A.
+	if effectiveState != "" {
+		if result, done, checkErr := w.checkAndRecordInterrupt(sc, secret, cp, planapi.PlanState(secret.Data[planapi.PlanStateKey]), probeStatuses); done {
+			return result, checkErr
 		}
 	}
 
@@ -357,6 +352,54 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	return secret, nil
 }
 
+// checkAndRecordInterrupt evaluates secret.Annotations and, if they call for an interrupt (or are
+// invalid), records the outcome and reports that the caller must stop reconciling.
+//
+// done is false when neither annotation is active: normal processing continues, using whatever
+// secret and probeStatuses the caller already has. done is true in every other case, and the
+// caller must immediately return (result, err) — for an invalid value, result is secret and err is
+// non-nil; for a recorded interrupt, result is the freshly written Secret (or secret when
+// writeInterruptOutcome's write-once guard made that write a no-op) and err is nil, matching
+// writeInterruptOutcome's own "abandon silently, do not error" contract.
+//
+// currentPlanState is the plan-state to evaluate the interrupt against; callers at different points
+// in reconcileSecret hold different Secrets and must pass whichever plan-state theirs currently
+// carries, not a value cached from earlier in the reconcile.
+func (w *watcher) checkAndRecordInterrupt(sc corecontrollers.SecretController, secret *corev1.Secret, cp applyinator.CalculatedPlan,
+	currentPlanState planapi.PlanState, probeStatuses map[string]planapi.ProbeStatus,
+) (result *corev1.Secret, done bool, err error) {
+	interrupt, interruptErr := readInterrupt(secret.Annotations)
+	if interruptErr != nil {
+		// Keep this path deliberately narrow: do not write the Secret, run probes, call Apply, or schedule
+		// an EnqueueAfter. The workqueue's exponential rate limiter handles retries, and correcting the
+		// annotation will arrive through a watch event.
+		logrus.Errorf("[k8splan] refusing to act on plan secret %s/%s: %v", w.connInfo.Namespace, w.connInfo.SecretName, interruptErr)
+		return secret, true, interruptErr
+	}
+	if interrupt == applyinator.InterruptionNone {
+		return nil, false, nil
+	}
+
+	updates := handleInterrupt(interrupt, currentPlanState, secret.Data, cp.Checksum, len(cp.Plan.OneTimeInstructions))
+
+	// An interrupt suppresses execution, not observation. Merge probe status into the same update map so
+	// both outcomes can be persisted together. When probe status is unchanged, writeInterruptOutcome's
+	// DeepEqual guard avoids an unnecessary Secret update.
+	mergeProbeStatuses(updates, cp.Plan.Probes, probeStatuses)
+
+	committed, writeErr := w.writeInterruptOutcome(sc, cp.Checksum, fmt.Sprintf("recorded the plan as %s", interrupt), updates)
+	if writeErr != nil {
+		return secret, true, fmt.Errorf("failed to record the %s interrupt: %w", interrupt, writeErr)
+	}
+	// Re-enqueue on the probe period, the same cadence as an executing plan.
+	// An interrupt suppresses execution, not observation.
+	sc.EnqueueAfter(w.connInfo.Namespace, w.connInfo.SecretName, w.probePeriod)
+	if committed != nil {
+		return committed, true, nil
+	}
+	return secret, true, nil
+}
+
 // recordInterruptAfterApply persists the outcome of an apply that was interrupted in flight. It
 // replaces buildSecretDataUpdates for interrupted applies because OneTimeApplySucceeded is false,
 // which would otherwise be recorded as plan-state: failed.
@@ -375,13 +418,15 @@ func (w *watcher) recordInterruptAfterApply(sc corecontrollers.SecretController,
 			"work started by this plan may still be modifying the node", applyOutput.Interruption, cp.Checksum)
 	}
 
-	if applyOutput.Interruption == applyinator.InterruptionCanceled && effectiveState.IsTerminal() {
+	if applyOutput.Interruption == applyinator.InterruptionCanceled && effectiveState.IsTerminal() && effectiveState != planapi.PlanStateSucceeded {
 		// Apply the same write-once rule used by handleCancellation at reconcile entry. A terminal
-		// plan-state is owned by the orchestrator, and cancellation is terminal, so re-recording a cancel
-		// would permanently overwrite a plan that may already have genuinely converged. This case can
-		// occur when cancellation arrives during periodic instructions on a succeeded plan; without the
-		// guard, the in-flight path would record plan-state: canceled even though the same cancellation
-		// detected at reconcile entry would produce no write.
+		// plan-state (other than succeeded) is owned by the orchestrator and already inert, so
+		// re-recording a cancel would permanently overwrite a plan that may already have genuinely
+		// converged, with nothing left to actually stop.
+		//
+		// PlanStateSucceeded is excluded for the same reason handleCancellation excludes it: a succeeded
+		// plan keeps executing periodic instructions, so a cancellation arriving during that periodic
+		// pass has something real to stop and must be recorded, not silently dropped.
 		//
 		// This guard applies only to cancellation. A pause must still be recorded for a terminal plan,
 		// because pausing a succeeded plan that is running only periodic instructions is a normal operator
@@ -438,9 +483,14 @@ func (w *watcher) recordInterruptAfterApply(sc corecontrollers.SecretController,
 	if len(applyOutput.OneTimeOutput) > 0 {
 		// applied-output is fed back as ExistingOneTimeOutput by selectExistingOutput on the next apply,
 		// preserving the SaveOutput results from instructions that completed before the interruption.
-		//
-		// Write it only when there is output to persist.
 		updates[AppliedOutputKey] = applyOutput.OneTimeOutput
+	}
+	if len(applyOutput.PeriodicOutput) > 0 {
+		// applied-periodic-output is fed back as ExistingPeriodicOutput on the next apply. A periodic
+		// instruction that completed before the interruption already advanced its LastSuccessfulRunTime
+		// in applyOutput.PeriodicOutput; without this write that update is lost, and the stale timestamp
+		// still on the Secret makes periodicInstructionDue treat the instruction as due again on resume.
+		updates[AppliedPeriodicOutputKey] = applyOutput.PeriodicOutput
 	}
 	mergeProbeStatuses(updates, cp.Plan.Probes, probeStatuses)
 

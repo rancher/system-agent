@@ -25,6 +25,7 @@ const (
 	cancelTerminalRan    = "/tmp/e2e-cancel-terminal-periodic-ran.txt"
 	cancelTreeGate       = "/tmp/e2e-cancel-tree-gate"
 	cancelTreeChildLog   = "/tmp/e2e-cancel-tree-child.log"
+	cancelSucceededRan   = "/tmp/e2e-cancel-succeeded-periodic-ran.txt"
 )
 
 var _ = Describe("Remote Plan - Cancellation", Label(framework.ShortTestLabel), func() {
@@ -192,6 +193,69 @@ var _ = Describe("Remote Plan - Cancellation", Label(framework.ShortTestLabel), 
 				framework.E2ENamespace, framework.PlanSecretName)
 		}, 12*time.Second, 3*time.Second).Should(Equal(rvAfterRemove),
 			"monitoring-only reconciles should not rewrite Secret data in this steady state")
+	})
+
+	It("should cancel a succeeded plan that is still running periodic instructions, permanently", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+
+		By("Creating a succeeded plan, with the cancel annotation already set, that has periodic instructions")
+		// plan-state:succeeded is set directly, as plan_state_test.go's "should not re-apply..."
+		// spec does: what matters here is that a succeeded plan keeps running periodic
+		// instructions on every reconcile, unlike every other terminal state. The annotation is
+		// present at creation so the very first reconcile is the one that must record the
+		// cancellation, exactly as the "cancel a pending plan" spec above does for pending.
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("should-not-run", "/bin/sh",
+				[]string{"-c", "touch " + cancelSucceededRan}, 5).
+			Build()
+
+		Expect(framework.CreatePlanSecretWithAnnotations(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{
+				planapi.PlanStateKey:       []byte(planapi.PlanStateSucceeded),
+				k8splan.AppliedChecksumKey: []byte("pre-existing-checksum"),
+				k8splan.ProbeStatusesKey:   []byte("{}"),
+			},
+			map[string]string{planapi.PlanCanceledAnnotation: "true"})).To(Succeed())
+
+		By("Waiting for plan-state to become canceled")
+		// Before the fix, a succeeded plan-state was (wrongly) treated the same as an already
+		// terminal, inert one: the cancellation was never recorded and plan-state stayed
+		// succeeded, so periodic instructions kept running as if nothing had happened.
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateCanceled },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the periodic instruction never ran")
+		Consistently(func() bool { return nodeFileExists(ctx, podName, cancelSucceededRan) },
+			20*time.Second, 4*time.Second).Should(BeFalse(),
+			"cancelling a succeeded plan must stop its periodic instructions, not merely leave them be")
+
+		By("Verifying plan-progress reports a cancellation, not a suspension")
+		progress := framework.GetPlanProgress(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)
+		Expect(progress).NotTo(BeNil())
+		Expect(progress).NotTo(HaveKey("paused"),
+			"a cancellation is a report, not a suspension: only a suspended checkpoint may grant a resume")
+
+		By("Removing the cancel annotation")
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanCanceledAnnotation)).To(Succeed())
+
+		By("Verifying the periodic instruction still never runs: cancel is terminal")
+		// This is the failure mode the fix closes: without it, removing the annotation left
+		// plan-state exactly where it started (succeeded), so periodic execution simply resumed
+		// as if the cancellation had never been requested.
+		Consistently(func() bool { return nodeFileExists(ctx, podName, cancelSucceededRan) },
+			20*time.Second, 4*time.Second).Should(BeFalse(),
+			"clearing the cancel annotation must not resume periodic execution on a canceled plan")
+		Expect(currentPlanState(ctx)).To(Equal(planapi.PlanStateCanceled),
+			"cancel is terminal: only new pending plan content from the orchestrator may move the plan again")
 	})
 
 	It("should kill the instruction's whole process tree, not merely its shell", func() {

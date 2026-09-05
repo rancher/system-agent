@@ -196,6 +196,17 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	a.mu.Lock()
 	logrus.Tracef("[applyinator] applying plan - lock achieved")
 	defer a.mu.Unlock()
+
+	// Recheck: the check above can pass and then this call can block behind another local/remote
+	// apply holding the lock. An interruption requested while queued behind that lock would
+	// otherwise go unnoticed until the first instruction boundary, letting the archive and file
+	// reconciliation below run despite an already-pending cancel or pause.
+	if interruption := checkInterruption(input.Cancel, input.Pause); interruption != InterruptionNone {
+		logrus.Infof("[applyinator] not applying plan with checksum %s: %s while waiting for the lock", input.CalculatedPlan.Checksum, interruption)
+		output.Interruption = interruption
+		return output, nil
+	}
+
 	now := time.Now()
 	nowString := now.Format(applyinatorDateCodeLayout)
 
@@ -266,6 +277,12 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 		}
 	}
 
+	// Reaching this point with RunOneTimeInstructions means oneTime.Interruption was InterruptionNone
+	// (an interrupted one-time pass already returned above), so OneTimeApplySucceeded can only be false here
+	// because of a genuine failure. Periodic instructions still run regardless, but the outcome below must not
+	// let an interruption observed during that periodic pass retroactively relabel the failure.
+	oneTimeGenuinelyFailed := input.RunOneTimeInstructions && !output.OneTimeApplySucceeded
+
 	periodic, err := a.runPeriodicInstructions(execCtx, executionDir, input.CalculatedPlan, input.ExistingPeriodicOutput, input.RunOneTimeInstructions, now, input.Cancel, input.Pause)
 	if err != nil {
 		return output, err
@@ -275,8 +292,11 @@ func (a *Applyinator) Apply(ctx context.Context, input ApplyInput) (ApplyOutput,
 	// Never clear a report the one-time pass already made: the two passes terminate different
 	// instructions, and only one of them needs to have left something behind.
 	output.TerminationIncomplete = output.TerminationIncomplete || periodic.TerminationIncomplete
-	// Periodic instructions have no checkpoint, so their interruption is only observable here.
-	if output.Interruption == InterruptionNone {
+	// Periodic instructions have no checkpoint, so their interruption is only observable here. Skipped
+	// when the one-time pass genuinely failed: that failure is already authoritative, and a cancel or
+	// pause merely coinciding with the periodic pass that follows it must not report an interruption
+	// instead of the failure that actually stopped the plan.
+	if output.Interruption == InterruptionNone && !oneTimeGenuinelyFailed {
 		output.Interruption = checkInterruption(input.Cancel, input.Pause)
 	}
 
@@ -451,11 +471,14 @@ func (a *Applyinator) runOneTimeInstructions(ctx context.Context, executionDir s
 		}
 		// Stop after the first failed instruction; subsequent instructions must not execute.
 		if failed {
-			// A canceled instruction may fail because its context was killed. Re-check the interrupt
-			// state so cancellation is reported as an interruption rather than a plan failure.
-			// Pause does not interrupt a running instruction, so a failure observed with pause pending
-			// is still a genuine instruction failure.
-			result.Interruption = checkInterruption(cancel, pause)
+			// A canceled instruction may fail because its context was killed. Re-check for a
+			// cancellation specifically, so it is reported as an interruption rather than a plan
+			// failure. Pause is deliberately excluded from this check: it never interrupts a running
+			// instruction, so a failure observed with only pause pending is still a genuine
+			// instruction failure. Passing a nil pause channel here, rather than reusing
+			// checkInterruption(cancel, pause), is what keeps that failure from being reported as
+			// InterruptionPaused merely because the operator happened to pause around the same time.
+			result.Interruption = checkInterruption(cancel, nil)
 			// The failed instruction did not complete, so do not advance the checkpoint.
 			break
 		}

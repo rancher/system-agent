@@ -161,10 +161,11 @@ func processTreeExited(cmd *exec.Cmd, deadline time.Time) bool {
 	for {
 		active, err := activeProcessesInJob(job.handle)
 		if err != nil {
-			// Nothing can be confirmed either way. Report the tree as gone rather than raising a false
-			// alarm on every cancellation because the job cannot be queried.
+			// Nothing can be confirmed either way. Report the tree as not exited so the caller records
+			// TerminationIncomplete: erring towards a false alarm is safer than silently retracting a
+			// warning about a process tree whose state is actually unknown.
 			logrus.Warnf("[applyinator] unable to query the job object for surviving processes: %v", err)
-			return true
+			return false
 		}
 		if active == 0 {
 			return true

@@ -1316,6 +1316,58 @@ func TestApplyPreClosedCancelShortCircuitsBeforeTheLock(t *testing.T) {
 	assertPathAbsent(t, sentinel, "no instruction may run once the apply is already canceled")
 }
 
+func TestApplyRechecksInterruptionAfterAcquiringTheLock(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	appliedPlanDir := t.TempDir()
+	filesDir := t.TempDir()
+	filePath := filepath.Join(filesDir, "config.txt")
+
+	a := newTestApplyinator(t, workDir, false, appliedPlanDir, "")
+	// Hold the lock to simulate another local/remote apply already in flight. The queued Apply
+	// call below passes its pre-lock interruption check (Cancel is not yet closed) and then blocks
+	// on a.mu.Lock() until this test releases it.
+	a.mu.Lock()
+
+	cancel := make(chan struct{})
+	plan := planapi.Plan{
+		Files: []planapi.File{
+			{
+				Path:    filePath,
+				Content: base64.StdEncoding.EncodeToString([]byte("hello")),
+				UID:     -1,
+				GID:     -1,
+			},
+		},
+	}
+
+	results := applyAsync(a, ApplyInput{
+		CalculatedPlan: CalculatedPlan{Plan: plan, Checksum: "checksum-cancel-queued"},
+		ReconcileFiles: true,
+		Cancel:         cancel,
+	})
+
+	// Give the goroutine time to clear the pre-lock check and start waiting on a.mu.Lock().
+	time.Sleep(100 * time.Millisecond)
+	close(cancel)
+	a.mu.Unlock()
+
+	output := awaitApply(t, results, 5*time.Second)
+
+	if output.Interruption != InterruptionCanceled {
+		t.Errorf("expected %q, got %q", InterruptionCanceled, output.Interruption)
+	}
+	assertPathAbsent(t, filePath, "no file may be reconciled once the queued apply observes an already-pending cancel after the lock")
+	archived, err := a.getAppliedPlanFiles()
+	if err != nil {
+		t.Fatalf("getAppliedPlanFiles returned error: %v", err)
+	}
+	if len(archived) != 0 {
+		t.Errorf("expected no plan to be archived once the queued apply observes an already-pending cancel after the lock, got %d", len(archived))
+	}
+}
+
 func TestApplyPauseStopsBeforeTheNextInstruction(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
@@ -1566,6 +1618,97 @@ func TestApplyFailureIsNotReportedAsAnInterruption(t *testing.T) {
 	}
 	if output.CompletedOneTimeInstructions != 0 {
 		t.Errorf("expected a failed instruction to not advance the checkpoint, got %d", output.CompletedOneTimeInstructions)
+	}
+}
+
+// TestRunOneTimeInstructionsPauseDuringAGenuineFailureIsNotReportedAsPaused is a regression test:
+// pause never interrupts a running instruction, so a failure the instruction was always going to
+// produce must remain a genuine failure even if the operator's pause happens to land while it is
+// still running. The instruction sleeps briefly so there is a real window in which the pause
+// channel closes mid-execution, rather than before the boundary check that starts it.
+func TestRunOneTimeInstructionsPauseDuringAGenuineFailureIsNotReportedAsPaused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	cp := CalculatedPlan{
+		Checksum: "checksum-pause-during-genuine-failure",
+		Plan: planapi.Plan{
+			OneTimeInstructions: []planapi.OneTimeInstruction{
+				{CommonInstruction: planapi.CommonInstruction{Name: "fails-slowly", Command: "sh", Args: []string{"-c", "sleep 0.2; exit 1"}}},
+			},
+		},
+	}
+
+	pause := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(pause)
+	}()
+
+	result, err := a.runOneTimeInstructions(context.Background(), t.TempDir(), cp, nil, 1, 0, nil, pause)
+	if err != nil {
+		t.Fatalf("runOneTimeInstructions returned error: %v", err)
+	}
+	if result.Succeeded {
+		t.Error("expected Succeeded=false")
+	}
+	if result.Interruption != InterruptionNone {
+		t.Errorf("expected the genuine failure to remain authoritative even though pause became pending mid-execution, got %q",
+			result.Interruption)
+	}
+}
+
+// TestApplyPauseDuringPeriodicPassAfterAGenuineOneTimeFailureIsNotReportedAsPaused is a regression
+// test for Apply's own final interruption check. Periodic instructions run regardless of whether
+// the one-time pass failed, and a pause that happens to land during that periodic pass must not
+// retroactively relabel an already-genuine one-time failure as an interruption.
+func TestApplyPauseDuringPeriodicPassAfterAGenuineOneTimeFailureIsNotReportedAsPaused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	dir := t.TempDir()
+	periodicRan := filepath.Join(dir, "periodic-ran")
+	a := newTestApplyinator(t, "", false, "", "")
+	plan := planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "fails", Command: "sh", Args: []string{"-c", "exit 1"}}},
+		},
+		PeriodicInstructions: []planapi.PeriodicInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "slow-periodic", Command: "sh", Args: []string{"-c", "sleep 0.2; touch " + periodicRan}}},
+		},
+	}
+
+	pause := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(pause)
+	}()
+
+	output, err := a.Apply(context.Background(), ApplyInput{
+		CalculatedPlan:             CalculatedPlan{Plan: plan, Checksum: "checksum-pause-after-onetime-failure"},
+		RunOneTimeInstructions:     true,
+		OneTimeInstructionAttempts: 1,
+		Pause:                      pause,
+	})
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if output.OneTimeApplySucceeded {
+		t.Error("expected OneTimeApplySucceeded=false")
+	}
+	// Apply is synchronous, so by the time it returns the periodic instruction has already run;
+	// this confirms the pause genuinely landed during that pass rather than before it started.
+	if _, statErr := os.Stat(periodicRan); statErr != nil {
+		t.Fatalf("expected the periodic instruction to have run, sentinel missing: %v", statErr)
+	}
+	if output.Interruption != InterruptionNone {
+		t.Errorf("expected the genuine one-time failure to remain authoritative even though pause became pending during "+
+			"the periodic pass that follows it, got %q", output.Interruption)
 	}
 }
 
