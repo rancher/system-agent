@@ -230,11 +230,17 @@ func handleInterrupt(interrupt applyinator.Interruption, currentPlanState planap
 // far the plan progressed. Unlike a suspension, cancellation does not preserve resumable state:
 // Paused is false and ResumeState is empty because there is nothing to resume.
 func handleCancellation(currentPlanState planapi.PlanState, data map[string][]byte, checksum string, totalOneTimeInstructions int) map[string][]byte {
-	if currentPlanState.IsTerminal() {
+	if currentPlanState.IsTerminal() && currentPlanState != planapi.PlanStateSucceeded {
 		// This also enforces cancellation's write-once rule. The guard is based on plan state rather than
 		// the checkpoint: PlanStateCanceled is terminal, so an already-recorded cancellation produces no
 		// further writes. Cancellation uses plan state because it does not create a resumable checkpoint,
 		// unlike pause, which can use the checkpoint to determine whether the suspension was already recorded.
+		//
+		// PlanStateSucceeded is excluded: unlike the other terminal states, a succeeded plan keeps
+		// executing periodic instructions on every reconcile (reconcileSecret's monitoring-only bypass
+		// only applies to non-succeeded terminal states). Treating it as already inert here would make
+		// the cancellation a no-op: nothing would be written, so removing the annotation afterward would
+		// let periodic execution resume as if it had never been requested.
 		logrus.Debugf("[k8splan] plan-state is %q (terminal); not recording the cancellation", currentPlanState)
 		return map[string][]byte{}
 	}
