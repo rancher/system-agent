@@ -421,7 +421,7 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	}
 
 	// At this point, there is no restart-pending and we can continue with applyinator reconciliation, so create the applyinator-active file
-	if err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(nowUnixTimeString), 0600); err != nil {
+	if err := os.WriteFile(applyinatorActiveInterlockFilePath, newInterlockOwner(now).marshal(), 0600); err != nil {
 		logrus.Errorf("[applyinator] unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 	}
 
