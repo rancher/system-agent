@@ -389,8 +389,11 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 	restartPendingInterlockFilePath := filepath.Join(a.interlockDir, restartPendingInterlockFile)
 	applyinatorActiveInterlockFilePath := filepath.Join(a.interlockDir, applyinatorActiveInterlockFile)
 
-	// First off, remove check and remove the active interlock as the applyinator is not actually active
+	// First off, check and remove the active interlock as the applyinator is not actually
+	// active. The agent is a singleton and is the only thing that creates this file, so
+	// anything found here was left behind by an agent that no longer exists.
 	if _, err := os.Stat(applyinatorActiveInterlockFilePath); err == nil {
+		logrus.Warnf("[applyinator] removing stale active interlock file %s left by a previous agent", applyinatorActiveInterlockFilePath)
 		if err := os.Remove(applyinatorActiveInterlockFilePath); err != nil {
 			logrus.Errorf("[applyinator] unable to remove applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 		}
@@ -420,8 +423,8 @@ func (a *Applyinator) checkInterlock(now time.Time) (func(), error) {
 		}
 	}
 
-	// At this point, there is no restart-pending and we can continue with applyinator reconciliation, so create the applyinator-active file
-	if err := os.WriteFile(applyinatorActiveInterlockFilePath, newInterlockOwner(now).marshal(), 0600); err != nil {
+	activeContents := fmt.Sprintf("pid=%d\ntime=%s\n", os.Getpid(), now.UTC().Format(time.UnixDate))
+	if err := os.WriteFile(applyinatorActiveInterlockFilePath, []byte(activeContents), 0600); err != nil {
 		logrus.Errorf("[applyinator] unable to write applyinator active interlock file %s: %v", applyinatorActiveInterlockFilePath, err)
 	}
 

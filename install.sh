@@ -916,6 +916,15 @@ ensure_applyinator_not_active() {
         # The agent stamps this file with its pid. If that process is gone the file
         # is a leftover, so there is nothing to wait for.
         _pid=$(sed -n 's/^pid=//p' "${FILE_APPLYINATOR}" 2>/dev/null | head -1)
+        # Only a positive integer is a testable pid. Anything else -- a legacy file with no
+        # pid= line, junk, or a non-positive value -- means liveness cannot be established,
+        # so fall through to the timed wait rather than delete what may be a live holder's
+        # interlock. The non-positive case is not hypothetical: `kill -0 0` signals the
+        # caller's entire process group and `kill -0 -1` every process it may signal, so a
+        # corrupt pid=0 or pid=-1 would otherwise be read as a live owner.
+        case "${_pid}" in
+            ''|*[!0-9]*|0) _pid="" ;;
+        esac
         if [ -n "${_pid}" ] && ! kill -0 "${_pid}" 2>/dev/null; then
             info "Active plan interlock owned by pid ${_pid}, which is no longer running. Removing stale interlock file."
             rm -f "${FILE_APPLYINATOR}"
