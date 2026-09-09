@@ -542,18 +542,6 @@ func TestCheckInterlock(t *testing.T) {
 		}
 	})
 
-	// The direct regression test for rancher/system-agent#403: checkInterlock used to stat
-	// and remove the bare constant "applyinator-active" rather than the joined path. The
-	// generated systemd unit sets no WorkingDirectory, so systemd supplies "/" and the path
-	// actually stat'ed was /applyinator-active, which never exists. A leaked interlock was
-	// therefore never cleared, and every install.sh run afterwards burned five minutes on it.
-	//
-	// A blocking restart-pending is what makes the self-heal observable on its own. Without
-	// it checkInterlock goes on to write its own interlock over the leaked file and the
-	// deferred cleanup removes that, so the file would end up gone either way and the test
-	// would pass with the bug still present. Blocking on restart-pending returns before the
-	// write, leaving the removal in step one as the only thing that can clear the file --
-	// and it is the real upgrade sequence, since install.sh touches restart-pending first.
 	t.Run("stale active interlock is removed even when restart-pending blocks the apply", func(t *testing.T) {
 		t.Parallel()
 		interlockDir := t.TempDir()
