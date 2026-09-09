@@ -949,7 +949,14 @@ do_install() {
     ensure_directories
     verify_downloader curl || fatal "can not find curl for downloading files"
 
+    # Remove restart-pending on every exit path, not just the successful one. The fatal
+    # calls between here and the rm at the end of do_install used to leak it, and a leaked
+    # restart-pending blocks every apply the agent attempts until its five-minute timeout
+    # expires. INT and TERM need an explicit exit: a POSIX trap handler returns to where it
+    # was interrupted, so without it Ctrl-C would clear the file and carry on installing.
     touch ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending
+    trap 'rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending' EXIT
+    trap 'rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending; exit 1' INT TERM
     ensure_applyinator_not_active
 
     if [ -z "${CATTLE_CA_CHECKSUM}" ] && [ $(echo "${CATTLE_AGENT_STRICT_VERIFY}" | tr '[:upper:]' '[:lower:]') = "true" ]; then

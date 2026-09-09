@@ -224,6 +224,32 @@ func TestInstallShEnsureApplyinatorNotActiveUntestablePID(t *testing.T) {
 	}
 }
 
+// TestInstallShTrapsClearRestartPending pins the other half of the interlock
+// directory. do_install touches restart-pending and removes it on its last line,
+// so every fatal in between used to leak it -- and unlike applyinator-active, a
+// leaked restart-pending actively blocks the agent from applying anything until
+// checkInterlock's five-minute timeout expires.
+//
+// The explicit exit on INT/TERM is the part that is easy to get wrong: a POSIX
+// trap handler returns to where it was interrupted, so a handler that only does
+// rm -f would clear the file and let the interrupted install carry on.
+func TestInstallShTrapsClearRestartPending(t *testing.T) {
+	contents, err := os.ReadFile(installShPath)
+	if err != nil {
+		t.Skipf("install.sh not readable: %v", err)
+	}
+	script := string(contents)
+
+	const exitTrap = `trap 'rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending' EXIT`
+	if !strings.Contains(script, exitTrap) {
+		t.Error("do_install no longer clears restart-pending on EXIT; a fatal between the touch and the final rm leaks it")
+	}
+	const sigTrap = `trap 'rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/restart-pending; exit 1' INT TERM`
+	if !strings.Contains(script, sigTrap) {
+		t.Error("the INT/TERM trap is missing or does not exit; an interrupted install would clear the interlock and keep going")
+	}
+}
+
 // TestInstallShServiceUnitClearsInterlock pins the ExecStartPre backstop. It is
 // what clears a leaked interlock before the agent starts, so its absence would be
 // a silent regression.
