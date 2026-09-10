@@ -5,9 +5,6 @@ go 1.26.0
 toolchain go1.26.7
 
 replace (
-	github.com/rancher/lasso => github.com/Abhishek-Valaboju/lasso v0.2.9-0.20260828055838-34eaedfec2e7
-	github.com/rancher/wrangler/v3 => github.com/Abhishek-Valaboju/wrangler/v3 v3.5.1-rc.1.0.20260828064927-bed3da9cc545
-
 	// replace those modules from go.opentelemetry.io to elimilate CVEs
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
@@ -48,11 +45,11 @@ replace (
 require (
 	github.com/google/go-containerregistry v0.20.2
 	github.com/mattn/go-colorable v0.1.13
-	github.com/rancher/lasso v0.2.9
+	github.com/rancher/lasso v0.2.10
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.1-rc.2
+	github.com/rancher/wrangler/v3 v3.8.0-rc.1
 	github.com/sirupsen/logrus v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
