@@ -592,7 +592,7 @@ RestartSec=5s
 Environment=CATTLE_LOGLEVEL=${CATTLE_AGENT_LOGLEVEL}
 Environment=CATTLE_AGENT_CONFIG=${CATTLE_AGENT_CONFIG_DIR}/config.yaml
 Environment=CATTLE_AGENT_STRICT_VERIFY=${CATTLE_AGENT_STRICT_VERIFY}
-ExecStartPre=-/bin/rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active
+ExecStartPre=-/bin/rm -f "${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active"
 ExecStart=${CATTLE_AGENT_BIN_PREFIX}/bin/rancher-system-agent sentinel
 EOF
 

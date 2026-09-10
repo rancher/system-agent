@@ -115,7 +115,7 @@ func TestActiveInterlockIsPidStamped(t *testing.T) {
 	defer cleanup()
 
 	active := filepath.Join(interlockDir, applyinatorActiveInterlockFile)
-	out, err := exec.Command("sh", "-c", sedPidExpr+" "+active+" | head -1").Output()
+	out, err := exec.Command("sh", "-c", fmt.Sprintf("%s %q | head -1", sedPidExpr, active)).Output()
 	if err != nil {
 		t.Fatalf("extracting the pid the way install.sh does failed: %v", err)
 	}
