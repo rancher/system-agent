@@ -50,8 +50,8 @@ require (
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065
 	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
-	github.com/rancher/wrangler/v3 v3.7.1-rc.2
-	github.com/sirupsen/logrus v1.9.4
+	github.com/rancher/wrangler/v3 v3.7.2
+	github.com/sirupsen/logrus v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.22.0
@@ -121,7 +121,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/vbatts/tar-split v0.11.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
