@@ -96,12 +96,7 @@ CMD ["rancher-system-agent"]
 # Temporary build stage for SUC packages
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
-# renovate-local: kubectl-amd64
-ARG KUBECTL_VERSION=v1.34.8
-# renovate-local: kubectl-arm64=v1.34.8
-ENV KUBECTL_SUM_arm64=4c9fe1f717738950c638c38056130a8db5075e6413ae36d8687221a240cdf88b
-# renovate-local: kubectl-amd64=v1.34.8
-ENV KUBECTL_SUM_amd64=f6249132865c13abe3c9dd5038f5da65849cb86eee1608c001831504e481aa8c
+ARG KUBECTL_PACKAGE=kubectl-1.34
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
@@ -112,17 +107,16 @@ RUN zypper refresh && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
-# Install curl in the builder stage (not in chroot) to download kubectl
-RUN zypper in -y curl openssl
+RUN rpm --import https://raw.githubusercontent.com/rancher/rancher/refs/heads/main/rancher-rpm-pkgs.key
 
-ARG TARGETARCH
-RUN ARCH=${TARGETARCH:-amd64} && \
-    if [ "$ARCH" = "amd64" ]; then KUBECTL_ARCH=amd64; fi && \
-    if [ "$ARCH" = "arm64" ]; then KUBECTL_ARCH=arm64; fi && \
-    curl -L -f -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
-    KUBECTL_SUM="KUBECTL_SUM_${KUBECTL_ARCH}" && echo "${!KUBECTL_SUM}  kubectl" | sha256sum -c - && \
-    install -o root -g root -m 0755 kubectl /chroot/usr/bin/kubectl && \
-    rm kubectl
+RUN zypper ar -f https://rpm.rancher.io/pkgs/prime pkgs && \
+    zypper --non-interactive refresh pkgs
+
+RUN zypper --installroot /chroot --non-interactive in --no-recommends -r pkgs ${KUBECTL_PACKAGE} && \
+    install -o root -g root -m 0755 /chroot/usr/bin/${KUBECTL_PACKAGE} /chroot/usr/bin/kubectl && \
+    rm -f /chroot/usr/bin/${KUBECTL_PACKAGE} && \
+    zypper --installroot /chroot clean -a && \
+    rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/*
 
 # =============================================================================
 # system-agent-suc - final SUC runtime image
