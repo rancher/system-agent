@@ -46,7 +46,10 @@ fi
 #   - CATTLE_AGENT_STRICT_VERIFY | STRICT_VERIFY (default: false)
 #   - CATTLE_AGENT_FALLBACK_PATH (default: )
 
-FALLBACK=v0.3.13
+FALLBACK=v0.3.16
+FALLBACK_BINARY_SUM_amd64=686dd937ce907185b642b12f34b0f94a9781b73f7d0d13e4204867d2f753249a
+FALLBACK_BINARY_SUM_arm64=7ca4eaf7f639995f7fe97e90b3c690caf8e15c1f1df8363ebbb53e4b13e10adb
+FALLBACK_UNINSTALL_SUM=ded6af4d28ab396dadf3f7c5871aa06c723275f9d7a4ec2d50d0fad9f52988d3
 CACERTS_PATH=cacerts
 RETRYCOUNT=4500
 APPLYINATOR_ACTIVE_WAIT_COUNT=60 # If the system-agent is unhealthy but had created an interlock file to indicate it was actively applying a plan, after 5 minutes, ignore the interlock.
