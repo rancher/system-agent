@@ -96,7 +96,7 @@ CMD ["rancher-system-agent"]
 # Temporary build stage for SUC packages
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS suc-builder
 
-ARG KUBECTL_PACKAGE=kubectl-1.34
+ARG KUBECTL_PACKAGE=kubectl-1.35
 
 # Install system packages using builder image that has zypper
 COPY --from=runtime-base / /chroot/
