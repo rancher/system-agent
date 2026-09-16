@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -201,8 +202,15 @@ func lookupProcessJob(cmd *exec.Cmd) (processJob, bool) {
 // ignoreProcessGone treats an already-terminated process as success. The watchdog can race with
 // the instruction exiting on its own, and an already-gone process tree means cancellation has
 // achieved its intended outcome rather than producing an error worth reporting.
+//
+// os.ErrProcessDone is not the only shape that race takes here: cmd.Wait() marks the process
+// released rather than done on Windows, "for compatibility" with the pre-handle os.Process API
+// (see the os.(*Process).wait comment), so a Kill() issued after Wait() returns exactly
+// syscall.EINVAL instead. That EINVAL is an invented sentinel package os uses purely to report this
+// condition rather than a real Windows error code, so matching it here cannot mask an actual
+// invalid-argument failure from TerminateProcess.
 func ignoreProcessGone(err error) error {
-	if errors.Is(err, os.ErrProcessDone) {
+	if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.EINVAL) {
 		return nil
 	}
 	return err
