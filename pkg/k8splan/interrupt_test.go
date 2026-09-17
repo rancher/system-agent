@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -548,6 +549,64 @@ func TestStartInterruptWatchObservesAnnotations(t *testing.T) {
 	}
 }
 
+// TestStartInterruptWatchToleratesRepeatedReadFailures pins readInterruptAnnotations' documented
+// contract for the case its own doc comment calls out: "If both reads fail... the caller keeps
+// polling rather than treating a transient read failure as an interrupt." Every other test in this
+// file has either the cache or the live client succeed; this one fails both, repeatedly, before
+// either starts working, so a bug that turned a read failure into a spurious interrupt (e.g. an
+// !ok that fell through to "no annotations" instead of "continue") would show up as a premature
+// close instead of the correct, later one.
+//
+// Not parallel: it rewrites the package-level interruptPollInterval.
+func TestStartInterruptWatchToleratesRepeatedReadFailures(t *testing.T) {
+	withInterruptPollInterval(t, 2*time.Millisecond)
+
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+	cache := fake.NewMockCacheInterface[*corev1.Secret](ctrl)
+	sc.EXPECT().Cache().Return(cache).AnyTimes()
+	// The cache never recovers; every poll falls back to the live client.
+	cache.EXPECT().Get(testNamespace, testSecret).Return(nil, errors.New("cache has not synced")).AnyTimes()
+
+	const failuresBeforeSuccess = 5
+	var liveCalls int
+	var mu sync.Mutex
+	sc.EXPECT().Get(testNamespace, testSecret, gomock.Any()).DoAndReturn(
+		func(string, string, metav1.GetOptions) (*corev1.Secret, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			liveCalls++
+			if liveCalls <= failuresBeforeSuccess {
+				return nil, errors.New("api server unreachable")
+			}
+			return &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:   testNamespace,
+					Name:        testSecret,
+					Annotations: map[string]string{planapi.PlanPausedAnnotation: "true"},
+				},
+			}, nil
+		}).AnyTimes()
+
+	w := newTestWatcher(t, true, "")
+	cancelCh, pauseCh, stop := w.startInterruptWatch(context.Background(), sc)
+	defer stop()
+
+	if isClosed(cancelCh) || isClosed(pauseCh) {
+		t.Fatal("expected neither channel to be closed while every read is failing")
+	}
+	waitForClose(t, "pause", pauseCh)
+	if isClosed(cancelCh) {
+		t.Error("expected the cancel channel to remain open; only a pause was ever observed")
+	}
+	mu.Lock()
+	got := liveCalls
+	mu.Unlock()
+	if got <= failuresBeforeSuccess {
+		t.Errorf("expected the live client to have been retried past the %d induced failures, got %d calls total", failuresBeforeSuccess, got)
+	}
+}
+
 // TestStartInterruptWatchIgnoresInvalidValuesUntilCorrected pins the one place where this file's
 // two paths diverge. Interrupting an in-flight apply is destructive — for cancel, irreversibly so
 // — so a value the agent cannot parse is reported and otherwise ignored, rather than acted on as a
@@ -906,5 +965,57 @@ func TestWriteInterruptOutcomeDoesNotMutateTheFetchedSecret(t *testing.T) {
 	}
 	if got := planapi.PlanState(fetched.Data[planapi.PlanStateKey]); got != planapi.PlanStateInProgress {
 		t.Errorf("the fetched Secret was mutated in place: plan-state is now %q", got)
+	}
+}
+
+// TestWriteInterruptOutcomeHandlesCascadingConflicts verifies that writeInterruptOutcome
+// retries on conflict, preserving the checkpoint through each conflict.
+func TestWriteInterruptOutcomeHandlesCascadingConflicts(t *testing.T) {
+	t.Parallel()
+
+	planBytes, checksum := interruptTestPlan(t, "ok")
+	secret := interruptTestSecret(planBytes, "initial-rv", "uid-1", map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStateInProgress),
+	})
+	checkpoint := PlanCheckpoint{Checksum: checksum, Completed: 1, Total: 3}
+
+	ctrl := gomock.NewController(t)
+	sc := fake.NewMockControllerInterface[*corev1.Secret, *corev1.SecretList](ctrl)
+
+	// Set up expectations: Get succeeds, first 3 Updates return conflict, 4th succeeds
+	conflictCount := 0
+	sc.EXPECT().Get(testNamespace, testSecret, gomock.Any()).DoAndReturn(func(string, string, metav1.GetOptions) (*corev1.Secret, error) {
+		return secret, nil
+	}).Times(4) // Initial get + 3 retries on conflict
+
+	sc.EXPECT().Update(gomock.Any()).DoAndReturn(func(s *corev1.Secret) (*corev1.Secret, error) {
+		conflictCount++
+		if conflictCount <= 3 {
+			// Simulate conflict on first 3 attempts
+			return nil, apierrors.NewConflict(schema.GroupResource{}, testSecret, errors.New("conflict"))
+		}
+		// 4th attempt succeeds. Return the Secret actually passed in, which carries the merged
+		// checkpoint data: writeInterruptOutcome returns whatever Update gives back, so a mock that
+		// instead returns the stale outer secret would silently strip the update under test.
+		s.ResourceVersion = "updated-rv"
+		return s, nil
+	}).Times(4)
+
+	w := newTestWatcher(t, true, "")
+	result, err := w.writeInterruptOutcome(sc, checksum, "pause recorded", map[string][]byte{
+		planapi.PlanCheckpointKey: marshalPlanCheckpoint(checkpoint),
+	})
+
+	if err != nil {
+		t.Fatalf("writeInterruptOutcome should succeed after retries, got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("writeInterruptOutcome should return updated Secret on success")
+	}
+	if got := decodeProgress(t, result.Data); got != checkpoint {
+		t.Errorf("expected the checkpoint written before the conflicts to survive all 3 retries unchanged, got %+v, want %+v", got, checkpoint)
+	}
+	if conflictCount != 4 {
+		t.Errorf("expected 4 update attempts (3 conflicts + 1 success), got %d", conflictCount)
 	}
 }

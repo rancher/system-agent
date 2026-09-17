@@ -329,6 +329,191 @@ var _ = Describe("Remote Plan - Cancellation", Label(framework.ShortTestLabel), 
 			20*time.Second, 4*time.Second).Should(Equal(lastCount),
 			"the file grew again, so a descendant of the canceled instruction is still alive")
 	})
+
+	It("should cancel a periodic instruction while it is genuinely in-flight and terminate it immediately", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const (
+			periodicCancelStarted = "/tmp/e2e-cancel-periodic-inflight-started"
+			periodicCancelGate    = "/tmp/e2e-cancel-periodic-inflight-gate"
+			periodicCancelMarker  = "/tmp/e2e-cancel-periodic-inflight-marker.txt"
+		)
+		releaseGateOnCleanup(periodicCancelGate)
+
+		By("Creating a succeeded plan with a gated periodic instruction")
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("periodic-cancel-inflight", "/bin/sh",
+				[]string{"-c", fmt.Sprintf("touch %s; %s; echo completed >> %s",
+					periodicCancelStarted, blockingScript(periodicCancelGate), periodicCancelMarker)},
+				300).
+			Build()
+
+		By("Creating the plan Secret already at plan-state:succeeded")
+		Expect(framework.CreatePlanSecretWithData(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{
+				planapi.PlanStateKey:       []byte(planapi.PlanStateSucceeded),
+				k8splan.AppliedChecksumKey: []byte("pre-existing-checksum"),
+				k8splan.ProbeStatusesKey:   []byte("{}"),
+			})).To(Succeed())
+
+		By("Waiting for the periodic instruction to start and block on its gate")
+		Eventually(func() bool { return nodeFileExists(ctx, podName, periodicCancelStarted) },
+			framework.WaitTimeout, time.Second).Should(BeTrue(),
+			"the periodic instruction should have started and be waiting on the gate")
+
+		By("Capturing the periodic output recorded before this reconcile, if any")
+		// Apply() is a single blocking call: nothing is written to applied-periodic-output until
+		// it returns, and it cannot return while the instruction is genuinely blocked on its gate.
+		// This is the first run of this periodic instruction, so the key legitimately does not
+		// exist yet; a blocking wait for it to appear would time out by design. Read whatever is
+		// on the Secret right now instead of waiting for a write that has not happened.
+		outputBefore := framework.GetSecretData(ctx, cl, framework.E2ENamespace, framework.PlanSecretName)[k8splan.AppliedPeriodicOutputKey]
+		outputMapBefore, err := framework.DecodePeriodicOutput(outputBefore)
+		Expect(err).NotTo(HaveOccurred())
+		runTimeBefore := outputMapBefore["periodic-cancel-inflight"].LastSuccessfulRunTime
+
+		By("Setting " + planapi.PlanCanceledAnnotation + " while the periodic instruction is still running")
+		Expect(framework.SetSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanCanceledAnnotation, "true")).To(Succeed())
+
+		By("Waiting for plan-state to become canceled")
+		// Cancel is prompt: the instruction is signaled immediately, not allowed to finish.
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateCanceled },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Opening the gate so the process can be reaped")
+		execInAgent(ctx, podName, "touch "+periodicCancelGate)
+
+		By("Verifying the periodic instruction was terminated and did not complete")
+		// A single point-in-time check right after opening the gate could pass on a completion
+		// that merely arrives late. Consistently over a window that comfortably exceeds the
+		// termination grace period turns that false negative into a real assertion.
+		Consistently(func() bool { return nodeFileExists(ctx, podName, periodicCancelMarker) },
+			15*time.Second, 2*time.Second).Should(BeFalse(),
+			"the canceled periodic instruction must not have written its completion marker; "+
+				"if it did, the cancel was not prompt")
+
+		By("Verifying LastSuccessfulRunTime was NOT updated (instruction did not complete)")
+		outputAfterCancel := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedPeriodicOutputKey, 5*time.Second, time.Second)
+		outputMapAfterCancel, err := framework.DecodePeriodicOutput(outputAfterCancel)
+		Expect(err).NotTo(HaveOccurred())
+		// The output entry might not exist if this was the first run, or it should match the old time
+		currentRunTime := outputMapAfterCancel["periodic-cancel-inflight"].LastSuccessfulRunTime
+		if runTimeBefore != "" {
+			Expect(currentRunTime).To(Equal(runTimeBefore),
+				"the canceled periodic instruction did not complete, so its LastSuccessfulRunTime must not change")
+		} else {
+			Expect(currentRunTime).To(BeEmpty(),
+				"the canceled periodic instruction never completed, so LastSuccessfulRunTime must remain unset")
+		}
+
+		By("Verifying applied-checksum was not rewritten by the cancellation")
+		// handleCancellation never touches AppliedChecksumKey at all: it neither clears it nor
+		// records a new one. The Secret was created with a pre-existing value, standing in for
+		// whatever the last successful apply actually recorded, so the correct assertion is that
+		// cancellation leaves it untouched, not that it ends up empty.
+		Expect(framework.GetAppliedChecksum(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)).To(Equal("pre-existing-checksum"),
+			"a canceled plan must not overwrite applied-checksum with a new value, even if periodic instructions ran")
+	})
+
+	It("should cancel outright when canceled=true is valid even though paused carries an invalid value", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const precedenceRan = "/tmp/e2e-cancel-precedence-invalid-pause-ran.txt"
+
+		By("Creating a pending plan with a valid cancel and an invalid pause annotation together")
+		// A valid canceled=true must win outright, even when the pause value alongside it is
+		// invalid: the agent must not treat the invalid pause as a configuration error that blocks
+		// the reconcile once a valid cancellation is present.
+		plan := framework.NewPlan().
+			WithInstruction("should-not-run", "/bin/sh",
+				[]string{"-c", "touch " + precedenceRan}, true).
+			Build()
+
+		Expect(framework.CreatePlanSecretWithAnnotations(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)},
+			map[string]string{
+				planapi.PlanCanceledAnnotation: "true",
+				planapi.PlanPausedAnnotation:   "True", // invalid: capitalised
+			})).To(Succeed())
+
+		By("Waiting for plan-state to become canceled, not paused and not stuck pending")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateCanceled },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the plan never ran")
+		Expect(nodeFileExists(ctx, podName, precedenceRan)).To(BeFalse())
+	})
+
+	It("should resume only when the orchestrator supplies new plan content, never merely by clearing the annotation", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const (
+			oldPlanRan = "/tmp/e2e-cancel-then-new-plan-old-ran.txt"
+			newPlanRan = "/tmp/e2e-cancel-then-new-plan-new-ran.txt"
+		)
+
+		By("Creating a pending plan that already carries " + planapi.PlanCanceledAnnotation)
+		oldPlan := framework.NewPlan().
+			WithInstruction("should-not-run", "/bin/sh",
+				[]string{"-c", "touch " + oldPlanRan}, true).
+			Build()
+
+		Expect(framework.CreatePlanSecretWithAnnotations(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, oldPlan,
+			map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)},
+			map[string]string{planapi.PlanCanceledAnnotation: "true"})).To(Succeed())
+
+		By("Waiting for plan-state to become canceled")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateCanceled },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Removing the cancel annotation alone: cancel is terminal, this must not resume anything")
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanCanceledAnnotation)).To(Succeed())
+		Consistently(func() planapi.PlanState { return currentPlanState(ctx) },
+			15*time.Second, 3*time.Second).Should(Equal(planapi.PlanStateCanceled),
+			"clearing the annotation alone must not move a canceled plan")
+
+		By("Delivering new plan content at plan-state:pending, the orchestrator's documented recovery path")
+		newPlan := framework.NewPlan().
+			WithInstruction("new-plan-runs", "/bin/sh",
+				[]string{"-c", "touch " + newPlanRan}, true).
+			Build()
+		Expect(framework.UpdateSecretData(ctx, cl, framework.E2ENamespace, framework.PlanSecretName, map[string][]byte{
+			k8splan.PlanKey:      newPlan,
+			planapi.PlanStateKey: []byte(planapi.PlanStatePending),
+		})).To(Succeed())
+
+		By("Waiting for the new plan to actually execute")
+		Eventually(func() bool { return nodeFileExists(ctx, podName, newPlanRan) },
+			framework.WaitTimeout, time.Second).Should(BeTrue(),
+			"new plan content at plan-state:pending is the only thing that moves a canceled plan again")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateSucceeded },
+			framework.WaitTimeout, 2*time.Second)
+	})
 })
 
 func progressIntOrZero(progress map[string]any, key string) float64 {

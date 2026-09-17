@@ -52,6 +52,11 @@ var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() 
 		Expect(progress["completedInstructions"]).To(BeEquivalentTo(1))
 		Expect(progress["totalInstructions"]).To(BeEquivalentTo(3))
 
+		By("Verifying applied-checksum was NOT written while the plan is only partway through")
+		Expect(framework.GetAppliedChecksum(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)).To(BeEmpty(),
+			"applied-checksum must not be written for a plan that is paused, not complete")
+
 		By("Removing " + planapi.PlanPausedAnnotation)
 		Expect(framework.RemoveSecretAnnotation(ctx, cl,
 			framework.E2ENamespace, framework.PlanSecretName,
@@ -67,6 +72,11 @@ var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() 
 		By("Verifying the instruction that had already completed was not re-executed")
 		Expect(nodeFileContent(ctx, podName, paths.marker)).To(Equal("one\ntwo\nthree"),
 			"each instruction must appear exactly once: a duplicate line means the resume re-ran completed work")
+
+		By("Verifying applied-checksum IS NOW written after the plan runs to completion")
+		Expect(framework.GetAppliedChecksum(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)).NotTo(BeEmpty(),
+			"applied-checksum must be written once the resumed plan succeeds")
 	})
 
 	It("should keep updating probe statuses while the plan is held", func() {
@@ -301,6 +311,45 @@ var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() 
 			"correcting the value must record the hold, not release it")
 	})
 
+	It("should refuse to pause when canceled carries an invalid value, even though paused is valid", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const precedenceRan = "/tmp/e2e-pause-precedence-invalid-cancel-ran.txt"
+
+		By(`Creating a pending plan with an invalid cancel and a valid pause annotation together`)
+		// An invalid canceled value is a configuration error regardless of what the pause
+		// annotation says: it must not be read as "pause, since cancel could not be parsed". The
+		// agent executes nothing, interrupts nothing, and writes nothing at all, exactly as a lone
+		// invalid value does.
+		plan := framework.NewPlan().
+			WithInstruction("should-not-run", "/bin/sh",
+				[]string{"-c", "touch " + precedenceRan}, true).
+			Build()
+
+		Expect(framework.CreatePlanSecretWithAnnotations(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)},
+			map[string]string{
+				planapi.PlanCanceledAnnotation: "True", // invalid: capitalised
+				planapi.PlanPausedAnnotation:   "true",
+			})).To(Succeed())
+
+		resourceVersion := framework.GetSecretResourceVersion(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)
+
+		By("Verifying the agent writes nothing at all, including plan-state:paused")
+		Consistently(func() string {
+			return framework.GetSecretResourceVersion(ctx, cl,
+				framework.E2ENamespace, framework.PlanSecretName)
+		}, 30*time.Second, 3*time.Second).Should(Equal(resourceVersion),
+			"an invalid canceled value must block the reconcile even though pause alone would be valid")
+
+		By("Verifying the plan did not advance and never ran")
+		Expect(currentPlanState(ctx)).To(Equal(planapi.PlanStatePending))
+		Expect(nodeFileExists(ctx, podName, precedenceRan)).To(BeFalse())
+	})
+
 	It("should preserve a completed periodic instruction's output across a pause, so it is not re-run on resume", func() {
 		ctx := context.Background()
 		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
@@ -405,6 +454,112 @@ var _ = Describe("Remote Plan - Pause", Label(framework.ShortTestLabel), func() 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(updatedMap["periodic-first"].LastSuccessfulRunTime).To(Equal(firstRunTime),
 			"the preserved run time must be exactly what the interrupted apply recorded, not recomputed")
+	})
+
+	It("should pause while a periodic instruction is genuinely in-flight and complete it before the hold takes effect", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const (
+			periodicInFlightStarted = "/tmp/e2e-pause-periodic-inflight-started"
+			periodicInFlightGate    = "/tmp/e2e-pause-periodic-inflight-gate"
+			periodicInFlightMarker  = "/tmp/e2e-pause-periodic-inflight-marker.txt"
+		)
+		releaseGateOnCleanup(periodicInFlightGate)
+
+		By("Creating a succeeded plan with a gated periodic instruction")
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("periodic-inflight", "/bin/sh",
+				[]string{"-c", fmt.Sprintf("touch %s; %s; echo completed >> %s",
+					periodicInFlightStarted, blockingScript(periodicInFlightGate), periodicInFlightMarker)},
+				300).
+			Build()
+
+		By("Creating the plan Secret already at plan-state:succeeded")
+		Expect(framework.CreatePlanSecretWithData(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{
+				planapi.PlanStateKey:       []byte(planapi.PlanStateSucceeded),
+				k8splan.AppliedChecksumKey: []byte("pre-existing-checksum"),
+				k8splan.ProbeStatusesKey:   []byte("{}"),
+			})).To(Succeed())
+
+		By("Waiting for the periodic instruction to start and block on its gate")
+		Eventually(func() bool { return nodeFileExists(ctx, podName, periodicInFlightStarted) },
+			framework.WaitTimeout, time.Second).Should(BeTrue(),
+			"the periodic instruction should have started and be waiting on the gate")
+
+		By("Capturing the periodic output recorded before this reconcile, if any")
+		// Apply() is a single blocking call: nothing is written to applied-periodic-output until
+		// it returns, and it cannot return while the instruction is genuinely blocked on its gate.
+		// This is the first run of this periodic instruction, so the key legitimately does not
+		// exist yet; a blocking wait for it to appear would time out by design. Read whatever is
+		// on the Secret right now instead of waiting for a write that has not happened.
+		outputBefore := framework.GetSecretData(ctx, cl, framework.E2ENamespace, framework.PlanSecretName)[k8splan.AppliedPeriodicOutputKey]
+		outputMapBefore, err := framework.DecodePeriodicOutput(outputBefore)
+		Expect(err).NotTo(HaveOccurred())
+		runTimeBefore := outputMapBefore["periodic-inflight"].LastSuccessfulRunTime
+
+		By("Setting " + planapi.PlanPausedAnnotation + " while the periodic instruction is still running")
+		Expect(framework.SetSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanPausedAnnotation, "true")).To(Succeed())
+
+		By("Giving the interrupt watch time to observe the annotation before releasing the gate")
+		// Mirrors pauseAtFirstBoundary: a real assertion rather than a bare sleep, so a regression
+		// in the interrupt watch's poll cadence fails loudly instead of just occasionally flaking.
+		// plan-state stays succeeded throughout: the periodic instruction runs without changing it,
+		// and pause is a boundary that lets this in-flight run finish before taking effect.
+		Consistently(func() planapi.PlanState { return currentPlanState(ctx) },
+			15*time.Second, 2*time.Second).Should(Equal(planapi.PlanStateSucceeded),
+			"a pause must let the running periodic instruction finish rather than interrupt it")
+
+		By("Opening the gate so the periodic instruction can complete")
+		execInAgent(ctx, podName, "touch "+periodicInFlightGate)
+
+		By("Waiting for plan-state to become paused")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStatePaused },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the periodic instruction completed and its output was recorded")
+		Expect(nodeFileExists(ctx, podName, periodicInFlightMarker)).To(BeTrue(),
+			"the in-flight periodic instruction must have completed before the pause took effect")
+		content := nodeFileContent(ctx, podName, periodicInFlightMarker)
+		Expect(content).To(Equal("completed"),
+			"the periodic instruction should have written exactly one completion marker")
+
+		By("Verifying LastSuccessfulRunTime was updated for the completed periodic instruction")
+		outputAfterPause := framework.WaitForSecretField(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			k8splan.AppliedPeriodicOutputKey, 5*time.Second, time.Second)
+		outputMapAfterPause, err := framework.DecodePeriodicOutput(outputAfterPause)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(outputMapAfterPause["periodic-inflight"].LastSuccessfulRunTime).NotTo(BeEmpty(),
+			"the periodic instruction completed, so its LastSuccessfulRunTime must be set")
+		Expect(outputMapAfterPause["periodic-inflight"].LastSuccessfulRunTime).NotTo(Equal(runTimeBefore),
+			"the completed in-flight periodic instruction must have a new LastSuccessfulRunTime")
+
+		By("Removing " + planapi.PlanPausedAnnotation)
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanPausedAnnotation)).To(Succeed())
+
+		By("Waiting for plan-state to become succeeded again")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateSucceeded },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying the periodic instruction was not re-run after resume")
+		// If LastSuccessfulRunTime was lost during pause/resume, the instruction would appear
+		// due again and would be re-executed, writing a second completion marker.
+		Expect(nodeFileContent(ctx, podName, periodicInFlightMarker)).To(Equal("completed"),
+			"the periodic instruction must not have re-executed after resume; "+
+				"a lost LastSuccessfulRunTime would cause a duplicate 'completed' line")
 	})
 })
 
@@ -517,3 +672,96 @@ func probeStatus(ctx context.Context, probe string) map[string]any {
 	status, _ := statuses[probe].(map[string]any)
 	return status
 }
+
+// TestMultipleAgentRestartsPreservesPause verifies that checkpoint state survives
+// multiple agent pod restarts while a plan remains paused.
+var _ = Describe("pause suite: multiple agent restarts", Label(framework.ShortTestLabel), func() {
+	It("should preserve pause state and checkpoint across 2 agent restarts", func() {
+		ctx := context.Background()
+		paths := newPausePaths("e2e-pause-2-restarts")
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+
+		// pauseAtFirstBoundary uses the shared gated fixture (pausePlan) so the pause lands at a
+		// deterministic instruction boundary rather than racing a plan that runs to completion
+		// before the annotation is even observed: none of step-one through step-three block on
+		// anything, so without a gate the whole plan could succeed before "pause after step1
+		// completes" ever got a chance to mean anything.
+		pauseAtFirstBoundary(ctx, podName, paths, pausePlan(paths).Build())
+
+		By("Recording the pause checkpoint")
+		checkpoint1 := framework.GetPlanProgress(ctx, cl, framework.E2ENamespace, framework.PlanSecretName)
+		Expect(checkpoint1).NotTo(BeNil(), "checkpoint must exist while paused")
+		Expect(checkpoint1["completedInstructions"]).To(BeEquivalentTo(1))
+
+		By("Verifying the instructions after the boundary have NOT yet run")
+		Expect(nodeFileExists(ctx, podName, paths.stepTwo)).To(BeFalse())
+		Expect(nodeFileExists(ctx, podName, paths.stepThree)).To(BeFalse())
+
+		By("Killing the agent pod (restart #1)")
+		deleteAgentPod(ctx, podName)
+		framework.KubectlWaitForPodsReady(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel, framework.WaitTimeout)
+		podName1 := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+
+		By("Verifying plan is still paused after restart #1")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStatePaused },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying checkpoint is preserved after restart #1")
+		checkpoint2 := framework.GetPlanProgress(ctx, cl, framework.E2ENamespace, framework.PlanSecretName)
+		Expect(checkpoint2).To(Equal(checkpoint1), "checkpoint must be preserved after restart #1")
+
+		By("Verifying the instructions after the boundary still have NOT run")
+		Expect(nodeFileExists(ctx, podName1, paths.stepTwo)).To(BeFalse())
+		Expect(nodeFileExists(ctx, podName1, paths.stepThree)).To(BeFalse())
+
+		By("Killing the agent pod again (restart #2)")
+		deleteAgentPod(ctx, podName1)
+		framework.KubectlWaitForPodsReady(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel, framework.WaitTimeout)
+		podName2 := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+
+		By("Verifying plan is STILL paused after restart #2")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStatePaused },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying checkpoint is still preserved after restart #2")
+		checkpoint3 := framework.GetPlanProgress(ctx, cl, framework.E2ENamespace, framework.PlanSecretName)
+		Expect(checkpoint3).To(Equal(checkpoint1), "checkpoint must be preserved across restart #2")
+
+		By("Re-creating the gate so a wrongly re-executed first instruction would finish rather than hang")
+		// Mirrors the single-restart spec above: the gate lives in the agent container's
+		// filesystem, which does not survive a pod restart, so a checkpoint that failed to
+		// prevent instruction-zero from re-running would otherwise hang here instead of failing
+		// with a clear "one" reappearing in the marker file.
+		execInAgent(ctx, podName2, "touch "+paths.gate)
+
+		By("Removing the pause annotation to unpause")
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanPausedAnnotation)).To(Succeed())
+
+		By("Waiting for plan-state to show success after full completion")
+		framework.WaitForSecretFieldCondition(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanStateKey,
+			func(val []byte) bool { return planapi.PlanState(val) == planapi.PlanStateSucceeded },
+			framework.WaitTimeout, 2*time.Second)
+
+		By("Verifying only the instructions the checkpoint had not accounted for ran")
+		// "one" is absent because each restart resets the container's /tmp, not because the first
+		// instruction ran and lost its line: the assertion that matters is that it did not run
+		// again across either restart.
+		Expect(nodeFileContent(ctx, podName2, paths.marker)).To(Equal("two\nthree"),
+			"the resumed apply must run only the instructions the durable checkpoint had not accounted for, across both restarts")
+	})
+})

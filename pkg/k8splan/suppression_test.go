@@ -639,9 +639,10 @@ func TestOnlyASuspendedCheckpointGrantsAResume(t *testing.T) {
 }
 
 // TestCorrectedAnnotationValueSelfHeals walks one watcher — as a real agent would be — through the
-// operator's whole correction sequence: a typo, the fix, then the release. The point is that the
-// error path leaves NO RESIDUE: no half-written state for the corrected reconcile to trip over,
-// and no lost progress.
+// operator's whole correction sequence: a typo, the fix, a second typo injected while already
+// held, then the release. The point is that the error path leaves NO RESIDUE: no half-written
+// state for the corrected reconcile to trip over, and no lost progress, whether the typo happens
+// before or after the plan is first paused.
 func TestCorrectedAnnotationValueSelfHeals(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
@@ -691,6 +692,24 @@ func TestCorrectedAnnotationValueSelfHeals(t *testing.T) {
 	if got := checkpointIn(t, writes[0].Data); got != wantHeld {
 		t.Errorf("expected the suspension to be recorded as %+v, got %+v", wantHeld, got)
 	}
+
+	// Pass 2b: a second typo, this time injected while the plan is already held. The invalid
+	// value must not release the pause, and the write-once guard means no further Update call
+	// happens at all: handlePause's short-circuit on an already-recorded suspension runs before
+	// the annotation is even re-validated on the next valid reconcile, but an invalid value never
+	// reaches that far to begin with.
+	rec.setAnnotations(map[string]string{planapi.PlanPausedAnnotation: "yes"})
+	result2b, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+	if err == nil {
+		t.Fatal("expected an error for the invalid annotation value 'yes' injected while paused, got nil")
+	}
+	if got := planapi.PlanState(result2b.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+		t.Errorf("expected the invalid value to leave the plan paused, got %q", got)
+	}
+	if got := len(rec.writes()); got != 1 {
+		t.Fatalf("expected the invalid value to write nothing on top of the suspension already recorded, got %d Update call(s) in total", got)
+	}
+	f.assertApplyNeverRan(t)
 
 	// Pass 3: released. The resume commit fires and the plan runs.
 	rec.setAnnotations(map[string]string{planapi.PlanPausedAnnotation: "false"})
@@ -1065,4 +1084,178 @@ func TestHandEditedResumeStateMarksThePlanAppliedWithoutRunningIt(t *testing.T) 
 	if len(result.Data[planapi.PlanCheckpointKey]) != 0 {
 		t.Errorf("expected the checkpoint to be cleared by the outcome write, got %q", result.Data[planapi.PlanCheckpointKey])
 	}
+}
+
+// TestRapidPauseCyclesPreservesCheckpoint verifies handlePause's write-once guard: once a
+// suspension has been recorded for a plan checksum, repeated reconciles observing the same held
+// annotation (as happen on every probe-period re-enqueue while a plan stays paused) must not
+// recompute or rewrite the checkpoint.
+func TestRapidPauseCyclesPreservesCheckpoint(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	f := newSuppressionFixture(t)
+	base := newInterruptTestSecret(f.planBytes, nil, map[string][]byte{
+		planapi.PlanStateKey: []byte(planapi.PlanStatePending),
+	})
+	rec := newInterruptRecorder(base)
+	sc := newInterruptTestController(t, rec)
+	w := newTestWatcher(t, false, "")
+
+	// First reconcile with the hold in place: the suspension is recorded.
+	rec.setAnnotations(map[string]string{planapi.PlanPausedAnnotation: "true"})
+	result1, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
+	if got := planapi.PlanState(result1.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+		t.Fatalf("expected plan-state paused after the first reconcile, got %q", got)
+	}
+	checkpoint1 := result1.Data[planapi.PlanCheckpointKey]
+	if len(checkpoint1) == 0 {
+		t.Fatal("checkpoint must be written on pause")
+	}
+	f.assertApplyNeverRan(t)
+
+	// Reconcile twice more while the annotation is still set to "true", simulating the re-enqueues
+	// a held plan keeps receiving on the probe period. The checkpoint must not change on either
+	// pass: handlePause's write-once guard is keyed on the checksum alone, with no notion of "the
+	// Nth time this hold has been observed".
+	for i := 2; i <= 3; i++ {
+		result, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+		if err != nil {
+			t.Fatalf("reconcile %d failed: %v", i, err)
+		}
+		if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+			t.Errorf("reconcile %d: expected plan-state paused, got %q", i, got)
+		}
+		if got := result.Data[planapi.PlanCheckpointKey]; !bytes.Equal(got, checkpoint1) {
+			t.Errorf("reconcile %d: checkpoint was rewritten: got %q, want %q", i, got, checkpoint1)
+		}
+	}
+	f.assertApplyNeverRan(t)
+}
+
+// TestPauseCheckpointDiscardedWhenPlanContentChanges verifies parsePlanCheckpoint's checksum
+// scoping (plan_progress.go) at the reconcile level: a checkpoint recorded for one plan must never
+// be read back for a different one, even when the pause annotation stays set continuously across
+// the swap. An orchestrator that pushes corrected plan content while a hold is in effect is not a
+// scenario the agent forbids, so handlePause has to treat it as a brand new suspension rather than
+// resuming into position with the old plan's instruction count.
+func TestPauseCheckpointDiscardedWhenPlanContentChanges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	f1 := newSuppressionFixture(t)
+	f2 := newSuppressionFixture(t)
+	if f1.checksum == f2.checksum {
+		t.Fatal("test fixtures must produce distinct plan checksums")
+	}
+
+	secret := newInterruptTestSecret(f1.planBytes, map[string]string{planapi.PlanPausedAnnotation: "true"},
+		map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)})
+	rec := newInterruptRecorder(secret)
+	sc := newInterruptTestController(t, rec)
+	w := newTestWatcher(t, false, "")
+
+	result1, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if got := planapi.PlanState(result1.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+		t.Fatalf("expected plan-state paused, got %q", got)
+	}
+	checkpoint1 := checkpointIn(t, result1.Data)
+	if checkpoint1.Checksum != f1.checksum {
+		t.Fatalf("expected the checkpoint to be scoped to the first plan's checksum %s, got %s", f1.checksum, checkpoint1.Checksum)
+	}
+	f1.assertApplyNeverRan(t)
+
+	// The orchestrator pushes new plan content while the hold is still in effect. The annotation
+	// is left untouched: this models a corrected plan landing without anyone unpausing first.
+	rec.setPlanData(f2.planBytes)
+	result2, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error after the plan content changed: %v", err)
+	}
+	if got := planapi.PlanState(result2.Data[planapi.PlanStateKey]); got != planapi.PlanStatePaused {
+		t.Errorf("expected the new plan to also be held paused, got %q", got)
+	}
+	checkpoint2 := checkpointIn(t, result2.Data)
+	if checkpoint2.Checksum != f2.checksum {
+		t.Errorf("expected the checkpoint to be discarded and re-recorded for the new checksum %s, got %s", f2.checksum, checkpoint2.Checksum)
+	}
+	if checkpoint2.Completed != 0 {
+		t.Errorf("expected the new plan's checkpoint to start at 0 completed instructions, got %d", checkpoint2.Completed)
+	}
+	if checkpoint2.Total != len(f2.oneTime) {
+		t.Errorf("expected the new plan's checkpoint to record its own instruction count %d, got %d", len(f2.oneTime), checkpoint2.Total)
+	}
+	f2.assertApplyNeverRan(t)
+}
+
+// TestCanceledPlanBlocksAnInvalidPauseValueEvenThoughCancelWon pins the other half of the
+// precedence rule: "an invalid cancel value does not let a valid pause through". A valid cancel and
+// an invalid pause together must still cancel outright — the invalid pause value must not be
+// treated as a configuration error that blocks the reconcile once a valid cancel is present.
+func TestCancelWinsOverAnInvalidPauseValue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	f := newSuppressionFixture(t)
+	secret := newInterruptTestSecret(f.planBytes, map[string]string{
+		planapi.PlanCanceledAnnotation: "true",
+		planapi.PlanPausedAnnotation:   "True", // invalid: capitalised
+	}, map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)})
+	rec := newInterruptRecorder(secret)
+	sc := newInterruptTestController(t, rec)
+	w := newTestWatcher(t, false, "")
+
+	result, err := w.reconcileSecret(context.Background(), sc, rec.get(), 30*time.Second)
+	if err != nil {
+		t.Fatalf("expected a valid cancel to win outright despite the invalid pause value, got error: %v", err)
+	}
+	if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStateCanceled {
+		t.Errorf("expected plan-state canceled, got %q", got)
+	}
+	f.assertApplyNeverRan(t)
+}
+
+// TestInvalidCancelValueBlocksEvenAValidPause pins the first half of the same precedence rule:
+// an invalid cancel value is a configuration error regardless of what the pause annotation says,
+// so it must not be treated as "pause, since cancel could not be read" — the agent executes
+// nothing, interrupts nothing, and writes nothing at all, exactly as a lone invalid value does.
+func TestInvalidCancelValueBlocksEvenAValidPause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	f := newSuppressionFixture(t)
+	secret := newInterruptTestSecret(f.planBytes, map[string]string{
+		planapi.PlanCanceledAnnotation: "True", // invalid: capitalised
+		planapi.PlanPausedAnnotation:   "true",
+	}, map[string][]byte{planapi.PlanStateKey: []byte(planapi.PlanStatePending)})
+	rec := newInterruptRecorder(secret)
+	sc := newInterruptTestController(t, rec)
+	w := newTestWatcher(t, false, "")
+
+	before := rec.get()
+	result, err := w.reconcileSecret(context.Background(), sc, before, 30*time.Second)
+	if err == nil {
+		t.Fatal("expected an error for the invalid canceled value, got nil")
+	}
+	if got := planapi.PlanState(result.Data[planapi.PlanStateKey]); got != planapi.PlanStatePending {
+		t.Errorf("expected plan-state to remain pending, got %q", got)
+	}
+	if got := len(rec.writes()); got != 0 {
+		t.Errorf("expected an invalid canceled value to write nothing at all, got %d Update call(s)", got)
+	}
+	f.assertApplyNeverRan(t)
 }

@@ -317,3 +317,50 @@ func TestOrDefault(t *testing.T) {
 		}
 	})
 }
+
+// TestSanitizeResumeState covers sanitizeResumeState directly: every state resolveResume's table
+// exercises transitively (TestResolveResume), pinned here as a unit test of the function itself so
+// a future caller can see, at the function's own signature, exactly which value it rejects and why.
+func TestSanitizeResumeState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state planapi.PlanState
+		want  planapi.PlanState
+	}{
+		{
+			// Resuming into "paused" is a silent permanent stall: decidePlanStateAction treats
+			// every state it does not know as terminal, so the plan would never run again and
+			// never leave paused, with no annotation left for an operator to remove. The agent
+			// itself never writes such a record; only a hand-edited Secret can produce one.
+			name:  "paused is rejected and cleared, the one value that would stall the plan forever",
+			state: planapi.PlanStatePaused,
+			want:  "",
+		},
+		{
+			name:  "in-progress passes through unchanged",
+			state: planapi.PlanStateInProgress,
+			want:  planapi.PlanStateInProgress,
+		},
+		{
+			name:  "a terminal state passes through unchanged",
+			state: planapi.PlanStateSucceeded,
+			want:  planapi.PlanStateSucceeded,
+		},
+		{
+			name:  "empty passes through unchanged",
+			state: "",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := sanitizeResumeState(tt.state); got != tt.want {
+				t.Errorf("sanitizeResumeState(%q) = %q, want %q", tt.state, got, tt.want)
+			}
+		})
+	}
+}

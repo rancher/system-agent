@@ -473,6 +473,51 @@ func TestReconcileSecretUIDChangeResetsState(t *testing.T) {
 	}
 }
 
+// TestReconcileSecretUIDChangeTakesPriorityOverStaleResourceVersion covers the entry switch's
+// ordering (reconcile.go): uidChanged is checked, and handled, before rvIsOlder is ever evaluated.
+// A recreated Secret starts over at a low resourceVersion, which is exactly the shape rvIsOlder
+// exists to reject as feedback from the agent's own prior write — so without the UID check running
+// first, a freshly recreated Secret would be silently skipped as "stale" instead of force-applied.
+func TestReconcileSecretUIDChangeTakesPriorityOverStaleResourceVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	planBytes, checksum := marshalPlan(t, planapi.Plan{
+		OneTimeInstructions: []planapi.OneTimeInstruction{
+			{CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "true"}}, SaveOutput: true},
+		},
+	})
+
+	sc := newMockSecretController(t)
+	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
+
+	// The old Secret reached resource version 500 before being deleted; lastAppliedResourceVersion
+	// reflects that. The recreated Secret starts over at "1", which is numerically far older.
+	w := newTestWatcher(t, true, "500")
+	w.secretUID = "old-uid"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "1", UID: "new-uid"},
+		Data: map[string][]byte{
+			PlanKey:            planBytes,
+			AppliedChecksumKey: []byte(checksum), // would be a no-op if the UID reset didn't force a re-apply
+		},
+	}
+
+	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
+	if err != nil {
+		t.Fatalf("reconcileSecret returned error: %v", err)
+	}
+	if string(result.Data[AppliedChecksumKey]) != checksum {
+		t.Errorf("expected the recreated Secret to be force-re-applied rather than skipped as stale, got applied checksum %q",
+			result.Data[AppliedChecksumKey])
+	}
+	if w.secretUID != "new-uid" {
+		t.Errorf("expected secretUID to be re-learned as %q, got %q", "new-uid", w.secretUID)
+	}
+}
+
 // TestReconcileSecretStaleResourceVersionSkipped pins that a delivery older than the agent's own
 // last write is a benign skip rather than an error.
 //
@@ -518,41 +563,6 @@ func TestReconcileSecretStaleResourceVersionSkipped(t *testing.T) {
 	if w.lastAppliedResourceVersion != "100" {
 		t.Errorf("expected the skip to leave lastAppliedResourceVersion at %q, got %q", "100", w.lastAppliedResourceVersion)
 	}
-}
-
-func TestReconcileSecretPendingTransitionsThroughInProgress(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
-	t.Parallel()
-
-	planBytes, _ := marshalPlan(t, planapi.Plan{
-		OneTimeInstructions: []planapi.OneTimeInstruction{
-			{CommonInstruction: planapi.CommonInstruction{Name: "ok", Command: "sh", Args: []string{"-c", "true"}}, SaveOutput: true},
-		},
-	})
-
-	sc := newMockSecretController(t)
-	sc.EXPECT().EnqueueAfter(testNamespace, testSecret, gomock.Any())
-
-	w := newTestWatcher(t, true, "42")
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testSecret, ResourceVersion: "42"},
-		Data: map[string][]byte{
-			PlanKey:              planBytes,
-			planapi.PlanStateKey: []byte(planapi.PlanStatePending),
-		},
-	}
-
-	result, err := w.reconcileSecret(context.Background(), sc, secret, 30*time.Second)
-	if err != nil {
-		t.Fatalf("reconcileSecret returned error: %v", err)
-	}
-	if planapi.PlanState(result.Data[planapi.PlanStateKey]) != planapi.PlanStateSucceeded {
-		t.Errorf("expected final plan-state %q, got %q", planapi.PlanStateSucceeded, result.Data[planapi.PlanStateKey])
-	}
-	// The exact Update call count and the in-progress-before-Apply ordering are asserted in
-	// TestReconcileSecretCommitsInProgressBeforeApply.
 }
 
 func TestReconcileSecretUpdateConflictRetry(t *testing.T) {
@@ -771,6 +781,14 @@ func (r *interruptRecorder) setAnnotations(annotations map[string]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.server.Annotations = annotations
+}
+
+// setPlanData replaces the plan bytes on the server-side copy, modelling an orchestrator pushing
+// new plan content while the agent's checkpoint is still scoped to the old one.
+func (r *interruptRecorder) setPlanData(planBytes []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.server.Data[PlanKey] = planBytes
 }
 
 // writes returns the Secrets handed to each Update call, in order.
