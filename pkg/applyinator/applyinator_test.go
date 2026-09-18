@@ -542,6 +542,28 @@ func TestCheckInterlock(t *testing.T) {
 		}
 	})
 
+	t.Run("stale active interlock is removed even when restart-pending blocks the apply", func(t *testing.T) {
+		t.Parallel()
+		interlockDir := t.TempDir()
+		activePath := filepath.Join(interlockDir, applyinatorActiveInterlockFile)
+		if err := os.WriteFile(activePath, []byte("leaked by an agent that was killed\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		restartPendingPath := filepath.Join(interlockDir, restartPendingInterlockFile)
+		now := time.Now()
+		if err := os.WriteFile(restartPendingPath, []byte(now.Add(-1*time.Minute).Format(time.UnixDate)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		a := newTestApplyinator(t, "", false, "", interlockDir)
+
+		if _, err := a.checkInterlock(now); err == nil {
+			t.Fatal("expected checkInterlock to block on restart-pending, got nil")
+		}
+		if _, err := os.Stat(activePath); !os.IsNotExist(err) {
+			t.Fatalf("expected the leaked interlock to be gone, stat err: %v", err)
+		}
+	})
+
 	t.Run("restart pending with unparsable timestamp blocks and seeds first-observed time", func(t *testing.T) {
 		t.Parallel()
 		interlockDir := t.TempDir()
