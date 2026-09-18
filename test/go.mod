@@ -1,8 +1,6 @@
 module github.com/rancher/system-agent/test
 
-go 1.26.0
-
-toolchain go1.26.7
+go 1.26.7
 
 replace (
 	github.com/rancher/system-agent => ../
@@ -44,7 +42,7 @@ replace (
 require (
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
-	github.com/rancher/rancher/pkg/plan v0.0.0-20260817165558-c234bc1ccd80
+	github.com/rancher/rancher/pkg/plan v0.0.0-20260828155108-93802792d0f6
 	github.com/rancher/system-agent v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0

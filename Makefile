@@ -85,6 +85,7 @@ SKIP_RESOURCE_CLEANUP ?= false
 
 # Ginkgo E2E configuration
 GINKGO_LABEL_FILTER ?= short
+GINKGO_FOCUS ?=
 GINKGO_NODES ?= 1
 GINKGO_TIMEOUT ?= 30m
 GINKGO_POLL_PROGRESS_AFTER ?= 10m
@@ -233,6 +234,7 @@ test-e2e: $(GINKGO_BIN) e2e-image ## Run e2e tests (builds image and creates Kin
 	$(GINKGO_BIN) -v --trace \
 		--tags=e2e \
 		--label-filter="$(GINKGO_LABEL_FILTER)" \
+		$(if $(GINKGO_FOCUS),--focus="$(GINKGO_FOCUS)") \
 		--nodes=$(GINKGO_NODES) \
 		--timeout=$(GINKGO_TIMEOUT) \
 		--poll-progress-after=$(GINKGO_POLL_PROGRESS_AFTER) \

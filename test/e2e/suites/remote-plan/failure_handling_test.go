@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	planapi "github.com/rancher/rancher/pkg/plan"
 	"github.com/rancher/system-agent/pkg/k8splan"
 	"github.com/rancher/system-agent/test/framework"
 )
@@ -187,5 +188,65 @@ var _ = Describe("Remote Plan - Failure Handling", Label(framework.ShortTestLabe
 		count, err := strconv.Atoi(string(successCount))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(count).To(BeNumerically(">=", 1))
+	})
+
+	It("should stay monitoring-only after cancel annotation is removed from a failed terminal plan", func() {
+		ctx := context.Background()
+		podName := framework.KubectlGetPodName(ctx, kubeconfigPath,
+			framework.E2ENamespace, framework.AgentLabel)
+		const (
+			periodicMarker = "/tmp/e2e-failed-terminal-periodic-ran.txt"
+			failedReport   = `{"checksum":"failed-report","completedInstructions":0,"totalInstructions":1}`
+		)
+
+		By("Creating a terminal failed plan with a periodic instruction and a cancellation hold")
+		plan := framework.NewPlan().
+			WithPeriodicInstruction("should-not-run-after-failed", "/bin/sh",
+				[]string{"-c", "touch " + periodicMarker}, 5).
+			Build()
+
+		Expect(framework.CreatePlanSecretWithAnnotations(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName, plan,
+			map[string][]byte{
+				planapi.PlanStateKey:      []byte(planapi.PlanStateFailed),
+				planapi.PlanCheckpointKey: []byte(failedReport),
+				k8splan.FailedChecksumKey: []byte("failed-checksum"),
+				k8splan.FailureCountKey:   []byte("3"),
+				k8splan.ProbeStatusesKey:  []byte("{}"),
+			},
+			map[string]string{planapi.PlanCanceledAnnotation: "true"})).To(Succeed())
+
+		By("Removing the cancel annotation")
+		Expect(framework.RemoveSecretAnnotation(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName,
+			planapi.PlanCanceledAnnotation)).To(Succeed())
+		rvAfterRemove := framework.GetSecretResourceVersion(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)
+
+		By("Verifying terminal failed plans do not resume execution")
+		Consistently(func() bool { return nodeFileExists(ctx, podName, periodicMarker) },
+			20*time.Second, 4*time.Second).Should(BeFalse(),
+			"removing cancellation from a failed terminal plan must keep reconciliation in monitoring-only mode")
+
+		By("Verifying lifecycle keys remain unchanged")
+		data := framework.GetSecretData(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)
+		Expect(planapi.PlanState(data[planapi.PlanStateKey])).To(Equal(planapi.PlanStateFailed))
+		Expect(string(data[k8splan.FailedChecksumKey])).To(Equal("failed-checksum"))
+		Expect(string(data[k8splan.FailureCountKey])).To(Equal("3"))
+		Expect(string(data[k8splan.AppliedChecksumKey])).To(BeEmpty())
+
+		progress := framework.GetPlanProgress(ctx, cl,
+			framework.E2ENamespace, framework.PlanSecretName)
+		Expect(progress).NotTo(BeNil())
+		Expect(progress["checksum"]).To(Equal("failed-report"))
+		Expect(progress["completedInstructions"]).To(BeEquivalentTo(0))
+		Expect(progress["totalInstructions"]).To(BeEquivalentTo(1))
+
+		By("Verifying monitoring-only reconciles do not rewrite secret data in steady state")
+		Consistently(func() string {
+			return framework.GetSecretResourceVersion(ctx, cl,
+				framework.E2ENamespace, framework.PlanSecretName)
+		}, 12*time.Second, 3*time.Second).Should(Equal(rvAfterRemove))
 	})
 })
