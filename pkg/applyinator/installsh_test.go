@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,14 @@ const sedPidExpr = `sed -n 's/^pid=//p'`
 // the given snippet. Returns combined output.
 func runInstallShFunc(t *testing.T, env []string, snippet string) (string, error) {
 	t.Helper()
+	// install.sh is the Linux installer. The Windows runner does have an MSYS sh,
+	// but its `kill -0` resolves MSYS pids while Go hands back Windows pids, so
+	// every liveness check there reports the owner as dead. That makes the
+	// dead-owner assertions pass for the wrong reason and the live-owner one fail
+	// outright, so none of these runs say anything about the installer.
+	if runtime.GOOS == "windows" {
+		t.Skip("install.sh targets Linux; MSYS pids make its liveness check untestable here")
+	}
 	abs, err := filepath.Abs(installShPath)
 	if err != nil {
 		t.Fatal(err)
@@ -232,10 +241,12 @@ func TestInstallShEnsureApplyinatorNotActiveUntestablePID(t *testing.T) {
 // two are spelled out as an alternation rather than with optional quotes so a
 // half-quoted path, which systemd would not strip, cannot pass.
 // The trailing $ under (?m) ends the match at the newline, so a stray quote on
-// either side is rejected rather than ignored as trailing text.
+// either side is rejected rather than ignored as trailing text. \r? absorbs the
+// carriage return install.sh carries when git checks it out with core.autocrlf,
+// as it does on the Windows runner.
 var execStartPreClearsActive = regexp.MustCompile(
 	`(?m)^ExecStartPre=-/bin/rm -f (?:"\$\{CATTLE_AGENT_VAR_DIR\}/interlock/applyinator-active"` +
-		`|\$\{CATTLE_AGENT_VAR_DIR\}/interlock/applyinator-active)$`)
+		`|\$\{CATTLE_AGENT_VAR_DIR\}/interlock/applyinator-active)\r?$`)
 
 // TestInstallShServiceUnitClearsInterlock pins the ExecStartPre backstop. It is
 // what clears a leaked interlock before the agent starts, so its absence would be
