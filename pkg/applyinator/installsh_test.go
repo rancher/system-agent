@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -224,6 +225,18 @@ func TestInstallShEnsureApplyinatorNotActiveUntestablePID(t *testing.T) {
 	}
 }
 
+// execStartPreClearsActive matches the ExecStartPre line that clears a leaked
+// interlock before the agent starts. The path may be quoted: systemd strips the
+// quotes, and quoting is what keeps a CATTLE_AGENT_VAR_DIR containing spaces from
+// being split into two arguments, so both spellings satisfy the contract. The
+// two are spelled out as an alternation rather than with optional quotes so a
+// half-quoted path, which systemd would not strip, cannot pass.
+// The trailing $ under (?m) ends the match at the newline, so a stray quote on
+// either side is rejected rather than ignored as trailing text.
+var execStartPreClearsActive = regexp.MustCompile(
+	`(?m)^ExecStartPre=-/bin/rm -f (?:"\$\{CATTLE_AGENT_VAR_DIR\}/interlock/applyinator-active"` +
+		`|\$\{CATTLE_AGENT_VAR_DIR\}/interlock/applyinator-active)$`)
+
 // TestInstallShServiceUnitClearsInterlock pins the ExecStartPre backstop. It is
 // what clears a leaked interlock before the agent starts, so its absence would be
 // a silent regression.
@@ -233,7 +246,7 @@ func TestInstallShServiceUnitClearsInterlock(t *testing.T) {
 		t.Skipf("install.sh not readable: %v", err)
 	}
 	unit := string(contents)
-	if !strings.Contains(unit, "ExecStartPre=-/bin/rm -f ${CATTLE_AGENT_VAR_DIR}/interlock/applyinator-active") {
+	if !execStartPreClearsActive.MatchString(unit) {
 		t.Error("the generated systemd unit no longer clears applyinator-active before starting the agent")
 	}
 	// The leading "-" makes a missing /bin/rm non-fatal for the unit.
