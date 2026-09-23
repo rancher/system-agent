@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -268,6 +269,42 @@ func TestExecuteDefaultsToRunShInExecutionDir(t *testing.T) {
 	}
 	if !strings.Contains(string(result.Stdout), "ran-default") {
 		t.Errorf("expected default run.sh to execute, got stdout=%q", result.Stdout)
+	}
+}
+
+// TestExecuteSkipsStartWhenContextAlreadyCanceled guards the early-exit added to execute: a
+// canceled context must be caught before the command is started, so a doomed instruction is never
+// launched only to be immediately terminated by the watchdog.
+func TestExecuteSkipsStartWhenContextAlreadyCanceled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX shell")
+	}
+	t.Parallel()
+
+	executionDir := t.TempDir()
+	sentinel := filepath.Join(executionDir, "sentinel")
+
+	a := NewApplyinator(t.TempDir(), false, "", "", nil)
+	instruction := planapi.CommonInstruction{
+		Command: "sh",
+		Args:    []string{"-c", "touch " + sentinel},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := a.execute(ctx, "test", executionDir, instruction, false, 1)
+	if err == nil {
+		t.Fatal("expected an error when ctx is already canceled, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected err to wrap context.Canceled, got %v", err)
+	}
+	if result.ExitCode != -1 {
+		t.Errorf("expected ExitCode -1, got %d", result.ExitCode)
+	}
+	if _, statErr := os.Stat(sentinel); !os.IsNotExist(statErr) {
+		t.Errorf("expected command to never run (sentinel file should not exist), stat err: %v", statErr)
 	}
 }
 

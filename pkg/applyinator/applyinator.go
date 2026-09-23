@@ -754,7 +754,16 @@ type executeResult struct {
 // processes such as installers or package managers launched by a shell script from surviving
 // cancellation. Killing is a request rather than an outcome, so the tree is then confirmed to be
 // empty; executeResult.TerminationIncomplete reports a tree that could not be confirmed gone.
+//
+// If ctx is already canceled when execute is entered, it returns immediately without staging the
+// execution directory (image extraction can be slow and is not itself cancelable) or starting the
+// command. ctx is checked again immediately before the command starts, since staging is not
+// interruptible and cancellation may arrive while it is in progress.
 func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, instruction planapi.CommonInstruction, combinedOutput bool, attempt int) (executeResult, error) {
+	if err := ctx.Err(); err != nil {
+		return executeResult{ExitCode: -1}, err
+	}
+
 	if instruction.Image == "" {
 		logrus.Infof("[applyinator] no image provided, creating empty working directory %s", executionDir)
 		// UID/GID -1 means "don't change ownership" (a no-op chown). Without this, the directory
@@ -838,6 +847,14 @@ func (a *Applyinator) execute(ctx context.Context, prefix, executionDir string, 
 	eg.Go(func() error {
 		return streamLogs("["+prefix+":stderr]", stderrTarget, stderr, stderrLock)
 	})
+
+	// Staging above is not cancelable, so re-check here rather than only at entry: cancellation may
+	// have arrived while it was in progress. Checking before Start avoids launching a process that
+	// the watchdog below would immediately terminate anyway.
+	if err := ctx.Err(); err != nil {
+		releaseProcessTree(cmd)
+		return executeResult{ExitCode: -1}, err
+	}
 
 	if err := cmd.Start(); err != nil {
 		// The watchdog has not started yet, so release any process-tree handle created during setup.
