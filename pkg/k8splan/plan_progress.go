@@ -51,11 +51,6 @@ func marshalPlanCheckpoint(p PlanCheckpoint) []byte {
 // checkpoint claims the plan. The checkpoint case preserves resumability across agent restarts and
 // handles cases where an external write changed plan-state without clearing the checkpoint.
 // All other states pass through unchanged with resumeFrom set to 0.
-//
-// Precondition: both interrupt annotations have already been validated as explicitly false. This
-// function only determines how to leave an existing suspension; it does not decide whether the
-// plan may leave one. A plan that remains held, or whose annotation cannot be parsed, never reaches
-// this function.
 func resolveResume(state planapi.PlanState, data map[string][]byte, checksum string) (planapi.PlanState, int) {
 	if state == "" { // checksum flow: no checkpoint is ever written, nothing to resolve
 		return state, 0

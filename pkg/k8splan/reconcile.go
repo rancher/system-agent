@@ -113,8 +113,9 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	effectiveState, resumeFrom := resolveResume(currentPlanState, secret.Data, cp.Checksum)
 	resumeFrom = clampResumeFrom(resumeFrom, len(cp.Plan.OneTimeInstructions))
 
-	// Step C: clear the suspension before any work is applied. Reaching this point means the interrupt
-	// annotation is no longer active, so the plan is being resumed.
+	// Step C: clear any paused suspension before any work is applied. Reaching this point means a
+	// previously paused plan-state plan no longer has an active interrupt annotation, so reconcile is
+	// resuming it.
 	//
 	// The write serves three purposes:
 	//  1. An executing plan must not continue to report itself as paused. Without this write, the
@@ -162,10 +163,10 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 
 	if resumeUpdates != nil {
 		if needsApplied {
-			logrus.Infof("[k8splan] the plan with checksum %s is no longer held; resuming into plan-state %q from one-time instruction %d of %d",
+			logrus.Infof("[k8splan] resuming paused plan %s into plan-state %q from one-time instruction %d of %d",
 				cp.Checksum, effectiveState, resumeFrom, len(cp.Plan.OneTimeInstructions))
 		} else {
-			logrus.Infof("[k8splan] the plan with checksum %s is no longer held; resuming into plan-state %q, which owes no one-time instructions",
+			logrus.Infof("[k8splan] resuming paused plan %s into plan-state %q with no one-time instructions to run",
 				cp.Checksum, effectiveState)
 		}
 	}
@@ -207,7 +208,8 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 
 	periodicOutput := secret.Data[AppliedPeriodicOutputKey]
 
-	if effectiveState.IsTerminal() && effectiveState != planapi.PlanStateSucceeded && !needsApplied {
+	terminalFailure := effectiveState.IsTerminal() && effectiveState != planapi.PlanStateSucceeded && !needsApplied
+	if terminalFailure {
 		// A non-succeeded terminal plan is monitored only. Do not execute instructions or mutate
 		// lifecycle keys such as applied-checksum and plan-progress until new pending content arrives.
 		//
@@ -352,19 +354,22 @@ func (w *watcher) reconcileSecret(ctx context.Context, sc corecontrollers.Secret
 	return secret, nil
 }
 
-// checkAndRecordInterrupt evaluates secret.Annotations and, if they call for an interrupt (or are
-// invalid), records the outcome and reports that the caller must stop reconciling.
+// checkAndRecordInterrupt evaluates secret.Annotations for any interrupt signals (paused/canceled).
 //
-// done is false when neither annotation is active: normal processing continues, using whatever
-// secret and probeStatuses the caller already has. done is true in every other case, and the
-// caller must immediately return (result, err) — for an invalid value, result is secret and err is
-// non-nil; for a recorded interrupt, result is the freshly written Secret (or secret when
-// writeInterruptOutcome's write-once guard made that write a no-op) and err is nil, matching
-// writeInterruptOutcome's own "abandon silently, do not error" contract.
+// If a plan is marked with a signal, checkAndRecordInterrupt will update the PlanCheckpoint
+// field of the provided plan secret with an appropriate value and return the modified
+// secret object. Additionally, a boolean 'done' is returned to indicate to the caller that
+// the plan has completed its execution (either temporarily or permanently).
 //
-// currentPlanState is the plan-state to evaluate the interrupt against; callers at different points
-// in reconcileSecret hold different Secrets and must pass whichever plan-state theirs currently
-// carries, not a value cached from earlier in the reconcile.
+// The returned done value is false when neither annotation is active, indicating
+// to the caller that the plan should be processed using the returned plan secret
+// and probeStatuses. In all other cases, done is returned as 'true', indicating to
+// the caller that the plan should not be processed further. If an invalid interrupt
+// annotation is set on the plan secret, an error is also returned.
+//
+// currentPlanState is the plan-state to evaluate the interrupt against. Callers must provide
+// whatever state they are currently working against, as opposed to relying on caches which
+// may be out of date.
 func (w *watcher) checkAndRecordInterrupt(sc corecontrollers.SecretController, secret *corev1.Secret, cp applyinator.CalculatedPlan,
 	currentPlanState planapi.PlanState, probeStatuses map[string]planapi.ProbeStatus,
 ) (result *corev1.Secret, done bool, err error) {
@@ -507,9 +512,8 @@ func (w *watcher) recordInterruptAfterApply(sc corecontrollers.SecretController,
 }
 
 // resumeCommitUpdates returns the Secret updates needed to release a suspension, or nil when the
-// plan was not suspended. The caller has already established that both interrupt annotations are
-// inactive, so the only remaining question is whether a suspension was recorded: plan-state is
-// paused, or the checkpoint for this plan indicates one.
+// plan was not suspended. The caller must ensure that both interrupt annotations are
+// inactive.
 //
 // Completed, Total and TerminationIncomplete are preserved as a record of what happened to the plan;
 // only the fields that grant a resume are reset. Paused: false revokes the checkpoint's ability to
