@@ -17,13 +17,13 @@ replace (
 	k8s.io/component-base => k8s.io/component-base v0.37.0
 	k8s.io/component-helpers => k8s.io/component-helpers v0.37.0
 	k8s.io/controller-manager => k8s.io/controller-manager v0.37.0
-	k8s.io/cri-api => k8s.io/cri-api v0.37.0
+	k8s.io/cri-api => k8s.io/cri-api v0.37.1
 	k8s.io/cri-client => k8s.io/cri-client v0.37.0
 	k8s.io/cri-streaming => k8s.io/cri-streaming v0.37.0
 	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.37.0
 	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.37.0
 	k8s.io/endpointslice => k8s.io/endpointslice v0.37.0
-	k8s.io/externaljwt => k8s.io/externaljwt v0.37.0
+	k8s.io/externaljwt => k8s.io/externaljwt v0.37.1
 	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.37.0
 	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.37.0
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.37.0
@@ -33,7 +33,7 @@ replace (
 	k8s.io/kubernetes => k8s.io/kubernetes v1.37.0
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.37.0
 	k8s.io/metrics => k8s.io/metrics v0.37.0
-	k8s.io/mount-utils => k8s.io/mount-utils v0.37.0
+	k8s.io/mount-utils => k8s.io/mount-utils v0.37.1
 	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.37.0
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.37.0
 	sigs.k8s.io/cluster-api/api => sigs.k8s.io/cluster-api/api v1.14.1
@@ -48,7 +48,7 @@ require (
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
 	sigs.k8s.io/cluster-api/test v1.14.1
-	sigs.k8s.io/controller-runtime v0.24.1
+	sigs.k8s.io/controller-runtime v0.25.1
 )
 
 require (
@@ -153,7 +153,7 @@ require (
 	github.com/rancher/lasso v0.2.10 // indirect
 	github.com/rancher/permissions v0.0.0-20240924180251-69b0dcb34065 // indirect
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa // indirect
-	github.com/rancher/wrangler/v3 v3.8.0-rc.1 // indirect
+	github.com/rancher/wrangler/v3 v3.8.0-rc.2 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sirupsen/logrus v1.10.0 // indirect
