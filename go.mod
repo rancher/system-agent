@@ -49,7 +49,7 @@ require (
 	github.com/rancher/rancher/pkg/plan v0.0.0-20260828155108-93802792d0f6
 	github.com/rancher/wharfie v0.7.1-0.20251014190711-8cfe84a9efaa
 	github.com/rancher/wrangler/v3 v3.8.0-rc.1
-	github.com/sirupsen/logrus v1.10.0
+	github.com/sirupsen/logrus v1.10.2
 	github.com/urfave/cli/v2 v2.27.5
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.22.0
