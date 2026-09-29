@@ -1,0 +1,24 @@
+name: Bump Rancher tag in integration tests (scheduled)
+
+on:
+  schedule:
+    # 01:00 UTC, Monday to Friday
+    - cron: '0 1 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  bump:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only branches that contain the provisioning tests.
+        branch:
+          - main
+          - release/v2.15
+    uses: ./.github/workflows/bump-rancher-image.yaml
+    with:
+      branch: ${{ matrix.branch }}
