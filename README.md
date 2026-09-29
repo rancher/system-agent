@@ -29,9 +29,28 @@ Note: The `v0.3.x` release line uses the legacy versioning scheme and is not ali
 
 ### Cross Compiling
 
-You can also 
+You can also
 
 `CROSS=true make` if you want cross-compiled binaries for Darwin/Windows.
+
+### Releases
+
+Release candidates are tagged automatically once per day when a configured
+branch has changed since its latest tag:
+
+| Branch | Tag series |
+| --- | --- |
+| `main` | `v0.16.N-rc.M` |
+| `release/v2.15` | `v0.15.N-rc.M` |
+| `release/v2.14` | `v0.14.N-rc.M` |
+| `release/v2.13` | `v0.13.N-rc.M` |
+
+Stable tags are created manually. When the next base version is ready, update
+the corresponding base pattern in `.github/workflows/daily-rc-tag.yaml`; the
+workflow then increments the patch number and continues the new `-rc.M`
+series. A pushed tag runs the release
+workflow, which publishes the images and release binaries and dispatches the
+matching Rancher branch's System Agent upgrade workflow.
 
 ## Running
 

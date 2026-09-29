@@ -3,12 +3,45 @@
     "github>rancher/renovate-config#release"
   ],
   "baseBranchPatterns": [
-      "$default",
-      "release/v2.15",
-      "release/v2.14",
-      "release/v2.13"
+    "$default",
+    "release/v2.15",
+    "release/v2.14",
+    "release/v2.13"
   ],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
   "packageRules": [
+    {
+      "description": "Disable auto-merge except for severe security updates",
+      "matchJsonata": [
+        "true"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Automerge eligible security updates",
+      "matchDepTypes": [
+        "!devDependencies",
+        "!dev-dependencies",
+        "!test"
+      ],
+      "matchJsonata": [
+        "($exists(vulnerabilityFixVersion) or $exists(isVulnerabilityAlert)) and (vulnerabilitySeverity = 'HIGH' or vulnerabilitySeverity = 'CRITICAL')"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "matchBaseBranches": [
+        "main"
+      ],
+      "extends": [
+        "github>rancher/renovate-config//rancher-main#main"
+      ]
+    },
     {
       "matchBaseBranches": [
         "release/v2.15"
@@ -33,6 +66,5 @@
         "github>rancher/renovate-config//rancher-2.13#release"
       ]
     }
-  ],
-  "prHourlyLimit": 2
+  ]
 }
