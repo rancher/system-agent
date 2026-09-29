@@ -9,12 +9,12 @@ if [ "$V2PROV_TEST_DIST" != "rke2" ] && [ "$V2PROV_TEST_DIST" != "k3s" ]; then
     export V2PROV_TEST_DIST=rke2
 fi
 
-# Provisioning_SetA_MP, Provisioning_SetB_MP and PreBootstrap tests live in Rancher
-# and run there with the local system-agent binary swapped in. SystemAgent tests
-# come from this repo; keep new ones named Test_SystemAgent_* so they remain
-# covered by the default regex. Rancher only allows [A-Za-z0-9_()|.^$*] here.
+# The default set is small on purpose: each test provisions its own cluster and takes 5-10 minutes.
+# SystemAgent tests come from this repo; keep new ones named Test_SystemAgent_* so they remain covered by the default regex.
+# The two provisioning tests add multi-node and multi-pool coverage,
+# they live in Rancher and run there with the local system-agent binary swapped in.
 if [ -z "${V2PROV_TEST_RUN_REGEX}" ]; then
-    export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_Set(A|B)_MP|PreBootstrap|SystemAgent)_.*$"
+    export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_SetA_MP_MultipleEtcdNodesScaledDownThenDelete|Provisioning_SetB_MP_DrainNoDelete|SystemAgent_.*)$"
 fi
 
 export DRONE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}
