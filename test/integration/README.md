@@ -45,12 +45,12 @@ If a new integration test keeps the build tag after the copy step, Rancher's run
 The default test regex in `scripts/integration-tests` is:
 
 ```bash
-^Test_(Provisioning_MP|PreBootstrap|SystemAgent)_.*$
+^Test_(Provisioning_SetA_MP_MultipleEtcdNodesScaledDownThenDelete|Provisioning_SetB_MP_DrainNoDelete|SystemAgent_.*)$
 ```
 
 That means:
 
-- `Test_Provisioning_MP_*` and `Test_PreBootstrap_*` are Rancher-owned tests that already live in the Rancher repository.
+- `Test_Provisioning_SetA_MP_MultipleEtcdNodesScaledDownThenDelete` and `Test_Provisioning_SetB_MP_DrainNoDelete` are Rancher-owned tests that live in the Rancher repository. They cover multi-node provisioning and multiple machine pools.
 - `Test_SystemAgent_*` are system-agent-owned tests that live in this repository and are copied into Rancher's test tree at runtime.
 
 New tests added here should use the `Test_SystemAgent_*` prefix so they are included by default.

@@ -9,11 +9,12 @@ if [ "$V2PROV_TEST_DIST" != "rke2" ] && [ "$V2PROV_TEST_DIST" != "k3s" ]; then
     export V2PROV_TEST_DIST=rke2
 fi
 
-# Provisioning_MP and PreBootstrap tests live in Rancher and run there with the
-# local system-agent binary swapped in. SystemAgent tests come from this repo;
-# keep new ones named Test_SystemAgent_* so they remain covered by the default regex.
+# The default set is small on purpose: each test provisions its own cluster and takes 5-10 minutes.
+# SystemAgent tests come from this repo; keep new ones named Test_SystemAgent_* so they remain covered by the default regex.
+# The two provisioning tests add multi-node and multi-pool coverage,
+# they live in Rancher and run there with the local system-agent binary swapped in.
 if [ -z "${V2PROV_TEST_RUN_REGEX}" ]; then
-    export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_MP|PreBootstrap|SystemAgent)_.*$"
+    export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_SetA_MP_MultipleEtcdNodesScaledDownThenDelete|Provisioning_SetB_MP_DrainNoDelete|SystemAgent_.*)$"
 fi
 
 export DRONE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}
@@ -52,8 +53,6 @@ sed -i 's|--timeout 300 "curl -sf -o /dev/null http://localhost:8080/ping"|--tim
 sed -i 's/--timeout 300 `# Time out after 300 seconds/--timeout 600 `# Time out after 600 seconds/g' ./scripts/provisioning-tests
 sed -i 's|docker push 172\.17\.0\.2:5000/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
 sed -i 's/--timeout 300 \\$/--timeout 1200 \\/' ./scripts/provisioning-tests
-sed -i 's|^go test |stdbuf -oL go test |' ./scripts/provisioning-tests
-sed -i 's| tee /tmp/out.txt| stdbuf -oL tee /tmp/out.txt|' ./scripts/provisioning-tests
 
 if [ -n "${GITHUB_ENV}" ]; then
     echo "RANCHER_DIR=${RANCHER_DIR}" >> "${GITHUB_ENV}"
@@ -63,7 +62,7 @@ fi
 mkdir -p "${HOME}/.kube"
 ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 
-export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.16-c234bc1ccd804c9a00425c6cf7f9a4ead1120958-head}
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.16-b55846cbf9122eca19d85fc986d6d0724a4a598c-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
 export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}
