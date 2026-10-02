@@ -10,6 +10,13 @@ mkdir -p rancher
 GIT_URL=${GIT_URL:-https://github.com/rancher/rancher.git}
 GIT_BRANCH=${GIT_BRANCH:-main}
 
+RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.15-19c92983f6f9d7f455de668e62fbfe55c045cde2-head}
+# Pin the test tree to the commit the image was built from, so tests and binary match.
+# Image tags look like v2.15-<40 char sha>-head. Other tags keep the unpinned clone.
+if [ -z "$RANCHER_COMMIT" ]; then
+    RANCHER_COMMIT=$(echo "${RANCHER_IMAGE##*:}" | sed -nE 's/^.*-([0-9a-f]{40})-head$/\1/p')
+fi
+
 git clone --depth 1 -b $GIT_BRANCH $GIT_URL ./rancher
 
 export RANCHER_DIR=$TMP_DIR/rancher
@@ -22,7 +29,6 @@ fi
 mkdir -p "$RANCHER_DIR/bin"
 
 # Extract the rancher binary from the container image.
-RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.15-0b6b24d9811ed8dbe02ab315847602f7facf2244-head}
 docker pull "$RANCHER_IMAGE"
 container_id=$(docker create "$RANCHER_IMAGE")
 docker cp "$container_id":/usr/bin/rancher "$RANCHER_DIR/bin/rancher"
