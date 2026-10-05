@@ -17,6 +17,16 @@ if [ -z "${V2PROV_TEST_RUN_REGEX}" ]; then
     export V2PROV_TEST_RUN_REGEX="^Test_(Provisioning_SetA_MP_MultipleEtcdNodesScaledDownThenDelete|Provisioning_SetB_MP_DrainNoDelete|SystemAgent_.*)$"
 fi
 
+# Both test and package parallelism should be
+# reevaluated if the GHA runner configuration changes.
+if [ -z "${V2PROV_TEST_PARALLELISM}" ]; then
+  V2PROV_TEST_PARALLELISM=2
+fi
+
+if [ -z "${V2PROV_PACKAGE_PARALLELISM}" ]; then
+  V2PROV_PACKAGE_PARALLELISM=2
+fi
+
 export DRONE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}
 
 set -ex
