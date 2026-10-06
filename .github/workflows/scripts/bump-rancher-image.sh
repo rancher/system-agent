@@ -38,8 +38,35 @@ replace_in_file() {
     rm -f "$file.bak"
 }
 
+# Return 0 when the tag exists, 1 when Docker Hub returns 404, and 2 on transient or unexpected errors.
 hub_tag_exists() {
-    curl -fsS -o /dev/null "$HUB_API/$1/tags/$2"
+    local url=$HUB_API/$1/tags/$2 attempt http_code
+
+    for attempt in 1 2 3; do
+        http_code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null) || true
+        [ -n "$http_code" ] || http_code=000
+
+        case "$http_code" in
+            200)
+                return 0
+                ;;
+            404)
+                return 1
+                ;;
+            429|5??|000)
+                if [ "$attempt" -lt 3 ]; then
+                    sleep "$attempt"
+                    continue
+                fi
+                echo "error: failed to check $url after $attempt attempts (last HTTP status: $http_code)" >&2
+                return 2
+                ;;
+            *)
+                echo "error: unexpected HTTP status $http_code from $url" >&2
+                return 2
+                ;;
+        esac
+    done
 }
 
 tag_regex='v[0-9]+\.[0-9]+-[0-9a-f]{40}-head'
@@ -63,8 +90,14 @@ for candidate in $candidates; do
     if hub_tag_exists rancher/rancher-agent "$candidate"; then
         new_tag=$candidate
         break
+    else
+        status=$?
     fi
-    echo "Skip $candidate: no rancher-agent image with the same tag yet"
+    if [ "$status" -eq 1 ]; then
+        echo "Skip $candidate: no rancher-agent image with the same tag yet"
+        continue
+    fi
+    exit 1
 done
 [ -n "$new_tag" ] || { echo "error: no tag of line $line found for both images" >&2; exit 1; }
 echo "Newest tag with both images: $new_tag"
@@ -83,8 +116,15 @@ k3s_version=$(docker image inspect --format '{{range .Config.Env}}{{println .}}{
     sed -n 's/^CATTLE_K3S_VERSION=//p')
 [ -n "$k3s_version" ] || { echo "error: CATTLE_K3S_VERSION not set in $new_rancher_image" >&2; exit 1; }
 new_k3s_version=${k3s_version//+/-}
-hub_tag_exists rancher/k3s "$new_k3s_version" ||
-    { echo "error: rancher/k3s:$new_k3s_version not found on Docker Hub" >&2; exit 1; }
+if hub_tag_exists rancher/k3s "$new_k3s_version"; then
+    :
+else
+    status=$?
+    if [ "$status" -eq 1 ]; then
+        echo "error: rancher/k3s:$new_k3s_version not found on Docker Hub" >&2
+    fi
+    exit 1
+fi
 echo "k3s version in $new_rancher_image: $k3s_version (tag $new_k3s_version)"
 
 replace_in_file "$FETCH_SCRIPT" "$current_rancher_image" "$new_rancher_image"
