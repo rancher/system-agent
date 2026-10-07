@@ -1,0 +1,134 @@
+name: Bump Rancher tag in integration tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "system-agent's branch to bump the Rancher tag for"
+        required: true
+        default: "main"
+  workflow_call:
+    inputs:
+      branch:
+        description: "system-agent's branch to bump the Rancher tag for"
+        required: true
+        default: "main"
+        type: string
+
+env:
+  BRANCH: "${{ inputs.branch }}"
+
+concurrency:
+  group: bump-rancher-image-${{ inputs.branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Needed to read Vault secrets
+  id-token: write
+
+jobs:
+  bump:
+    name: Bump Rancher tag on ${{ inputs.branch }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read App secrets
+        uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+        with:
+          secrets: |
+            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials appId | APP_ID ;
+            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials privateKey | PRIVATE_KEY
+
+      - name: Create App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: system-agent
+          permission-contents: write
+          permission-pull-requests: write
+          # The bump changes .github/workflows/integration-tests.yaml
+          permission-workflows: write
+
+      # The script always comes from the default branch, so release branches need no copy of it.
+      - name: Checkout tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: tooling
+          persist-credentials: false
+
+      - name: Checkout ${{ inputs.branch }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.BRANCH }}
+          path: target
+          token: ${{ steps.app-token.outputs.token }}
+          # Allow the git push later on
+          persist-credentials: true
+
+      - name: Configure the committer
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_USER: "${{ steps.app-token.outputs.app-slug }}[bot]"
+
+      - name: Run bump script
+        run: |
+          cd target
+          safe_branch=$(echo "$BRANCH" | tr '/' '-')
+          echo "AUTOMATION_BRANCH=automation/bump-rancher-image-${safe_branch}" >> "$GITHUB_ENV"
+          ../tooling/.github/workflows/scripts/bump-rancher-image.sh changes.md
+
+      - name: Commit and push
+        # Only run if the script found changes
+        if: ${{ hashFiles('target/changes.md') != '' }}
+        run: |
+          cd target
+          git checkout -B "$AUTOMATION_BRANCH"
+          git add .github/workflows/integration-tests.yaml scripts/integration-tests scripts/fetch-provisioning-tests
+          git commit -m "Bump Rancher tag and k3s version"
+          # Skip the push when the remote branch has the same content. A new commit would start the CI again.
+          if git fetch origin "$AUTOMATION_BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "Branch $AUTOMATION_BRANCH is already up to date"
+          else
+            git push --force origin "$AUTOMATION_BRANCH"
+          fi
+
+      - name: Create or update PR
+        if: ${{ hashFiles('target/changes.md') != '' }}
+        run: |
+          cd target
+          changes=$(cat changes.md)
+          body=$(cat <<EOF
+          # Bump Rancher tag and k3s version
+
+          Update the values that the integration tests use.
+
+          $changes
+
+          EOF
+          )
+          existing=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "$AUTOMATION_BRANCH" \
+            --base "$BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh pr create \
+              --title "[$BRANCH] Bump Rancher tag and k3s version" \
+              --body "$body" \
+              --repo "$GITHUB_REPOSITORY" \
+              --head "$AUTOMATION_BRANCH" \
+              --base "$BRANCH"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}

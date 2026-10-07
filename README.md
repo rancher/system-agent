@@ -23,6 +23,22 @@ Starting with releases after `v0.3.16`, system-agent minor versions are aligned 
 
 Note: The `v0.3.x` release line uses the legacy versioning scheme and is not aligned with Rancher release lines. v0.3.16 is the final release in that series.
 
+### Checklist for a new release line
+
+When you create a new `release/vX.Y` branch, update these files on `main`:
+
+| File                                                  | Change                                                                             |
+|-------------------------------------------------------|------------------------------------------------------------------------------------|
+| `.github/workflows/daily-rc-tag.yaml`                 | Add the branch and its `v0.<minor>.` base pattern to the matrix.                   |
+| `.github/workflows/bump-rancher-image-scheduled.yaml` | Add the branch to the matrix. Add it only if the branch has the integration tests. |
+| `.github/renovate.json`                               | Add the branch to `baseBranchPatterns` and add a `packageRules` entry.             |
+| This README                                           | Add the branch to the tables above.                                                |
+
+Schedules run only from the default branch, so do not copy the scheduled workflows to a release branch.
+Also update the `RANCHER_IMAGE` and `CATTLE_AGENT_IMAGE` tags in `.github/workflows/integration-tests.yaml`,
+`scripts/integration-tests` and `scripts/fetch-provisioning-tests` on the new branch to its Rancher line (for example `v2.17-<sha>-head`).
+The bump workflow keeps the Rancher line of the current tag, and it does not change the line.
+
 ## Building
 
 `make`
