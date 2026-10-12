@@ -44,16 +44,6 @@ export CATTLE_AGENT_BINARY_LOCAL=true
 export CATTLE_AGENT_UNINSTALL_LOCAL=true
 export CATTLE_AGENT_BINARY_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent
 export CATTLE_AGENT_UNINSTALL_LOCAL_LOCATION=${TMPDIR}/rancher-system-agent-uninstall.sh
-if [ -s /host/etc/systemd/system/rancher-system-agent.env ]; then
-  for line in $(grep -v '^#' /host/etc/systemd/system/rancher-system-agent.env); do
-    var=${line%%=*}
-    val=${line##*=}
-    eval v=\"\$$var\"
-    if [ -z "$v" ]; then
-      export "$var=$val"
-    fi
-  done
-fi
 
 RUN_SCRIPT=${TMPDIR}/install.sh
 if [ "${UNINSTALL}" = "true" ]; then
