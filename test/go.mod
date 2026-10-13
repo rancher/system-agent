@@ -2,7 +2,7 @@ module github.com/rancher/system-agent/test
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 replace (
 	github.com/rancher/system-agent => ../
