@@ -60,7 +60,7 @@ export PATH := $(abspath $(TOOLS_BIN_DIR)):$(PATH)
 GOLANGCI_LINT_VER := v2.9.0
 GOLANGCI_LINT_BIN := golangci-lint
 GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER))
-GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
+GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 GINKGO_VER := v2.28.1
 GINKGO_BIN := $(abspath $(TOOLS_BIN_DIR)/ginkgo-$(GINKGO_VER))
