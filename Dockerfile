@@ -18,7 +18,7 @@
 # This Dockerfile replaces Dockerfile.dapper for containerized builds
 
 ARG BCI_VERSION=15.7
-ARG GOLANG_VERSION=1.25
+ARG GOLANG_VERSION=1.26
 ARG builder_image=registry.suse.com/bci/golang:${GOLANG_VERSION}
 
 # =============================================================================
