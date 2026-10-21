@@ -36,21 +36,34 @@ jobs:
         uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
         with:
           secrets: |
-            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials appId | APP_ID ;
-            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials privateKey | PRIVATE_KEY
+            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials appId | PR_APP_ID ;
+            secret/data/github/repo/${{ github.repository }}/github/pr-actions-write-app/credentials privateKey | PR_PRIVATE_KEY ;
+            secret/data/github/repo/${{ github.repository }}/github/workflow-dispatcher/app-credentials appId | PUSH_APP_ID ;
+            secret/data/github/repo/${{ github.repository }}/github/workflow-dispatcher/app-credentials privateKey | PUSH_PRIVATE_KEY
 
-      - name: Create App token
+      # Push token: the bump changes .github/workflows/integration-tests.yaml, so it needs the workflows permission.
+      - name: Create push token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        id: app-token
+        id: push-token
         with:
-          app-id: ${{ env.APP_ID }}
-          private-key: ${{ env.PRIVATE_KEY }}
+          app-id: ${{ env.PUSH_APP_ID }}
+          private-key: ${{ env.PUSH_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: system-agent
+          permission-contents: write
+          permission-workflows: write
+
+      # PR token: opens or updates the pull request.
+      - name: Create PR token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: pr-token
+        with:
+          app-id: ${{ env.PR_APP_ID }}
+          private-key: ${{ env.PR_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: system-agent
           permission-contents: write
           permission-pull-requests: write
-          # The bump changes .github/workflows/integration-tests.yaml
-          permission-workflows: write
 
       # The script always comes from the default branch, so release branches need no copy of it.
       - name: Checkout tooling
@@ -65,7 +78,7 @@ jobs:
         with:
           ref: ${{ env.BRANCH }}
           path: target
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.push-token.outputs.token }}
           # Allow the git push later on
           persist-credentials: true
 
@@ -73,9 +86,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          APP_USER: "${{ steps.app-token.outputs.app-slug }}[bot]"
 
       - name: Run bump script
         run: |
@@ -131,4 +141,4 @@ jobs:
               --base "$BRANCH"
           fi
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
