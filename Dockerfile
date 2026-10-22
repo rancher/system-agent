@@ -30,7 +30,8 @@ WORKDIR /workspace
 
 # Run this with docker build --build-arg goproxy=$(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
-ENV GOPROXY=${goproxy}
+ENV GOPROXY=${goproxy} \
+    GOTOOLCHAIN=auto
 
 # Cache dependencies - copy go.mod and go.sum first
 COPY go.mod go.sum ./
