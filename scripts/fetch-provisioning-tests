@@ -10,7 +10,7 @@ mkdir -p rancher
 GIT_URL=${GIT_URL:-https://github.com/rancher/rancher.git}
 GIT_BRANCH=${GIT_BRANCH:-main}
 
-RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.16-b55846cbf9122eca19d85fc986d6d0724a4a598c-head}
+RANCHER_IMAGE=${RANCHER_IMAGE:-rancher/rancher:v2.16-7b1f21008e6f00afc802492b4d5dcd2544525aa3-head}
 
 # Pin the test tree to the commit the image was built from, so tests and binary match.
 # Image tags look like v2.16-<40 char sha>-head. Other tags keep the unpinned clone.
