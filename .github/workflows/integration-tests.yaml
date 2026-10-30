@@ -63,8 +63,8 @@ jobs:
           sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
       - name: Pre-pull container images
         env:
-          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-f80137881ff67609d87b8fb99fca555311a9188d-head
-          RANCHER_IMAGE: rancher/rancher:v2.15-f80137881ff67609d87b8fb99fca555311a9188d-head
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-dd4b0af8f8b8893094b5beb8aa63dbb1eefa3ec1-head
+          RANCHER_IMAGE: rancher/rancher:v2.15-dd4b0af8f8b8893094b5beb8aa63dbb1eefa3ec1-head
         run: |
           sudo docker pull "$RANCHER_IMAGE" &
           sudo docker pull "$CATTLE_AGENT_IMAGE" &
