@@ -1,4 +1,4 @@
-FROM registry.suse.com/bci/bci-micro:15.7 AS final
+FROM registry.suse.com/bci/bci-nano:15.7 AS final
 
 # Temporary build stage image
 FROM registry.suse.com/bci/bci-base:15.7 AS builder
@@ -8,14 +8,14 @@ COPY --from=final / /chroot/
 
 RUN zypper refresh && \
     zypper --installroot /chroot -n in --no-recommends \
-    openssl patterns-base-fips && \
+    bash-sh coreutils openssl patterns-base-fips && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
-# Main stage using bci-micro as the base image
+# Main stage using bci-nano as the base image
 FROM final
 
-# Copy binaries and configuration files from builder to micro
+# Copy binaries and configuration files from builder to nano
 COPY --from=builder /chroot/ /
 
 COPY bin/rancher-system-agent /usr/bin/

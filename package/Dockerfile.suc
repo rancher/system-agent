@@ -1,6 +1,6 @@
 ARG IMG_VERSION=15.7
 
-FROM registry.suse.com/bci/bci-micro:${IMG_VERSION} AS final
+FROM registry.suse.com/bci/bci-nano:${IMG_VERSION} AS final
 
 # Temporary build stage image
 FROM registry.suse.com/bci/bci-base:${IMG_VERSION} AS builder
@@ -10,7 +10,7 @@ COPY --from=final / /chroot/
 
 RUN zypper refresh && \
     zypper --installroot /chroot -n in --no-recommends \
-    openssl patterns-base-fips grep && \
+    bash-sh coreutils openssl patterns-base-fips grep && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
@@ -21,7 +21,7 @@ ENV KUBECTL_SUM_arm64=4c9fe1f717738950c638c38056130a8db5075e6413ae36d8687221a240
 # https://dl.k8s.io/release/v1.34.8/bin/linux/amd64/kubectl.sha256
 ENV KUBECTL_SUM_amd64=f6249132865c13abe3c9dd5038f5da65849cb86eee1608c001831504e481aa8c
 
-RUN zypper in -y curl openssl patterns-base-fips
+RUN zypper in -y bash-sh coreutils curl openssl patterns-base-fips
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi && \
@@ -31,10 +31,10 @@ RUN ARCH=$(uname -m) && \
     KUBECTL_SUM="KUBECTL_SUM_${ARCH}" && echo "${!KUBECTL_SUM}  /chroot/usr/bin/kubectl" | sha256sum -c -
 RUN /chroot/usr/bin/kubectl version --client
 
-# Main stage using bci-micro as the base image
+# Main stage using bci-nano as the base image
 FROM final
 
-# Copy binaries and configuration files from builder to micro
+# Copy binaries and configuration files from builder to nano
 COPY --from=builder /chroot/ /
 
 ENV CATTLE_AGENT_VAR_DIR="/var/lib/rancher/agent"
