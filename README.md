@@ -6,6 +6,11 @@
 
 `make`
 
+For containerized builds, use `make docker-build` or `make docker-build-suc`.
+Both images use `registry.rancher.com/rancher/appco-go` to build the binary and
+SUSE BCI nano for the runtime base. The runtime package layers retain OpenSSL,
+the FIPS pattern, and the shell and core utilities needed by plans and SUC scripts.
+
 ### Cross Compiling
 
 You can also 
