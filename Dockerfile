@@ -19,7 +19,7 @@
 
 ARG BCI_VERSION=16.1
 ARG GOLANG_VERSION=1.26
-ARG builder_image=registry.suse.com/bci/golang:${GOLANG_VERSION}
+ARG builder_image=registry.rancher.com/rancher/appco-go:${GOLANG_VERSION}
 
 # =============================================================================
 # Builder stage - compiles the Go binary
@@ -30,8 +30,7 @@ WORKDIR /workspace
 
 # Run this with docker build --build-arg goproxy=$(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
-ENV GOPROXY=${goproxy} \
-    GOTOOLCHAIN=auto
+ENV GOPROXY=${goproxy}
 
 # Cache dependencies - copy go.mod and go.sum first
 COPY go.mod go.sum ./
@@ -60,7 +59,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # =============================================================================
 # Final stage for system-agent image (minimal runtime)
 # =============================================================================
-FROM registry.suse.com/bci/bci-micro:${BCI_VERSION} AS runtime-base
+FROM registry.suse.com/bci/bci-nano:${BCI_VERSION} AS runtime-base
 
 # Temporary build stage image for installing packages
 FROM registry.suse.com/bci/bci-base:${BCI_VERSION} AS runtime-builder
@@ -70,7 +69,7 @@ COPY --from=runtime-base / /chroot/
 
 RUN zypper refresh && \
     zypper --installroot /chroot -n in --no-recommends \
-    openssl patterns-base-fips && \
+    bash-sh coreutils openssl patterns-base-fips && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
@@ -82,7 +81,7 @@ FROM runtime-base AS system-agent
 LABEL org.opencontainers.image.source=https://github.com/rancher/system-agent
 LABEL org.opencontainers.image.description="Rancher System Agent"
 
-# Copy binaries and configuration files from runtime-builder to micro
+# Copy binaries and configuration files from runtime-builder to nano
 COPY --from=runtime-builder /chroot/ /
 
 # Copy the binary from builder stage
@@ -104,7 +103,7 @@ COPY --from=runtime-base / /chroot/
 
 RUN zypper refresh && \
     zypper --installroot /chroot -n in --no-recommends \
-    openssl patterns-base-fips grep && \
+    bash-sh coreutils openssl patterns-base-fips grep && \
     zypper --installroot /chroot clean -a && \
     rm -rf /chroot/var/cache/zypp/* /chroot/var/log/zypp/* /chroot/tmp/* /chroot/var/tmp/* /chroot/usr/share/doc/packages/*
 
@@ -127,7 +126,7 @@ FROM runtime-base AS system-agent-suc
 LABEL org.opencontainers.image.source=https://github.com/rancher/system-agent
 LABEL org.opencontainers.image.description="Rancher System Agent for System Upgrade Controller"
 
-# Copy binaries and configuration files from suc-builder to micro
+# Copy binaries and configuration files from suc-builder to nano
 COPY --from=suc-builder /chroot/ /
 
 ENV CATTLE_AGENT_VAR_DIR="/var/lib/rancher/agent"

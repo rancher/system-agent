@@ -37,6 +37,10 @@ cp "${SYSTEM_AGENT_DIR}/install.sh" /usr/share/rancher/ui/assets/system-agent-in
 
 source ./scripts/fetch-provisioning-tests
 
+# Initialize controller-runtime logging for every suite using Rancher's shared clients.
+cp "${SYSTEM_AGENT_DIR}/test/integration/clients/logging.go" "${RANCHER_DIR}/tests/v2prov/clients/system_agent_logging.go"
+sed -i '1{/^\/\/go:build ignore$/d}' "${RANCHER_DIR}/tests/v2prov/clients/system_agent_logging.go"
+
 # Copy system-agent integration tests into rancher's v2prov test tree.
 # These tests keep //go:build ignore in this repo so they do not get picked up by
 # the normal local go test package walk, but Rancher's v2prov runner expects them
@@ -73,7 +77,7 @@ fi
 mkdir -p "${HOME}/.kube"
 ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 
-export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-f80137881ff67609d87b8fb99fca555311a9188d-head}
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-f6969fa8363654463706bcf94181b3ac9165a27c-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
 export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}

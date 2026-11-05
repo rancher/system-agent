@@ -9,7 +9,7 @@ concurrency:
 jobs:
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
@@ -63,8 +63,8 @@ jobs:
           sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
       - name: Pre-pull container images
         env:
-          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-f80137881ff67609d87b8fb99fca555311a9188d-head
-          RANCHER_IMAGE: rancher/rancher:v2.15-f80137881ff67609d87b8fb99fca555311a9188d-head
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-f6969fa8363654463706bcf94181b3ac9165a27c-head
+          RANCHER_IMAGE: rancher/rancher:v2.15-f6969fa8363654463706bcf94181b3ac9165a27c-head
         run: |
           sudo docker pull "$RANCHER_IMAGE" &
           sudo docker pull "$CATTLE_AGENT_IMAGE" &
