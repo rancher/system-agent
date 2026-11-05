@@ -20,7 +20,7 @@ That target runs `scripts/integration-tests`, which does the following:
 
 1. Builds the `rancher-system-agent` binary from the current branch.
 2. Fetches Rancher's provisioning test tree and a Rancher binary via `scripts/fetch-provisioning-tests`.
-3. Copies this repository's integration test files into Rancher's `tests/v2prov/tests/systemagent` package.
+3. Initializes controller-runtime logging in Rancher's shared `tests/v2prov/clients` package and copies this repository's integration test files into Rancher's `tests/v2prov/tests/systemagent` package.
 4. Strips the leading `//go:build ignore` line from copied tests.
 5. Patches Rancher's provisioning test script to use local system-agent artifacts instead of downloading release binaries.
 6. Runs Rancher's provisioning tests against a real Rancher instance.
@@ -38,6 +38,13 @@ To avoid that, integration tests here are intentionally kept out of the normal p
 The integration runner removes that line only after copying the tests into Rancher's module tree, where the `tests/v2prov` imports are valid.
 
 If a new integration test keeps the build tag after the copy step, Rancher's runner will silently skip it. That is why `scripts/integration-tests` strips the first `//go:build ignore` line from copied files.
+
+The logger bootstrap in `clients/logging.go` is also excluded locally and copied
+into Rancher's shared clients package without its build tag. It routes
+controller-runtime logs through klog before any test creates a client, covering
+both Rancher's provisioning suites and this repository's system-agent suite.
+Without initialization, controller-runtime emits a stack-trace warning after
+30 seconds and discards its logs.
 
 
 ## Naming Convention

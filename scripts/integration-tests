@@ -38,6 +38,10 @@ cp "${SYSTEM_AGENT_DIR}/install.sh" /usr/share/rancher/ui-dashboard/assets/syste
 
 source ./scripts/fetch-provisioning-tests
 
+# Initialize controller-runtime logging for every suite using Rancher's shared clients.
+cp "${SYSTEM_AGENT_DIR}/test/integration/clients/logging.go" "${RANCHER_DIR}/tests/v2prov/clients/system_agent_logging.go"
+sed -i '1{/^\/\/go:build ignore$/d}' "${RANCHER_DIR}/tests/v2prov/clients/system_agent_logging.go"
+
 # Copy system-agent integration tests into rancher's v2prov test tree.
 # These tests keep //go:build ignore in this repo so they do not get picked up by
 # the normal local go test package walk, but Rancher's v2prov runner expects them
