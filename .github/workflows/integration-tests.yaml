@@ -35,7 +35,7 @@ jobs:
           sudo ip addr add 172.17.0.2/32 dev docker0
       - name: Set up k3s binaries and CNI plugins
         env:
-          CATTLE_K3S_VERSION: v1.36.5-k3s1
+          CATTLE_K3S_VERSION: v1.36.6-k3s1
         run: |
           container_id=$(sudo docker create rancher/k3s:${CATTLE_K3S_VERSION})
           for bin in blkid bandwidth cni conntrack containerd containerd-shim-runc-v2 ethtool firewall ip ipset k3s losetup pigz runc; do
@@ -63,8 +63,8 @@ jobs:
           sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
       - name: Pre-pull container images
         env:
-          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-f6969fa8363654463706bcf94181b3ac9165a27c-head
-          RANCHER_IMAGE: rancher/rancher:v2.15-f6969fa8363654463706bcf94181b3ac9165a27c-head
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.15-dea1de22e199e0c4920f3795c06878c5f73692f4-head
+          RANCHER_IMAGE: rancher/rancher:v2.15-dea1de22e199e0c4920f3795c06878c5f73692f4-head
         run: |
           sudo docker pull "$RANCHER_IMAGE" &
           sudo docker pull "$CATTLE_AGENT_IMAGE" &
