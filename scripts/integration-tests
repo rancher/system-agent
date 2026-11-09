@@ -65,7 +65,7 @@ sed -i "s|curl -sLf .* -o /usr/share/rancher/ui-dashboard/assets/system-agent-un
 # Increase timeouts for 2-core GHA runners.
 sed -i 's|--timeout 300 "curl -sf -o /dev/null http://localhost:8080/ping"|--timeout 1200 "curl -sf -o /dev/null http://localhost:8080/ping"|' ./scripts/provisioning-tests
 sed -i 's/--timeout 300 `# Time out after 300 seconds/--timeout 600 `# Time out after 600 seconds/g' ./scripts/provisioning-tests
-sed -i 's|docker push 172\.17\.0\.2:5000/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
+sed -i 's|docker push 172\.17\.0\.2:5050/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5050/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5050/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
 sed -i 's/--timeout 300 \\$/--timeout 1200 \\/' ./scripts/provisioning-tests
 
 if [ -n "${GITHUB_ENV}" ]; then
@@ -76,7 +76,7 @@ fi
 mkdir -p "${HOME}/.kube"
 ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 
-export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.16-7b1f21008e6f00afc802492b4d5dcd2544525aa3-head}
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.16-aa049bded514a5038fe8f9eda62a43452c94b250-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
 export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}

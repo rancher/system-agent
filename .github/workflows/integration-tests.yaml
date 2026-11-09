@@ -26,7 +26,7 @@ jobs:
           cache: true
       - name: Configure Docker for cgroupfs/insecure-registry
         run: |
-          echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"], "insecure-registries": ["172.17.0.2:5000"]}' | sudo tee /etc/docker/daemon.json
+          echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"], "insecure-registries": ["172.17.0.2:5050"]}' | sudo tee /etc/docker/daemon.json
           if [ -d /run/systemd/system ]; then
             sudo systemctl restart docker
           fi
@@ -63,8 +63,8 @@ jobs:
           sudo ln -sf /usr/bin/xtables-legacy-multi /usr/bin/ip6tables-restore
       - name: Pre-pull container images
         env:
-          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.16-7b1f21008e6f00afc802492b4d5dcd2544525aa3-head
-          RANCHER_IMAGE: rancher/rancher:v2.16-7b1f21008e6f00afc802492b4d5dcd2544525aa3-head
+          CATTLE_AGENT_IMAGE: rancher/rancher-agent:v2.16-aa049bded514a5038fe8f9eda62a43452c94b250-head
+          RANCHER_IMAGE: rancher/rancher:v2.16-aa049bded514a5038fe8f9eda62a43452c94b250-head
         run: |
           sudo docker pull "$RANCHER_IMAGE" &
           sudo docker pull "$CATTLE_AGENT_IMAGE" &
