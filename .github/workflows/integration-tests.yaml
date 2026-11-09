@@ -26,7 +26,7 @@ jobs:
           cache: true
       - name: Configure Docker for cgroupfs/insecure-registry
         run: |
-          echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"], "insecure-registries": ["172.17.0.2:5000"]}' | sudo tee /etc/docker/daemon.json
+          echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"], "insecure-registries": ["172.17.0.2:5050"]}' | sudo tee /etc/docker/daemon.json
           if [ -d /run/systemd/system ]; then
             sudo systemctl restart docker
           fi

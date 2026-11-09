@@ -65,7 +65,7 @@ sed -i "s|curl -sLf .* -o /usr/share/rancher/ui-dashboard/assets/system-agent-un
 # Increase timeouts for 2-core GHA runners.
 sed -i 's|--timeout 300 "curl -sf -o /dev/null http://localhost:8080/ping"|--timeout 1200 "curl -sf -o /dev/null http://localhost:8080/ping"|' ./scripts/provisioning-tests
 sed -i 's/--timeout 300 `# Time out after 300 seconds/--timeout 600 `# Time out after 600 seconds/g' ./scripts/provisioning-tests
-sed -i 's|docker push 172\.17\.0\.2:5000/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5000/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
+sed -i 's|docker push 172\.17\.0\.2:5050/\$CATTLE_AGENT_IMAGE|docker tag \$CATTLE_AGENT_IMAGE 172.17.0.2:5050/\$CATTLE_AGENT_IMAGE \&\& docker push 172.17.0.2:5050/\$CATTLE_AGENT_IMAGE|' ./scripts/provisioning-tests
 sed -i 's/--timeout 300 \\$/--timeout 1200 \\/' ./scripts/provisioning-tests
 
 if [ -n "${GITHUB_ENV}" ]; then
