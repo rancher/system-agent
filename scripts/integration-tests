@@ -77,7 +77,7 @@ fi
 mkdir -p "${HOME}/.kube"
 ln -sf /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/k3s.yaml"
 
-export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-dea1de22e199e0c4920f3795c06878c5f73692f4-head}
+export CATTLE_AGENT_IMAGE=${CATTLE_AGENT_IMAGE:-rancher/rancher-agent:v2.15-ea30f3de0413330a67bcaf414d87a7effaa25dac-head}
 export PATH="${RANCHER_DIR}/bin:$PATH"
 
 export ARTIFACT_DIR=${ARTIFACT_DIR:-${SYSTEM_AGENT_DIR}/_artifacts}
