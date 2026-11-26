@@ -19,7 +19,7 @@
 
 ARG BCI_VERSION=16.1
 ARG GOLANG_VERSION=1.26
-ARG builder_image=registry.rancher.com/rancher/appco-go:${GOLANG_VERSION}
+ARG builder_image=registry.suse.com/rancher/appco-go:${GOLANG_VERSION}
 
 # =============================================================================
 # Builder stage - compiles the Go binary
